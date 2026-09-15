@@ -1,8 +1,10 @@
 package com.kasirkita.pos.di
 
 import com.kasirkita.pos.data.repository.AuthRepositoryImpl
+import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.data.repository.ProductRepositoryImpl
 import com.kasirkita.pos.domain.repository.AuthRepository
+import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.ProductRepository
 import dagger.Binds
 import dagger.Module
@@ -25,4 +27,10 @@ abstract class RepositoryModule {
     abstract fun bindProductRepository(
         implementation: ProductRepositoryImpl,
     ): ProductRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindCartRepository(
+        implementation: CartRepositoryImpl,
+    ): CartRepository
 }
