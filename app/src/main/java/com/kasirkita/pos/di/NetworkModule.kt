@@ -4,9 +4,11 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
+import com.kasirkita.pos.core.datastore.TokenDataStore
 import com.kasirkita.pos.core.network.ApiConstants
 import com.kasirkita.pos.core.network.AuthInterceptor
 import com.kasirkita.pos.core.network.AuthTokenProvider
+import com.kasirkita.pos.data.api.AuthApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -25,10 +27,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideAuthTokenProvider(): AuthTokenProvider = AuthTokenProvider {
-        // Replace with the latest cached token when DataStore integration is added.
-        null
-    }
+    fun provideAuthTokenProvider(tokenDataStore: TokenDataStore): AuthTokenProvider = tokenDataStore
 
     @Provides
     @Singleton
@@ -70,6 +69,10 @@ object NetworkModule {
         .client(okHttpClient)
         .addConverterFactory(GsonConverterFactory.create(gson))
         .build()
+
+    @Provides
+    @Singleton
+    fun provideAuthApi(retrofit: Retrofit): AuthApi = retrofit.create(AuthApi::class.java)
 
     private const val NETWORK_TIMEOUT_SECONDS = 30L
 }

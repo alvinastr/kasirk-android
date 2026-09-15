@@ -2,15 +2,15 @@ package com.kasirkita.pos.core.network
 
 import okhttp3.Interceptor
 import okhttp3.Response
+import kotlinx.coroutines.runBlocking
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Supplies the latest in-memory access token to synchronous OkHttp requests.
- * A DataStore-backed component can update the provider implementation later.
+ * Supplies the latest access token to synchronous OkHttp requests.
  */
-fun interface AuthTokenProvider {
-    fun getToken(): String?
+interface AuthTokenProvider {
+    suspend fun getToken(): String?
 }
 
 @Singleton
@@ -20,7 +20,8 @@ class AuthInterceptor @Inject constructor(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val token = tokenProvider.getToken()?.trim()
+        // OkHttp interceptors are synchronous and run on an OkHttp worker thread.
+        val token = runBlocking { tokenProvider.getToken() }?.trim()
 
         if (token.isNullOrEmpty()) {
             return chain.proceed(request)
