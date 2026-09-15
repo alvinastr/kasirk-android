@@ -9,6 +9,7 @@ import com.kasirkita.pos.core.network.ApiConstants
 import com.kasirkita.pos.core.network.AuthInterceptor
 import com.kasirkita.pos.core.network.AuthTokenProvider
 import com.kasirkita.pos.data.api.AuthApi
+import com.kasirkita.pos.data.api.ProductApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -73,6 +74,10 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideAuthApi(retrofit: Retrofit): AuthApi = retrofit.create(AuthApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideProductApi(retrofit: Retrofit): ProductApi = retrofit.create(ProductApi::class.java)
 
     private const val NETWORK_TIMEOUT_SECONDS = 30L
 }
