@@ -28,6 +28,7 @@ import java.util.Locale
 
 @Composable
 fun CartScreen(
+    onCheckout: () -> Unit = {},
     viewModel: CartViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -112,7 +113,7 @@ fun CartScreen(
         )
 
         Button(
-            onClick = { /* Checkout will be implemented in the transaction module. */ },
+            onClick = onCheckout,
             modifier = Modifier.fillMaxWidth(),
             enabled = cart.items.isNotEmpty(),
         ) {

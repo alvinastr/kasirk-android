@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +29,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun LoginScreen(
+    onLoginSuccess: () -> Unit = {},
     viewModel: LoginViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -35,6 +37,12 @@ fun LoginScreen(
     var password by rememberSaveable { mutableStateOf("") }
     var tenantId by rememberSaveable { mutableStateOf("") }
     val isLoading = state is LoginState.Loading
+
+    LaunchedEffect(state) {
+        if (state is LoginState.Success) {
+            onLoginSuccess()
+        }
+    }
 
     Column(
         modifier = Modifier

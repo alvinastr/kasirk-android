@@ -15,6 +15,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,9 +34,17 @@ import java.util.Locale
 @Composable
 fun ShiftScreen(
     outletId: String,
+    onShiftOpen: () -> Unit = {},
     viewModel: ShiftViewModel = viewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+
+    LaunchedEffect(state) {
+        val loadedShift = (state as? ShiftState.ShiftLoaded)?.shift
+        if (loadedShift?.status.equals("OPEN", ignoreCase = true)) {
+            onShiftOpen()
+        }
+    }
 
     when (val currentState = state) {
         ShiftState.Loading -> LoadingContent()
