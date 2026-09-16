@@ -11,6 +11,7 @@ import com.kasirkita.pos.core.network.AuthTokenProvider
 import com.kasirkita.pos.data.api.AuthApi
 import com.kasirkita.pos.data.api.OutletApi
 import com.kasirkita.pos.data.api.ProductApi
+import com.kasirkita.pos.data.api.ReceiptApi
 import com.kasirkita.pos.data.api.ShiftApi
 import com.kasirkita.pos.data.api.TransactionApi
 import dagger.Module
@@ -87,6 +88,10 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideProductApi(retrofit: Retrofit): ProductApi = retrofit.create(ProductApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideReceiptApi(retrofit: Retrofit): ReceiptApi = retrofit.create(ReceiptApi::class.java)
 
     @Provides
     @Singleton

@@ -23,6 +23,7 @@ import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
 import com.kasirkita.pos.presentation.outlet.OutletScreen
 import com.kasirkita.pos.presentation.product.ProductScreen
+import com.kasirkita.pos.presentation.receipt.ReceiptScreen
 import com.kasirkita.pos.presentation.shift.ShiftScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -120,7 +121,18 @@ fun AppNavigation(
                 }
 
                 composable(Screen.Checkout.route) {
-                    CheckoutScreen()
+                    CheckoutScreen(
+                        onCheckoutSuccess = { transactionId ->
+                            navController.navigate(Screen.Receipt.createRoute(transactionId)) {
+                                popUpTo(Screen.Checkout.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
+
+                composable(Screen.Receipt.route) {
+                    ReceiptScreen()
                 }
             }
         }

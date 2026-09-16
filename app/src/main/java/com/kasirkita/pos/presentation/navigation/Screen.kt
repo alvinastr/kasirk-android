@@ -8,4 +8,7 @@ sealed class Screen(val route: String) {
     data object Products : Screen("products")
     data object Cart : Screen("cart")
     data object Checkout : Screen("checkout")
+    data object Receipt : Screen("receipt/{transactionId}") {
+        fun createRoute(transactionId: String): String = "receipt/$transactionId"
+    }
 }
