@@ -1,20 +1,20 @@
 package com.kasirkita.pos.domain.usecase
 
 import com.kasirkita.pos.domain.model.CartItem
-import com.kasirkita.pos.domain.model.Transaction
-import com.kasirkita.pos.domain.repository.TransactionRepository
+import com.kasirkita.pos.domain.model.OfflineTransaction
+import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import javax.inject.Inject
 
-class CreateTransactionUseCase @Inject constructor(
-    private val repository: TransactionRepository,
+class QueueOfflineTransactionUseCase @Inject constructor(
+    private val repository: OfflineSyncRepository,
 ) {
     suspend operator fun invoke(
         clientTransactionId: String,
         outletId: String,
+        customerId: String?,
         items: List<CartItem>,
         paymentAmount: Long,
-        customerId: String? = null,
-    ): Result<Transaction> = repository.createTransaction(
+    ): Result<OfflineTransaction> = repository.queueTransaction(
         clientTransactionId = clientTransactionId,
         outletId = outletId,
         customerId = customerId,

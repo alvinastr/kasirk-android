@@ -6,19 +6,26 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
 
 @Composable
 fun HomeScreen(
     onProductsClick: () -> Unit,
     onCartClick: () -> Unit,
     onShiftClick: () -> Unit,
+    viewModel: HomeViewModel = viewModel(),
 ) {
+    val syncState by viewModel.syncState.collectAsState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -33,6 +40,37 @@ fun HomeScreen(
             text = "KasirKita POS",
             style = MaterialTheme.typography.headlineMedium,
         )
+
+        Text(
+            text = "Pending Sync: ${syncState.pendingCount}",
+            style = MaterialTheme.typography.titleMedium,
+        )
+
+        Button(
+            onClick = viewModel::syncNow,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = syncState.pendingCount > 0 && !syncState.isSyncing,
+        ) {
+            if (syncState.isSyncing) {
+                CircularProgressIndicator()
+            } else {
+                Text("Sync Sekarang")
+            }
+        }
+
+        syncState.lastResult?.let { result ->
+            Text(
+                "Sync: ${result.synced} berhasil, " +
+                    "${result.failed} gagal, ${result.pending} masih pending",
+            )
+        }
+
+        syncState.errorMessage?.let { message ->
+            Text(
+                text = message,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
 
         Button(
             onClick = onProductsClick,

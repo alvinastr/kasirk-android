@@ -3,6 +3,7 @@ package com.kasirkita.pos.di
 import android.content.Context
 import androidx.room.Room
 import com.kasirkita.pos.core.database.AppDatabase
+import com.kasirkita.pos.core.database.dao.OfflineTransactionDao
 import com.kasirkita.pos.core.database.dao.ProductDao
 import dagger.Module
 import dagger.Provides
@@ -23,11 +24,19 @@ object DatabaseModule {
         context,
         AppDatabase::class.java,
         DATABASE_NAME,
-    ).build()
+    )
+        .addMigrations(AppDatabase.MIGRATION_1_2)
+        .build()
 
     @Provides
     @Singleton
     fun provideProductDao(database: AppDatabase): ProductDao = database.productDao()
+
+    @Provides
+    @Singleton
+    fun provideOfflineTransactionDao(
+        database: AppDatabase,
+    ): OfflineTransactionDao = database.offlineTransactionDao()
 
     private const val DATABASE_NAME = "kasirkita.db"
 }

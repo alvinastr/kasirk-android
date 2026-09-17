@@ -1,10 +1,8 @@
 package com.kasirkita.pos.data.repository
 
 import com.kasirkita.pos.data.api.TransactionApi
-import com.kasirkita.pos.data.model.CreateTransactionItemRequest
-import com.kasirkita.pos.data.model.CreateTransactionRequest
-import com.kasirkita.pos.data.model.PaymentRequest
 import com.kasirkita.pos.data.model.TransactionResponse
+import com.kasirkita.pos.data.model.createTransactionRequest
 import com.kasirkita.pos.data.model.toDomain
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.Transaction
@@ -27,20 +25,12 @@ class TransactionRepositoryImpl @Inject constructor(
         paymentAmount: Long,
     ): Result<Transaction> = runCatching {
         val response = transactionApi.createTransaction(
-            CreateTransactionRequest(
+            createTransactionRequest(
                 clientTransactionId = clientTransactionId,
                 outletId = outletId,
                 customerId = customerId,
-                items = items.map { item ->
-                    CreateTransactionItemRequest(
-                        productId = item.productId,
-                        quantity = item.quantity,
-                    )
-                },
-                payment = PaymentRequest(
-                    method = PAYMENT_METHOD_CASH,
-                    amount = paymentAmount,
-                ),
+                items = items,
+                paymentAmount = paymentAmount,
             ),
         )
 
@@ -51,7 +41,4 @@ class TransactionRepositoryImpl @Inject constructor(
     private fun Response<TransactionResponse>.requireBody(): TransactionResponse =
         body() ?: error("Transaction response body is empty")
 
-    private companion object {
-        const val PAYMENT_METHOD_CASH = "CASH"
-    }
 }

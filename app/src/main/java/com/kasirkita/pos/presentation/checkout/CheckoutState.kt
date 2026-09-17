@@ -11,5 +11,6 @@ data class CheckoutState(
     val currentShift: Shift? = null,
     val isLoading: Boolean = false,
     val transaction: Transaction? = null,
+    val offlineQueuedClientTransactionId: String? = null,
     val errorMessage: String? = null,
 )

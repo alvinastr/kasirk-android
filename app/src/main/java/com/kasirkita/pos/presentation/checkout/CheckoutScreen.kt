@@ -42,6 +42,7 @@ fun CheckoutScreen(
     }
     var paymentText by rememberSaveable { mutableStateOf("") }
     val transaction = state.transaction
+    val queuedClientTransactionId = state.offlineQueuedClientTransactionId
 
     LaunchedEffect(transaction?.id) {
         transaction?.id?.let(onCheckoutSuccess)
@@ -70,6 +71,17 @@ fun CheckoutScreen(
             transaction.change?.let { change ->
                 Text("Kembalian: Rp${numberFormat.format(change)}")
             }
+            return@Column
+        }
+
+        if (queuedClientTransactionId != null) {
+            Text(
+                text = "Transaksi tersimpan untuk sinkronisasi",
+                color = MaterialTheme.colorScheme.primary,
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text("Client Transaction ID: $queuedClientTransactionId")
+            Text("Cart telah dikosongkan setelah transaksi aman tersimpan di perangkat.")
             return@Column
         }
 

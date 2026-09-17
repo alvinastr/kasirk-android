@@ -13,6 +13,7 @@ import com.kasirkita.pos.data.api.OutletApi
 import com.kasirkita.pos.data.api.ProductApi
 import com.kasirkita.pos.data.api.ReceiptApi
 import com.kasirkita.pos.data.api.ShiftApi
+import com.kasirkita.pos.data.api.SyncApi
 import com.kasirkita.pos.data.api.TransactionApi
 import dagger.Module
 import dagger.Provides
@@ -96,6 +97,10 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideShiftApi(retrofit: Retrofit): ShiftApi = retrofit.create(ShiftApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideSyncApi(retrofit: Retrofit): SyncApi = retrofit.create(SyncApi::class.java)
 
     @Provides
     @Singleton
