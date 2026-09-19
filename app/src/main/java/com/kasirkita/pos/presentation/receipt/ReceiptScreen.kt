@@ -21,7 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.domain.model.ReceiptItem
 import java.text.NumberFormat
@@ -29,7 +29,7 @@ import java.util.Locale
 
 @Composable
 fun ReceiptScreen(
-    viewModel: ReceiptViewModel = viewModel(),
+    viewModel: ReceiptViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
 

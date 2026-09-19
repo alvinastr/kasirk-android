@@ -26,7 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Shift
 import java.text.NumberFormat
 import java.util.Locale
@@ -34,14 +34,20 @@ import java.util.Locale
 @Composable
 fun ShiftScreen(
     outletId: String,
+    autoNavigateToHome: Boolean = true,
     onShiftOpen: () -> Unit = {},
-    viewModel: ShiftViewModel = viewModel(),
+    viewModel: ShiftViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val loadedShift = (state as? ShiftState.ShiftLoaded)?.shift
+    val shouldNavigateToHome = shouldNavigateToHomeFromShift(
+        autoNavigateToHome = autoNavigateToHome,
+        selectedOutletId = outletId,
+        shift = loadedShift,
+    )
 
-    LaunchedEffect(state) {
-        val loadedShift = (state as? ShiftState.ShiftLoaded)?.shift
-        if (loadedShift?.status.equals("OPEN", ignoreCase = true)) {
+    LaunchedEffect(shouldNavigateToHome) {
+        if (shouldNavigateToHome) {
             onShiftOpen()
         }
     }
@@ -62,6 +68,15 @@ fun ShiftScreen(
         )
     }
 }
+
+internal fun shouldNavigateToHomeFromShift(
+    autoNavigateToHome: Boolean,
+    selectedOutletId: String,
+    shift: Shift?,
+): Boolean =
+    autoNavigateToHome &&
+        shift?.outletId == selectedOutletId &&
+        shift.status.equals("OPEN", ignoreCase = true)
 
 @Composable
 private fun LoadingContent() {

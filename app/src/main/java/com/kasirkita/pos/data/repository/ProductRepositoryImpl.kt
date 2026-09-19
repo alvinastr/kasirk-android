@@ -35,29 +35,32 @@ class ProductRepositoryImpl @Inject constructor(
         return entities.map { it.toDomain() }
     }
 
-    private fun ProductResponse.toEntity(): ProductEntity = ProductEntity(
-        id = id,
-        tenantId = tenantId,
-        categoryId = categoryId,
-        name = name,
-        sku = sku,
-        price = price,
-        cost = cost,
-        minimumStock = minimumStock,
-        isActive = isActive,
-        createdAt = createdAt,
-    )
-
-    private fun ProductEntity.toDomain(): Product = Product(
-        id = id,
-        tenantId = tenantId,
-        categoryId = categoryId,
-        name = name,
-        sku = sku,
-        price = price,
-        cost = cost,
-        minimumStock = minimumStock,
-        isActive = isActive,
-        createdAt = createdAt,
-    )
 }
+
+internal fun ProductResponse.toEntity(): ProductEntity = ProductEntity(
+    id = id,
+    tenantId = tenantId,
+    categoryId = categoryId,
+    name = name,
+    sku = sku,
+    price = price,
+    cost = cost,
+    minimumStock = minimumStock,
+    trackStock = trackStock,
+    isActive = isActive,
+    createdAt = createdAt,
+)
+
+internal fun ProductEntity.toDomain(): Product = Product(
+    id = id,
+    tenantId = tenantId,
+    categoryId = categoryId,
+    name = name,
+    sku = sku,
+    price = price,
+    cost = cost,
+    minimumStock = minimumStock,
+    trackStock = trackStock,
+    isActive = isActive,
+    createdAt = createdAt,
+)

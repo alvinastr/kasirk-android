@@ -14,7 +14,7 @@ import com.kasirkita.pos.core.database.entity.ProductEntity
         ProductEntity::class,
         OfflineTransactionEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -47,6 +47,17 @@ abstract class AppDatabase : RoomDatabase() {
                     CREATE UNIQUE INDEX IF NOT EXISTS
                     `index_offline_transactions_clientTransactionId`
                     ON `offline_transactions` (`clientTransactionId`)
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    ALTER TABLE `products`
+                    ADD COLUMN `trackStock` INTEGER NOT NULL DEFAULT 1
                     """.trimIndent(),
                 )
             }

@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -52,7 +53,7 @@ class OfflineSyncRepositoryImplTest {
     }
 
     @Test
-    fun queueTransaction_keepsTheSameClientTransactionIdInPayload() = runBlocking {
+    fun queueTransaction_persistsTheCompleteRequestWithTheSameClientId() = runBlocking {
         val clientTransactionId = UUID.randomUUID().toString()
         val queued = queueTransaction(clientTransactionId)
         val payload = gson.fromJson(
@@ -62,6 +63,29 @@ class OfflineSyncRepositoryImplTest {
 
         assertEquals(clientTransactionId, queued.clientTransactionId)
         assertEquals(clientTransactionId, payload.clientTransactionId)
+        assertEquals(OUTLET_ID, payload.outletId)
+        assertNull(payload.customerId)
+        assertEquals(1, payload.items.size)
+        assertEquals(PRODUCT_ID, payload.items.single().productId)
+        assertEquals(1, payload.items.single().quantity)
+        assertEquals("CASH", payload.payment.method)
+        assertEquals(10_000L, payload.payment.amount)
+    }
+
+    @Test
+    fun queueTransaction_whenPersistenceFails_returnsFailureWithoutPendingRecord() = runBlocking {
+        dao.insertFailure = IllegalStateException("disk full")
+
+        val result = repository.queueTransaction(
+            clientTransactionId = UUID.randomUUID().toString(),
+            outletId = OUTLET_ID,
+            customerId = null,
+            items = listOf(sampleCartItem()),
+            paymentAmount = 10_000L,
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals(0, dao.pendingCount())
     }
 
     @Test
@@ -161,21 +185,50 @@ class OfflineSyncRepositoryImplTest {
         assertEquals(0, secondResult.total)
     }
 
+    @Test
+    fun sync_matchesShuffledResultsByClientTransactionId() = runBlocking {
+        val firstClientId = UUID.randomUUID().toString()
+        val secondClientId = UUID.randomUUID().toString()
+        val firstServerId = UUID.randomUUID().toString()
+        val secondServerId = UUID.randomUUID().toString()
+        queueTransaction(firstClientId)
+        queueTransaction(secondClientId)
+        api.responder = { request ->
+            val byClientId = request.transactions.associateBy {
+                it.clientTransactionId
+            }
+            Response.success(
+                SyncTransactionsResponse(
+                    total = 2,
+                    synced = 2,
+                    failed = 0,
+                    results = listOf(
+                        successResult(
+                            transaction = requireNotNull(byClientId[secondClientId]),
+                            serverTransactionId = secondServerId,
+                        ),
+                        successResult(
+                            transaction = requireNotNull(byClientId[firstClientId]),
+                            serverTransactionId = firstServerId,
+                        ),
+                    ),
+                ),
+            )
+        }
+
+        repository.syncPendingTransactions().getOrThrow()
+
+        assertEquals(firstServerId, dao.find(firstClientId)?.serverTransactionId)
+        assertEquals(secondServerId, dao.find(secondClientId)?.serverTransactionId)
+    }
+
     private suspend fun queueTransaction(
         clientTransactionId: String = UUID.randomUUID().toString(),
     ) = repository.queueTransaction(
         clientTransactionId = clientTransactionId,
         outletId = OUTLET_ID,
         customerId = null,
-        items = listOf(
-            CartItem(
-                productId = PRODUCT_ID,
-                name = "Kopi",
-                sku = "KOPI",
-                price = 10_000L,
-                quantity = 1,
-            ),
-        ),
+        items = listOf(sampleCartItem()),
         paymentAmount = 10_000L,
     ).getOrThrow()
 
@@ -186,28 +239,44 @@ class OfflineSyncRepositoryImplTest {
         synced = request.transactions.size,
         failed = 0,
         results = request.transactions.map { transaction ->
-            SyncTransactionResult(
-                clientTransactionId = transaction.clientTransactionId,
-                status = "SYNCED",
-                transaction = TransactionResponse(
-                    transactionId = UUID.randomUUID().toString(),
-                    clientTransactionId = transaction.clientTransactionId,
-                    outletId = transaction.outletId,
-                    userId = USER_ID,
-                    customerId = transaction.customerId,
-                    status = "COMPLETED",
-                    subtotal = 10_000L,
-                    discount = 0L,
-                    tax = 0L,
-                    total = 10_000L,
-                    items = emptyList(),
-                    payments = emptyList(),
-                    change = 0L,
-                    createdAt = "2026-09-17T00:00:00.000Z",
-                ),
-                error = null,
+            successResult(
+                transaction = transaction,
+                serverTransactionId = UUID.randomUUID().toString(),
             )
         },
+    )
+
+    private fun successResult(
+        transaction: CreateTransactionRequest,
+        serverTransactionId: String,
+    ): SyncTransactionResult = SyncTransactionResult(
+        clientTransactionId = transaction.clientTransactionId,
+        status = "SYNCED",
+        transaction = TransactionResponse(
+            transactionId = serverTransactionId,
+            clientTransactionId = transaction.clientTransactionId,
+            outletId = transaction.outletId,
+            userId = USER_ID,
+            customerId = transaction.customerId,
+            status = "COMPLETED",
+            subtotal = 10_000L,
+            discount = 0L,
+            tax = 0L,
+            total = 10_000L,
+            items = emptyList(),
+            payments = emptyList(),
+            change = 0L,
+            createdAt = "2026-09-17T00:00:00.000Z",
+        ),
+        error = null,
+    )
+
+    private fun sampleCartItem(): CartItem = CartItem(
+        productId = PRODUCT_ID,
+        name = "Kopi",
+        sku = "KOPI",
+        price = 10_000L,
+        quantity = 1,
     )
 
     private class FakeSyncApi : SyncApi {
@@ -229,8 +298,10 @@ class OfflineSyncRepositoryImplTest {
     private class FakeOfflineTransactionDao : OfflineTransactionDao {
         private val records = linkedMapOf<String, OfflineTransactionEntity>()
         private val pendingCount = MutableStateFlow(0)
+        var insertFailure: Throwable? = null
 
         override suspend fun insert(transaction: OfflineTransactionEntity): Long {
+            insertFailure?.let { throwable -> throw throwable }
             val duplicate = records.values.any {
                 it.id == transaction.id ||
                     it.clientTransactionId == transaction.clientTransactionId
@@ -241,6 +312,10 @@ class OfflineSyncRepositoryImplTest {
             updatePendingCount()
             return records.size.toLong()
         }
+
+        override suspend fun getByClientTransactionId(
+            clientTransactionId: String,
+        ): OfflineTransactionEntity? = find(clientTransactionId)
 
         override suspend fun getPendingTransactions(
             limit: Int,

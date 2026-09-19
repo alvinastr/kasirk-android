@@ -6,11 +6,12 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -34,7 +35,7 @@ import javax.inject.Inject
 
 @Composable
 fun AppNavigation(
-    viewModel: AppNavigationViewModel = viewModel(),
+    viewModel: AppNavigationViewModel = hiltViewModel(),
 ) {
     val sessionState by viewModel.sessionState.collectAsState()
     val selectedOutlet by viewModel.selectedOutlet.collectAsState()
@@ -77,13 +78,22 @@ fun AppNavigation(
                     )
                 }
 
-                composable(Screen.Shift.route) {
+                composable(Screen.Shift.route) { backStackEntry ->
                     val outlet = selectedOutlet
                     if (outlet == null) {
                         SessionLoadingContent()
                     } else {
+                        val isGateEntry = remember(backStackEntry) {
+                            isShiftGateEntry(
+                                previousRoute = navController
+                                    .previousBackStackEntry
+                                    ?.destination
+                                    ?.route,
+                            )
+                        }
                         ShiftScreen(
                             outletId = outlet.id,
+                            autoNavigateToHome = isGateEntry,
                             onShiftOpen = {
                                 navController.navigate(Screen.Home.route) {
                                     popUpTo(Screen.Shift.route) { inclusive = true }
@@ -109,7 +119,11 @@ fun AppNavigation(
                 }
 
                 composable(Screen.Products.route) {
-                    ProductScreen()
+                    ProductScreen(
+                        onCartClick = {
+                            navController.navigate(Screen.Cart.route)
+                        },
+                    )
                 }
 
                 composable(Screen.Cart.route) {
@@ -138,6 +152,9 @@ fun AppNavigation(
         }
     }
 }
+
+internal fun isShiftGateEntry(previousRoute: String?): Boolean =
+    previousRoute != Screen.Home.route
 
 @Composable
 private fun SessionLoadingContent() {

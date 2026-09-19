@@ -9,6 +9,7 @@ data class Product(
     val price: Long,
     val cost: Long,
     val minimumStock: Int,
+    val trackStock: Boolean,
     val isActive: Boolean,
     val createdAt: String,
 )

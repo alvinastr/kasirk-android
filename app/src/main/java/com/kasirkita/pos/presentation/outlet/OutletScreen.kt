@@ -19,13 +19,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Outlet
 
 @Composable
 fun OutletScreen(
     onOutletSelected: (Outlet) -> Unit,
-    viewModel: OutletViewModel = viewModel(),
+    viewModel: OutletViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
 

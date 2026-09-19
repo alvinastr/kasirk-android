@@ -14,6 +14,8 @@ data class ProductResponse(
     val cost: Long,
     @SerializedName("minimum_stock")
     val minimumStock: Int,
+    @SerializedName("track_stock")
+    val trackStock: Boolean,
     @SerializedName("is_active")
     val isActive: Boolean,
     @SerializedName("created_at")

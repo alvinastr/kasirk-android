@@ -16,6 +16,17 @@ interface OfflineTransactionDao {
     @Query(
         """
         SELECT * FROM offline_transactions
+        WHERE clientTransactionId = :clientTransactionId
+        LIMIT 1
+        """,
+    )
+    suspend fun getByClientTransactionId(
+        clientTransactionId: String,
+    ): OfflineTransactionEntity?
+
+    @Query(
+        """
+        SELECT * FROM offline_transactions
         WHERE status = 'PENDING'
         ORDER BY createdAt ASC
         LIMIT :limit

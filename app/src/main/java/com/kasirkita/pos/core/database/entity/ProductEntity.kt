@@ -1,5 +1,6 @@
 package com.kasirkita.pos.core.database.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -14,6 +15,8 @@ data class ProductEntity(
     val price: Long,
     val cost: Long,
     val minimumStock: Int,
+    @ColumnInfo(defaultValue = "1")
+    val trackStock: Boolean,
     val isActive: Boolean,
     val createdAt: String,
 )

@@ -26,7 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.CartItem
 import java.text.NumberFormat
 import java.util.Locale
@@ -34,7 +34,7 @@ import java.util.Locale
 @Composable
 fun CheckoutScreen(
     onCheckoutSuccess: (String) -> Unit = {},
-    viewModel: CheckoutViewModel = viewModel(),
+    viewModel: CheckoutViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val numberFormat = remember {

@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-09-17
+Last verified: 2026-09-19
 
 ## Project Overview
 
@@ -17,13 +17,15 @@ Tech stack utama:
 - DataStore Preferences
 - Navigation Compose
 
-Backend development API:
+Backend development API untuk workaround emulator lokal saat ini:
 
 ```text
-http://10.0.2.2:3000/
+http://127.0.0.1:3000/
+adb reverse tcp:3000 tcp:3000
 ```
 
 Backend tidak menggunakan global `/api/v1` prefix. Semua endpoint Retrofit menggunakan root path backend.
+Konfigurasi loopback tersebut hanya workaround development dan bukan keputusan networking production.
 
 ## Current Architecture
 
@@ -72,7 +74,12 @@ Catatan: selected outlet masih in-memory dan belum dipersist ke DataStore atau R
 - Cache produk menggunakan Room table `products`.
 - Repository menggunakan cache-first: Room dibaca lebih dahulu dan API dipanggil ketika cache kosong.
 - Manual refresh mengambil API dan mengganti cache Room.
+- Field backend `track_stock` dipetakan melalui `ProductResponse`, Room `ProductEntity`, dan domain `Product` sebagai `trackStock`.
+- Product cache menyimpan `trackStock`; produk cache lama dimigrasikan dengan nilai default `true`.
 - `ProductViewModel` dan `ProductScreen` tersedia.
+- Setiap produk aktif dapat ditambahkan ke cart melalui `AddToCartUseCase`.
+- ProductScreen menyediakan tombol **Buka Cart** yang terhubung ke route Cart.
+- ProductScreen menampilkan **Stok dikelola** atau **Tanpa pelacakan stok** tanpa mengekspos cost.
 
 ### Cart
 
@@ -87,6 +94,7 @@ Catatan: cart masih in-memory dan akan hilang jika process aplikasi mati.
 
 - `POST /transactions` menggunakan payment method `CASH`.
 - Checkout memvalidasi cart, selected outlet, current shift `OPEN`, outlet shift, dan jumlah pembayaran.
+- Checkout tidak melakukan validasi stok lokal; backend tetap menjadi source of truth untuk enforcement berdasarkan `track_stock`.
 - `client_transaction_id` UUID dibuat sekali di `CheckoutViewModel` dan dipakai kembali apabila terjadi transport failure.
 - Cart dibersihkan setelah transaksi server berhasil.
 - Checkout online yang berhasil membuka route receipt menggunakan server transaction ID.
@@ -105,6 +113,7 @@ Catatan: cart masih in-memory dan akan hilang jika process aplikasi mati.
 - Tersedia status lokal `PENDING`, `SYNCED`, dan `FAILED`.
 - `clientTransactionId` memiliki unique index dan juga digunakan sebagai local record ID.
 - Request transaksi disimpan sebagai immutable `payloadJson`.
+- Payload offline tetap memakai kontrak transaksi yang sama dan sengaja tidak menyertakan `track_stock`.
 - Record menyimpan server transaction ID, last error, retry count, serta created/updated timestamp.
 - DAO menyediakan insert, pending query, pending count flow, mark synced, mark failed, increment retry, retry failed, dan delete synced.
 
@@ -132,7 +141,7 @@ Catatan: cart masih in-memory dan akan hilang jika process aplikasi mati.
 
 ## Database
 
-Room database saat ini menggunakan version **2** dengan `exportSchema = false`.
+Room database saat ini menggunakan version **3** dengan `exportSchema = false`.
 
 Tables:
 
@@ -142,8 +151,9 @@ Tables:
 Migration yang tersedia:
 
 - `MIGRATION_1_2`: membuat table `offline_transactions` beserta unique index `index_offline_transactions_clientTransactionId`.
+- `MIGRATION_2_3`: menambahkan kolom `products.trackStock` (`INTEGER NOT NULL DEFAULT 1`) agar cache lama tetap diperlakukan sebagai tracked.
 
-Database builder mendaftarkan `MIGRATION_1_2` secara eksplisit. Tidak ada destructive migration.
+Database builder mendaftarkan `MIGRATION_1_2` dan `MIGRATION_2_3` secara eksplisit. Tidak ada destructive migration.
 
 ## Backend API Used
 
@@ -181,8 +191,10 @@ Semua endpoint terautentikasi menerima Bearer JWT melalui `AuthInterceptor`, kec
 8. Cart masih in-memory menggunakan `StateFlow`.
 9. Selected outlet masih in-memory menggunakan `StateFlow`.
 10. JWT session disimpan menggunakan DataStore Preferences.
-11. Backend Android Emulator menggunakan `http://10.0.2.2:3000/`.
+11. Workaround emulator lokal saat ini menggunakan `http://127.0.0.1:3000/` dengan `adb reverse`; ini bukan konfigurasi production permanen.
 12. Manual sync memproses maksimal 100 record `PENDING` dan mencocokkan hasil menggunakan client transaction ID.
+13. Backend menjadi satu-satunya source of truth untuk validasi/decrement stok berdasarkan `Product.track_stock`; Android tidak menolak checkout berdasarkan stok lokal.
+14. `track_stock` tidak ditambahkan ke online maupun offline transaction payload karena backend menyelesaikan aturan tersebut dari product ID.
 
 ## Current Navigation Flow
 
@@ -201,7 +213,7 @@ Main flow:
 
 ```text
 Home
- |-- Products
+ |-- Products -> Add Product -> Cart
  |-- Cart -> Checkout
  |             |-- online success -> Receipt/{transactionId}
  |             `-- network failure + Room success -> offline confirmation
@@ -210,26 +222,102 @@ Home
 
 Manual sync dijalankan dari Home. Offline transaction yang berhasil disinkronkan belum otomatis membuka Receipt.
 
+Shift route membedakan initial gate dari akses manajemen melalui Home. Initial
+gate hanya melanjutkan ke Home bila shift berstatus `OPEN` dan `outletId` cocok
+dengan selected outlet. Akses Home -> Shift tetap berada di ShiftScreen agar
+shift aktif dapat diperiksa atau ditutup tanpa redirect kembali ke Home.
+
 ## Verification
 
-Verifikasi terakhir pada 2026-09-17:
+Verifikasi terakhir pada 2026-09-19:
 
 ```text
+./gradlew testDebugUnitTest
+BUILD SUCCESSFUL in 33s
+32 actionable tasks: 16 executed, 16 up-to-date
+
+./gradlew connectedDebugAndroidTest
+BUILD SUCCESSFUL in 1m 25s
+76 actionable tasks: 39 executed, 37 up-to-date
+
 ./gradlew build
-BUILD SUCCESSFUL in 22s
-108 actionable tasks: 26 executed, 82 up-to-date
+BUILD SUCCESSFUL in 2m 15s
+108 actionable tasks: 21 executed, 87 up-to-date
 ```
+
+Audit Hilt Compose pada 2026-09-17 memastikan seluruh sembilan call site
+`@HiltViewModel` menggunakan `hiltViewModel()`. `MainActivity` tetap memakai
+`@AndroidEntryPoint`, sedangkan `KasirKitaApplication` tetap memakai
+`@HiltAndroidApp`. Verifikasi `testDebugUnitTest` dan full build berhasil; APK
+debug juga lulus cold-start smoke test di emulator tanpa fatal exception.
 
 Offline sync repository test suite:
 
 ```text
-7 tests
+9 tests
 0 skipped
 0 failures
 0 errors
 ```
 
-Test yang tersedia memverifikasi queue menghasilkan `PENDING`, client transaction ID tetap sama, hasil `SYNCED`/`FAILED`, retensi record saat network failure, batch maksimum 100, dan record synced tidak dikirim ulang.
+Cart repository test suite:
+
+```text
+1 test
+0 skipped
+0 failures
+0 errors
+```
+
+Navigation guard test suite:
+
+```text
+4 tests
+0 skipped
+0 failures
+0 errors
+```
+
+Product stock contract test suite:
+
+```text
+3 unit tests
+2 Room instrumentation tests
+0 skipped
+0 failures
+0 errors
+```
+
+Test yang tersedia memverifikasi queue menghasilkan `PENDING`, payload request lengkap dengan client transaction ID yang sama, kegagalan persistence, hasil `SYNCED`/`FAILED`, response matching walaupun urutannya berubah, retensi record saat network failure, batch maksimum 100, record synced tidak dikirim ulang, duplicate product menaikkan quantity tanpa mengubah field produk, initial/manage Shift navigation guard dan outlet matching, mapping `track_stock` true/false, payload checkout tanpa field stok, migration default `true`, serta persistence nilai `false` pada schema baru.
+
+## E2E Readiness Audit
+
+Audit code-level terakhir dilakukan pada 2026-09-17 sebelum implementasi WorkManager.
+
+### Optional Stock Tracking E2E: PASS
+
+- Product `track_stock=false` berhasil dipetakan Backend -> Retrofit -> Room -> Domain -> UI.
+- Online checkout dengan untracked product berhasil tanpa validasi stok di Android.
+- Offline checkout berhasil menyimpan transaksi ke local queue.
+- Setelah backend kembali tersedia, queued transaction berhasil disinkronkan.
+- Tidak terjadi error `INSUFFICIENT_STOCK` untuk product dengan `track_stock=false`.
+- Backend tetap menjadi source of truth untuk stock enforcement.
+
+- Product -> Cart: terhubung melalui `ProductViewModel`, `AddToCartUseCase`, singleton `CartRepository`, tombol add, dan route Cart.
+- Cart -> Checkout: item, quantity +/-, remove, subtotal/total, dan Checkout tersedia; tombol Checkout disabled ketika cart kosong.
+- Checkout online: satu UUID dibuat di `CheckoutViewModel`, diteruskan ke `POST /transactions`, cart dibersihkan setelah sukses, lalu navigation membuka Receipt.
+- Checkout offline: hanya transport `IOException` yang memicu queue; request online dan payload Room memakai client transaction ID serta builder yang sama.
+- Persistence safety: hasil insert Room diperiksa. Conflict hanya dianggap aman jika record dengan client ID tersebut sudah ada dan payload JSON identik.
+- Business errors: `HttpException` dan error non-transport tetap ditampilkan dan tidak dimasukkan ke offline queue.
+- Manual sync: hanya `PENDING`, maksimum 100, matching berdasarkan client transaction ID, serta update `SYNCED`/`FAILED` dan server transaction ID telah terhubung.
+- Idempotency: tidak ada UUID generation pada repository/use case/sync path; retry mengirim payload tersimpan dengan ID asli.
+- Stock: Android offline queue tidak melakukan local stock decrement; backend tetap source of truth.
+- Optional stock tracking: DTO/cache/domain Android telah kompatibel, transaction/offline payload tetap hanya mengirim product ID dan quantity, dan runtime E2E berstatus **PASS**.
+- Shift/outlet: Checkout menolak shift yang tidak `OPEN` atau memiliki outlet berbeda dari selected outlet.
+- Navigation guard: OPEN shift hanya mengarahkan initial Shift gate ke Home; membuka Shift dari Home tidak menjalankan redirect tersebut kembali.
+- Receipt: online success tetap membuka Receipt; hasil manual sync hanya menyimpan server transaction ID dan tidak melakukan navigation otomatis.
+- Status readiness: seluruh jalur telah tersambung pada level code dan unit test. Pengujian dengan emulator serta backend/database nyata masih diperlukan sebelum background sync.
+- WorkManager/automatic sync tetap **belum diimplementasikan**.
 
 ## Known Limitations / Technical Debt
 
@@ -237,20 +325,22 @@ Test yang tersedia memverifikasi queue menghasilkan `PENDING`, client transactio
 - Belum ada network connectivity observer.
 - Cart masih in-memory dan tidak bertahan setelah process death.
 - Selected outlet masih in-memory dan harus dipilih kembali setelah process recreation.
-- ProductScreen belum memiliki tombol/aksi untuk menambahkan produk ke cart. Cart API dan ViewModel sudah mendukung add product, tetapi belum terhubung dari UI produk.
 - Belum ada Transaction History pada Android.
 - Belum ada Customer module pada Android.
 - Belum ada Reports dashboard/UI pada Android.
 - Belum ada printer atau receipt printing integration.
 - Belum ada global handling untuk HTTP 401, token expiry, refresh token, atau forced re-login.
+- Checkout menampilkan HTTP business error melalui `HttpException.message`; parsing error body backend menjadi pesan yang lebih spesifik belum tersedia.
 - `TokenDataStore.clearSession()` tersedia, tetapi belum ada logout repository/use case/UI/navigation flow yang lengkap.
 - Retry untuk record `FAILED` tersedia pada repository, tetapi belum dihubungkan ke tombol atau queue-management UI.
 - `deleteSynced()` tersedia pada DAO, tetapi belum ada retention/cleanup policy atau UI untuk record synced.
 - Offline transaction yang selesai disinkronkan tidak otomatis membuka atau menyimpan receipt lokal.
-- Room schema export masih dinonaktifkan dan belum ada instrumentation migration test khusus.
+- Room schema export masih dinonaktifkan; migration 2->3 sudah memiliki instrumentation test khusus.
 - Product cache tidak difilter per tenant ketika dibaca; pergantian akun/tenant dapat membaca cache lama sebelum refresh.
 - Offline queue tidak menyimpan tenant/user owner secara eksplisit; account switching perlu di-hardening sebelum digunakan pada perangkat bersama.
 - Session guard hanya mengecek token tidak kosong, bukan signature atau expiry JWT.
+- UI belum menerapkan behavior/otorisasi berbeda untuk role OWNER, ADMIN, dan CASHIER; seluruh role menggunakan flow screen yang sama.
+- Jika current shift `OPEN` berasal dari outlet berbeda dengan outlet yang baru dipilih, ShiftScreen masih dapat meneruskan ke Home. Checkout tetap memblokir transaksi karena outlet mismatch, tetapi UX pemilihan outlet/shift perlu di-hardening.
 
 ## Next Milestones
 

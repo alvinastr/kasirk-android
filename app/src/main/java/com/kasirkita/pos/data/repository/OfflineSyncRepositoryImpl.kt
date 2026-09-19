@@ -55,8 +55,16 @@ class OfflineSyncRepositoryImpl @Inject constructor(
             updatedAt = now,
         )
 
-        offlineTransactionDao.insert(entity)
-        entity.toDomain()
+        val insertResult = offlineTransactionDao.insert(entity)
+        val persistedEntity = if (insertResult == INSERT_IGNORED) {
+            offlineTransactionDao.getByClientTransactionId(clientTransactionId)
+                ?.takeIf { existing -> existing.payloadJson == entity.payloadJson }
+                ?: error("Offline transaction conflict contains a different payload")
+        } else {
+            entity
+        }
+
+        persistedEntity.toDomain()
     }
 
     override suspend fun getPendingTransactions(
@@ -216,6 +224,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
 
     private companion object {
         const val MAX_BATCH_SIZE = 100
+        const val INSERT_IGNORED = -1L
         const val STATUS_SYNCED = "SYNCED"
         const val STATUS_FAILED = "FAILED"
         const val INVALID_LOCAL_PAYLOAD = "Invalid local transaction payload"

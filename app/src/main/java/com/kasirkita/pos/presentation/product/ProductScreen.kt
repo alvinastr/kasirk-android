@@ -20,14 +20,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Product
 import java.text.NumberFormat
 import java.util.Locale
 
 @Composable
 fun ProductScreen(
-    viewModel: ProductViewModel = viewModel(),
+    onCartClick: () -> Unit = {},
+    viewModel: ProductViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -40,6 +41,8 @@ fun ProductScreen(
         is ProductState.Success -> ProductList(
             products = currentState.products,
             onRefresh = viewModel::refresh,
+            onAddToCart = viewModel::addToCart,
+            onCartClick = onCartClick,
         )
     }
 }
@@ -83,6 +86,8 @@ private fun ErrorContent(
 private fun ProductList(
     products: List<Product>,
     onRefresh: () -> Unit,
+    onAddToCart: (Product) -> Unit,
+    onCartClick: () -> Unit,
 ) {
     val numberFormat = remember {
         NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
@@ -98,6 +103,15 @@ private fun ProductList(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Refresh")
+        }
+
+        Button(
+            onClick = onCartClick,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+        ) {
+            Text("Buka Cart")
         }
 
         if (products.isEmpty()) {
@@ -128,6 +142,19 @@ private fun ProductList(
                         Text("SKU: ${product.sku}")
                         Text("Harga: Rp${numberFormat.format(product.price)}")
                         Text("Stok minimum: ${product.minimumStock}")
+                        Text(
+                            if (product.trackStock) {
+                                "Stok dikelola"
+                            } else {
+                                "Tanpa pelacakan stok"
+                            },
+                        )
+                        Button(
+                            onClick = { onAddToCart(product) },
+                            enabled = product.isActive,
+                        ) {
+                            Text("Tambah ke Cart")
+                        }
                     }
                     HorizontalDivider()
                 }
