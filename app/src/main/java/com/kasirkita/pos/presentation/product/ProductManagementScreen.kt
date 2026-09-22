@@ -11,12 +11,17 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -31,36 +36,72 @@ import java.util.Locale
 
 @Composable
 fun ProductManagementScreen(
+    onAddProduct: () -> Unit,
+    productCreated: Boolean = false,
+    onProductCreatedHandled: () -> Unit = {},
     viewModel: ProductViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 16.dp, vertical = 20.dp),
+    LaunchedEffect(productCreated) {
+        if (productCreated) {
+            onProductCreatedHandled()
+            viewModel.refresh()
+            snackbarHostState.showSnackbar("Produk berhasil ditambahkan.")
+        }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background,
     ) {
-        Text(
-            text = "Kelola Produk",
-            style = MaterialTheme.typography.headlineSmall,
-        )
-        Text(
-            text = "Periksa harga jual dan pengaturan stok.",
-            modifier = Modifier.padding(top = 4.dp),
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 20.dp),
+            ) {
+                Text(
+                    text = "Kelola Produk",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    text = "Periksa harga jual dan pengaturan stok.",
+                    modifier = Modifier.padding(top = 4.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
 
-        when (val currentState = state) {
-            ProductState.Loading -> ProductManagementLoading(
-                modifier = Modifier.weight(1f),
-            )
-            is ProductState.Error -> ProductManagementError(
-                modifier = Modifier.weight(1f),
-                onRetry = viewModel::loadProducts,
-            )
-            is ProductState.Success -> ProductManagementList(
-                products = currentState.products,
-                modifier = Modifier.weight(1f),
+                Button(
+                    onClick = onAddProduct,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp)
+                        .heightIn(min = 48.dp),
+                ) {
+                    Text("Tambah Produk")
+                }
+
+                when (val currentState = state) {
+                    ProductState.Loading -> ProductManagementLoading(
+                        modifier = Modifier.weight(1f),
+                    )
+                    is ProductState.Error -> ProductManagementError(
+                        modifier = Modifier.weight(1f),
+                        onRetry = viewModel::loadProducts,
+                    )
+                    is ProductState.Success -> ProductManagementList(
+                        products = currentState.products,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(16.dp),
             )
         }
     }
@@ -127,7 +168,7 @@ private fun ProductManagementList(
 
     LazyColumn(
         modifier = modifier.fillMaxWidth(),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp),
+        contentPadding = PaddingValues(top = 16.dp, bottom = 96.dp),
     ) {
         items(
             items = products,

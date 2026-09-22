@@ -25,6 +25,7 @@ import com.kasirkita.pos.presentation.cart.CartScreen
 import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
 import com.kasirkita.pos.presentation.outlet.OutletScreen
+import com.kasirkita.pos.presentation.product.CreateProductScreen
 import com.kasirkita.pos.presentation.product.ProductManagementScreen
 import com.kasirkita.pos.presentation.product.ProductScreen
 import com.kasirkita.pos.presentation.receipt.ReceiptScreen
@@ -53,6 +54,9 @@ fun AppNavigation(
             val productManagementRoute = authenticatedSession
                 ?.role
                 ?.let(::productManagementRouteFor)
+            val productCreateRoute = authenticatedSession
+                ?.role
+                ?.let(::productCreateRouteFor)
             val startDestination = if (authenticatedSession != null) {
                 Screen.Outlet.route
             } else {
@@ -137,9 +141,38 @@ fun AppNavigation(
                     )
                 }
 
-                productManagementRoute?.let { route ->
-                    composable(route) {
-                        ProductManagementScreen()
+                val manageRoute = productManagementRoute
+                val createRoute = productCreateRoute
+                if (manageRoute != null && createRoute != null) {
+                    composable(manageRoute) { backStackEntry ->
+                        val productCreated by backStackEntry
+                            .savedStateHandle
+                            .getStateFlow(PRODUCT_CREATED_RESULT_KEY, false)
+                            .collectAsState()
+
+                        ProductManagementScreen(
+                            onAddProduct = {
+                                navController.navigate(createRoute)
+                            },
+                            productCreated = productCreated,
+                            onProductCreatedHandled = {
+                                backStackEntry.savedStateHandle[
+                                    PRODUCT_CREATED_RESULT_KEY
+                                ] = false
+                            },
+                        )
+                    }
+
+                    composable(createRoute) {
+                        CreateProductScreen(
+                            onCancel = navController::popBackStack,
+                            onProductCreated = {
+                                navController.previousBackStackEntry
+                                    ?.savedStateHandle
+                                    ?.set(PRODUCT_CREATED_RESULT_KEY, true)
+                                navController.popBackStack()
+                            },
+                        )
                     }
                 }
 
@@ -179,6 +212,15 @@ internal fun productManagementRouteFor(role: UserRole): String? = when (role) {
     -> Screen.ProductManagement.route
     UserRole.CASHIER -> null
 }
+
+internal fun productCreateRouteFor(role: UserRole): String? = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    -> Screen.ProductCreate.route
+    UserRole.CASHIER -> null
+}
+
+internal const val PRODUCT_CREATED_RESULT_KEY = "product_created"
 
 @Composable
 private fun SessionLoadingContent() {

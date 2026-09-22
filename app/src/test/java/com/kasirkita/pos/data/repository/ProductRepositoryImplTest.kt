@@ -39,7 +39,7 @@ class ProductRepositoryImplTest {
         val product = repository.createProduct(
             name = "Kopi Susu",
             sku = "KOPISUSU002",
-            categoryId = null,
+            categoryId = CATEGORY_ID,
             price = 15_000L,
             cost = 8_000L,
             minimumStock = 0,
@@ -50,7 +50,18 @@ class ProductRepositoryImplTest {
         assertEquals("Kopi Susu", product.name)
         assertEquals(15_000L, product.price)
         assertFalse(product.trackStock)
-        assertEquals(false, api.lastCreateRequest?.trackStock)
+        assertEquals(
+            CreateProductRequest(
+                name = "Kopi Susu",
+                sku = "KOPISUSU002",
+                categoryId = CATEGORY_ID,
+                price = 15_000L,
+                cost = 8_000L,
+                minimumStock = 0,
+                trackStock = false,
+            ),
+            api.lastCreateRequest,
+        )
     }
 
     @Test
@@ -138,5 +149,6 @@ class ProductRepositoryImplTest {
 
     private companion object {
         const val PRODUCT_ID = "product-id"
+        const val CATEGORY_ID = "category-id"
     }
 }
