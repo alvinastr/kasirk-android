@@ -3,7 +3,9 @@ package com.kasirkita.pos.data.repository
 import com.kasirkita.pos.core.database.entity.ProductEntity
 import com.kasirkita.pos.data.api.ProductApi
 import com.kasirkita.pos.data.local.ProductLocalDataSource
+import com.kasirkita.pos.data.model.CreateProductRequest
 import com.kasirkita.pos.data.model.ProductResponse
+import com.kasirkita.pos.data.model.UpdateProductRequest
 import com.kasirkita.pos.domain.model.Product
 import com.kasirkita.pos.domain.repository.ProductRepository
 import javax.inject.Inject
@@ -26,6 +28,52 @@ class ProductRepositoryImpl @Inject constructor(
 
     override suspend fun refreshProducts(): Result<List<Product>> = runCatching {
         fetchAndCacheProducts()
+    }
+
+    override suspend fun createProduct(
+        name: String,
+        sku: String,
+        categoryId: String?,
+        price: Long,
+        cost: Long,
+        minimumStock: Int,
+        trackStock: Boolean,
+    ): Result<Product> = runCatching {
+        productApi.createProduct(
+            CreateProductRequest(
+                name = name,
+                sku = sku,
+                categoryId = categoryId,
+                price = price,
+                cost = cost,
+                minimumStock = minimumStock,
+                trackStock = trackStock,
+            ),
+        ).toEntity().toDomain()
+    }
+
+    override suspend fun updateProduct(
+        productId: String,
+        name: String?,
+        sku: String?,
+        categoryId: String?,
+        price: Long?,
+        cost: Long?,
+        minimumStock: Int?,
+        trackStock: Boolean?,
+    ): Result<Product> = runCatching {
+        productApi.updateProduct(
+            productId = productId,
+            request = UpdateProductRequest(
+                name = name,
+                sku = sku,
+                categoryId = categoryId,
+                price = price,
+                cost = cost,
+                minimumStock = minimumStock,
+                trackStock = trackStock,
+            ),
+        ).toEntity().toDomain()
     }
 
     private suspend fun fetchAndCacheProducts(): List<Product> {

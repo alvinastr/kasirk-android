@@ -4,10 +4,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -22,6 +24,7 @@ fun HomeScreen(
     onProductsClick: () -> Unit,
     onCartClick: () -> Unit,
     onShiftClick: () -> Unit,
+    onManageProductsClick: (() -> Unit)? = null,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val syncState by viewModel.syncState.collectAsState()
@@ -77,6 +80,17 @@ fun HomeScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Produk")
+        }
+
+        onManageProductsClick?.let { onClick ->
+            OutlinedButton(
+                onClick = onClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+            ) {
+                Text("Kelola Produk")
+            }
         }
 
         Button(

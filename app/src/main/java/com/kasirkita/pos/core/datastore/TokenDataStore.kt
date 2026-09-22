@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.kasirkita.pos.core.network.AuthTokenProvider
+import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.domain.model.UserSession
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
@@ -34,6 +35,30 @@ class TokenDataStore @Inject constructor(
     }
 
     override suspend fun getToken(): String? = dataStore.data.first()[ACCESS_TOKEN]
+
+    suspend fun getSession(): UserSession? {
+        val preferences = dataStore.data.first()
+        val accessToken = preferences[ACCESS_TOKEN]?.takeIf(String::isNotBlank)
+            ?: return null
+        val tenantId = preferences[TENANT_ID]?.takeIf(String::isNotBlank)
+            ?: return null
+        val userId = preferences[USER_ID]?.takeIf(String::isNotBlank)
+            ?: return null
+        val role = preferences[ROLE]
+            ?.let { storedRole ->
+                UserRole.entries.firstOrNull { role ->
+                    role.name.equals(storedRole, ignoreCase = true)
+                }
+            }
+            ?: return null
+
+        return UserSession(
+            accessToken = accessToken,
+            tenantId = tenantId,
+            userId = userId,
+            role = role,
+        )
+    }
 
     suspend fun clearSession() {
         dataStore.edit { preferences ->

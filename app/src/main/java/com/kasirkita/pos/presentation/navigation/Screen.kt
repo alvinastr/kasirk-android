@@ -6,6 +6,7 @@ sealed class Screen(val route: String) {
     data object Shift : Screen("shift")
     data object Home : Screen("home")
     data object Products : Screen("products")
+    data object ProductManagement : Screen("products/manage")
     data object Cart : Screen("cart")
     data object Checkout : Screen("checkout")
     data object Receipt : Screen("receipt/{transactionId}") {

@@ -26,10 +26,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kasirkita.pos.domain.model.UserSession
 
 @Composable
 fun LoginScreen(
-    onLoginSuccess: () -> Unit = {},
+    onLoginSuccess: (UserSession) -> Unit = {},
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -39,8 +40,9 @@ fun LoginScreen(
     val isLoading = state is LoginState.Loading
 
     LaunchedEffect(state) {
-        if (state is LoginState.Success) {
-            onLoginSuccess()
+        val currentState = state
+        if (currentState is LoginState.Success) {
+            onLoginSuccess(currentState.session)
         }
     }
 

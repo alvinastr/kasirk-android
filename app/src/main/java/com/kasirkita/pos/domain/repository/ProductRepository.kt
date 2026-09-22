@@ -6,4 +6,25 @@ interface ProductRepository {
     suspend fun getProducts(): Result<List<Product>>
 
     suspend fun refreshProducts(): Result<List<Product>>
+
+    suspend fun createProduct(
+        name: String,
+        sku: String,
+        categoryId: String?,
+        price: Long,
+        cost: Long,
+        minimumStock: Int,
+        trackStock: Boolean,
+    ): Result<Product>
+
+    suspend fun updateProduct(
+        productId: String,
+        name: String? = null,
+        sku: String? = null,
+        categoryId: String? = null,
+        price: Long? = null,
+        cost: Long? = null,
+        minimumStock: Int? = null,
+        trackStock: Boolean? = null,
+    ): Result<Product>
 }

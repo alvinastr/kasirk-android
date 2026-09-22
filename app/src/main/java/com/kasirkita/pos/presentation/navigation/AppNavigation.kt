@@ -17,12 +17,15 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.kasirkita.pos.core.datastore.TokenDataStore
 import com.kasirkita.pos.domain.model.Outlet
+import com.kasirkita.pos.domain.model.UserRole
+import com.kasirkita.pos.domain.model.UserSession
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.presentation.auth.LoginScreen
 import com.kasirkita.pos.presentation.cart.CartScreen
 import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
 import com.kasirkita.pos.presentation.outlet.OutletScreen
+import com.kasirkita.pos.presentation.product.ProductManagementScreen
 import com.kasirkita.pos.presentation.product.ProductScreen
 import com.kasirkita.pos.presentation.receipt.ReceiptScreen
 import com.kasirkita.pos.presentation.shift.ShiftScreen
@@ -42,11 +45,15 @@ fun AppNavigation(
 
     when (val currentState = sessionState) {
         SessionState.Checking -> SessionLoadingContent()
-        SessionState.Authenticated,
+        is SessionState.Authenticated,
         SessionState.Unauthenticated,
         -> {
             val navController = rememberNavController()
-            val startDestination = if (currentState == SessionState.Authenticated) {
+            val authenticatedSession = (currentState as? SessionState.Authenticated)?.session
+            val productManagementRoute = authenticatedSession
+                ?.role
+                ?.let(::productManagementRouteFor)
+            val startDestination = if (authenticatedSession != null) {
                 Screen.Outlet.route
             } else {
                 Screen.Login.route
@@ -58,7 +65,8 @@ fun AppNavigation(
             ) {
                 composable(Screen.Login.route) {
                     LoginScreen(
-                        onLoginSuccess = {
+                        onLoginSuccess = { session ->
+                            viewModel.onAuthenticated(session)
                             navController.navigate(Screen.Outlet.route) {
                                 popUpTo(Screen.Login.route) { inclusive = true }
                                 launchSingleTop = true
@@ -115,6 +123,9 @@ fun AppNavigation(
                         onShiftClick = {
                             navController.navigate(Screen.Shift.route)
                         },
+                        onManageProductsClick = productManagementRoute?.let { route ->
+                            { navController.navigate(route) }
+                        },
                     )
                 }
 
@@ -124,6 +135,12 @@ fun AppNavigation(
                             navController.navigate(Screen.Cart.route)
                         },
                     )
+                }
+
+                productManagementRoute?.let { route ->
+                    composable(route) {
+                        ProductManagementScreen()
+                    }
                 }
 
                 composable(Screen.Cart.route) {
@@ -156,6 +173,13 @@ fun AppNavigation(
 internal fun isShiftGateEntry(previousRoute: String?): Boolean =
     previousRoute != Screen.Home.route
 
+internal fun productManagementRouteFor(role: UserRole): String? = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    -> Screen.ProductManagement.route
+    UserRole.CASHIER -> null
+}
+
 @Composable
 private fun SessionLoadingContent() {
     Box(
@@ -168,7 +192,7 @@ private fun SessionLoadingContent() {
 
 sealed interface SessionState {
     data object Checking : SessionState
-    data object Authenticated : SessionState
+    data class Authenticated(val session: UserSession) : SessionState
     data object Unauthenticated : SessionState
 }
 
@@ -186,14 +210,18 @@ class AppNavigationViewModel @Inject constructor(
         checkSession()
     }
 
+    fun onAuthenticated(session: UserSession) {
+        _sessionState.value = SessionState.Authenticated(session)
+    }
+
     private fun checkSession() {
         viewModelScope.launch {
-            val hasToken = runCatching {
-                !tokenDataStore.getToken().isNullOrBlank()
-            }.getOrDefault(false)
+            val session = runCatching {
+                tokenDataStore.getSession()
+            }.getOrNull()
 
-            _sessionState.value = if (hasToken) {
-                SessionState.Authenticated
+            _sessionState.value = if (session != null) {
+                SessionState.Authenticated(session)
             } else {
                 SessionState.Unauthenticated
             }
