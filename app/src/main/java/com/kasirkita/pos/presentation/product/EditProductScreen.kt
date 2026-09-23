@@ -34,6 +34,7 @@ fun EditProductScreen(
 ) {
     val productState by productViewModel.state.collectAsState()
     val managementState by managementViewModel.state.collectAsState()
+    val categoryState by managementViewModel.categoryState.collectAsState()
 
     LaunchedEffect(managementState) {
         if (managementState is ProductManagementState.Success) {
@@ -60,7 +61,9 @@ fun EditProductScreen(
                 EditProductForm(
                     product = product,
                     managementState = managementState,
+                    categoryState = categoryState,
                     onInputChanged = managementViewModel::clearError,
+                    onRetryCategories = managementViewModel::loadCategories,
                     onSubmit = { changes ->
                         managementViewModel.updateProduct(
                             productId = product.id,
@@ -85,7 +88,9 @@ fun EditProductScreen(
 private fun EditProductForm(
     product: Product,
     managementState: ProductManagementState,
+    categoryState: CategoryState,
     onInputChanged: () -> Unit,
+    onRetryCategories: () -> Unit,
     onSubmit: (ProductUpdateChanges) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -99,12 +104,14 @@ private fun EditProductForm(
         description = "Perbarui data produk yang perlu diubah.",
         submitLabel = "Simpan Perubahan",
         initialValues = initialValues,
+        categoryState = categoryState,
         isLoading = managementState is ProductManagementState.Loading,
         errorMessage = localError ?: (managementState as? ProductManagementState.Error)?.message,
         onInputChanged = {
             localError = null
             onInputChanged()
         },
+        onRetryCategories = onRetryCategories,
         onSubmit = { editedProduct ->
             val changes = editedProduct.changesFrom(product)
             if (changes.hasChanges) {

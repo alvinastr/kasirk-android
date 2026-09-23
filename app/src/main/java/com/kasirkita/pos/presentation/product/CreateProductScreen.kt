@@ -13,6 +13,7 @@ fun CreateProductScreen(
     viewModel: ProductManagementViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val categoryState by viewModel.categoryState.collectAsState()
 
     LaunchedEffect(state) {
         if (state is ProductManagementState.Success) {
@@ -25,9 +26,11 @@ fun CreateProductScreen(
         description = "Isi data utama produk, lalu simpan.",
         submitLabel = "Simpan Produk",
         initialValues = ProductFormInitialValues(),
+        categoryState = categoryState,
         isLoading = state is ProductManagementState.Loading,
         errorMessage = (state as? ProductManagementState.Error)?.message,
         onInputChanged = viewModel::clearError,
+        onRetryCategories = viewModel::loadCategories,
         onSubmit = { product ->
             viewModel.createProduct(
                 name = product.name,

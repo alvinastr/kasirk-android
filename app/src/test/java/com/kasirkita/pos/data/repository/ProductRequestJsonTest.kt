@@ -41,6 +41,24 @@ class ProductRequestJsonTest {
     }
 
     @Test
+    fun createProductRequest_selectedCategory_mapsToCategoryId() {
+        val request = CreateProductRequest(
+            name = "Kopi Susu",
+            sku = "KOPISUSU002",
+            categoryId = "category-id",
+            price = 15_000L,
+            cost = 8_000L,
+            minimumStock = 0,
+            trackStock = true,
+        )
+
+        val json = gson.toJsonTree(request).asJsonObject
+
+        assertEquals("category-id", json.get("category_id").asString)
+        assertFalse(json.has("categoryId"))
+    }
+
+    @Test
     fun updateProductRequest_usesBackendSnakeCaseFieldsAndOptionalValues() {
         val emptyRequest = UpdateProductRequest()
         assertNull(emptyRequest.name)

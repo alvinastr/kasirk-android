@@ -9,11 +9,13 @@ import com.kasirkita.pos.core.network.ApiConstants
 import com.kasirkita.pos.core.network.AuthInterceptor
 import com.kasirkita.pos.core.network.AuthTokenProvider
 import com.kasirkita.pos.data.api.AuthApi
+import com.kasirkita.pos.data.api.CategoryApi
 import com.kasirkita.pos.data.api.OutletApi
 import com.kasirkita.pos.data.api.ProductApi
 import com.kasirkita.pos.data.api.ReceiptApi
 import com.kasirkita.pos.data.api.ShiftApi
 import com.kasirkita.pos.data.api.SyncApi
+import com.kasirkita.pos.data.api.StockApi
 import com.kasirkita.pos.data.api.TransactionApi
 import dagger.Module
 import dagger.Provides
@@ -84,6 +86,11 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideCategoryApi(retrofit: Retrofit): CategoryApi =
+        retrofit.create(CategoryApi::class.java)
+
+    @Provides
+    @Singleton
     fun provideOutletApi(retrofit: Retrofit): OutletApi = retrofit.create(OutletApi::class.java)
 
     @Provides
@@ -101,6 +108,10 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideSyncApi(retrofit: Retrofit): SyncApi = retrofit.create(SyncApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideStockApi(retrofit: Retrofit): StockApi = retrofit.create(StockApi::class.java)
 
     @Provides
     @Singleton

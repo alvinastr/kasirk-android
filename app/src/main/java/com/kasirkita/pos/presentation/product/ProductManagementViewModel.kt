@@ -4,11 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.domain.model.Product
 import com.kasirkita.pos.domain.usecase.CreateProductUseCase
+import com.kasirkita.pos.domain.usecase.GetCategoriesUseCase
 import com.kasirkita.pos.domain.usecase.UpdateProductUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.io.IOException
@@ -19,6 +21,7 @@ import javax.inject.Inject
 class ProductManagementViewModel @Inject constructor(
     private val createProductUseCase: CreateProductUseCase,
     private val updateProductUseCase: UpdateProductUseCase,
+    private val getCategoriesUseCase: GetCategoriesUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ProductManagementState>(
@@ -26,9 +29,40 @@ class ProductManagementViewModel @Inject constructor(
     )
     val state: StateFlow<ProductManagementState> = _state.asStateFlow()
 
+    private val _categoryState = MutableStateFlow<CategoryState>(CategoryState.Loading)
+    val categoryState: StateFlow<CategoryState> = _categoryState.asStateFlow()
+
+    private var categoryLoadJob: Job? = null
+
+    init {
+        loadCategories()
+    }
+
     fun clearError() {
         if (_state.value is ProductManagementState.Error) {
             _state.value = ProductManagementState.Idle
+        }
+    }
+
+    fun loadCategories() {
+        if (categoryLoadJob?.isActive == true) return
+
+        categoryLoadJob = viewModelScope.launch {
+            _categoryState.value = CategoryState.Loading
+            getCategoriesUseCase().fold(
+                onSuccess = { categories ->
+                    _categoryState.value = if (categories.isEmpty()) {
+                        CategoryState.Empty
+                    } else {
+                        CategoryState.Success(categories)
+                    }
+                },
+                onFailure = { throwable ->
+                    _categoryState.value = CategoryState.Error(
+                        categoryErrorMessage(throwable),
+                    )
+                },
+            )
         }
     }
 
@@ -97,6 +131,16 @@ class ProductManagementViewModel @Inject constructor(
             )
         }
     }
+}
+
+internal fun categoryErrorMessage(throwable: Throwable): String = when {
+    throwable is IOException ->
+        "Kategori tidak dapat dimuat. Periksa koneksi lalu coba lagi."
+    throwable is HttpException && throwable.code() == 401 ->
+        "Sesi login berakhir. Silakan login kembali."
+    throwable is HttpException && throwable.code() == 403 ->
+        "Anda tidak memiliki izin untuk melihat kategori."
+    else -> "Kategori tidak dapat dimuat. Coba lagi."
 }
 
 internal fun productManagementErrorMessage(throwable: Throwable): String {

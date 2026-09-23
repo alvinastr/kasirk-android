@@ -2,19 +2,23 @@ package com.kasirkita.pos.di
 
 import com.kasirkita.pos.data.repository.AuthRepositoryImpl
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
+import com.kasirkita.pos.data.repository.CategoryRepositoryImpl
 import com.kasirkita.pos.data.repository.OutletRepositoryImpl
 import com.kasirkita.pos.data.repository.OfflineSyncRepositoryImpl
 import com.kasirkita.pos.data.repository.ProductRepositoryImpl
 import com.kasirkita.pos.data.repository.ReceiptRepositoryImpl
 import com.kasirkita.pos.data.repository.ShiftRepositoryImpl
+import com.kasirkita.pos.data.repository.StockRepositoryImpl
 import com.kasirkita.pos.data.repository.TransactionRepositoryImpl
 import com.kasirkita.pos.domain.repository.AuthRepository
 import com.kasirkita.pos.domain.repository.CartRepository
+import com.kasirkita.pos.domain.repository.CategoryRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import com.kasirkita.pos.domain.repository.ProductRepository
 import com.kasirkita.pos.domain.repository.ReceiptRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
+import com.kasirkita.pos.domain.repository.StockRepository
 import com.kasirkita.pos.domain.repository.TransactionRepository
 import dagger.Binds
 import dagger.Module
@@ -31,6 +35,12 @@ abstract class RepositoryModule {
     abstract fun bindAuthRepository(
         implementation: AuthRepositoryImpl,
     ): AuthRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindCategoryRepository(
+        implementation: CategoryRepositoryImpl,
+    ): CategoryRepository
 
     @Binds
     @Singleton
@@ -67,6 +77,12 @@ abstract class RepositoryModule {
     abstract fun bindShiftRepository(
         implementation: ShiftRepositoryImpl,
     ): ShiftRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindStockRepository(
+        implementation: StockRepositoryImpl,
+    ): StockRepository
 
     @Binds
     @Singleton

@@ -21,6 +21,10 @@ class ProductManagementNavigationGuardTest {
             Screen.ProductEdit.route,
             productEditRouteFor(UserRole.OWNER),
         )
+        assertEquals(
+            Screen.StockAdjustment.route,
+            stockAdjustmentRouteFor(UserRole.OWNER),
+        )
     }
 
     @Test
@@ -37,6 +41,10 @@ class ProductManagementNavigationGuardTest {
             Screen.ProductEdit.route,
             productEditRouteFor(UserRole.ADMIN),
         )
+        assertEquals(
+            Screen.StockAdjustment.route,
+            stockAdjustmentRouteFor(UserRole.ADMIN),
+        )
     }
 
     @Test
@@ -44,6 +52,7 @@ class ProductManagementNavigationGuardTest {
         assertNull(productManagementRouteFor(UserRole.CASHIER))
         assertNull(productCreateRouteFor(UserRole.CASHIER))
         assertNull(productEditRouteFor(UserRole.CASHIER))
+        assertNull(stockAdjustmentRouteFor(UserRole.CASHIER))
     }
 
     @Test
@@ -51,6 +60,14 @@ class ProductManagementNavigationGuardTest {
         assertEquals(
             "products/manage/product-id/edit",
             Screen.ProductEdit.createRoute("product-id"),
+        )
+    }
+
+    @Test
+    fun stockRoute_containsSelectedProductId() {
+        assertEquals(
+            "products/manage/product-id/stock",
+            Screen.StockAdjustment.createRoute("product-id"),
         )
     }
 }

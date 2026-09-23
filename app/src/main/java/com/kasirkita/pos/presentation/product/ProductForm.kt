@@ -35,7 +35,27 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.kasirkita.pos.domain.model.Category
 import com.kasirkita.pos.domain.model.Product
+
+internal data class CategoryOption(
+    val id: String?,
+    val label: String,
+)
+
+internal fun categoryOptions(categories: List<Category>): List<CategoryOption> =
+    listOf(CategoryOption(id = null, label = "Tanpa kategori")) +
+        categories
+            .sortedBy { category -> category.name }
+            .map { category ->
+                CategoryOption(id = category.id, label = category.name)
+            }
+
+internal fun categorySelectionLabel(
+    selectedCategoryId: String?,
+    options: List<CategoryOption>,
+): String = options.firstOrNull { option -> option.id == selectedCategoryId }?.label
+    ?: "Kategori saat ini"
 
 internal data class ProductFormInitialValues(
     val name: String = "",
@@ -64,9 +84,11 @@ internal fun ProductForm(
     description: String,
     submitLabel: String,
     initialValues: ProductFormInitialValues,
+    categoryState: CategoryState,
     isLoading: Boolean,
     errorMessage: String?,
     onInputChanged: () -> Unit,
+    onRetryCategories: () -> Unit,
     onSubmit: (ValidatedCreateProduct) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -85,11 +107,8 @@ internal fun ProductForm(
     var minimumStock by rememberSaveable(initialValues.minimumStock) {
         mutableStateOf(initialValues.minimumStock)
     }
-    var usesCategoryId by rememberSaveable(initialValues.categoryId) {
-        mutableStateOf(initialValues.categoryId != null)
-    }
     var categoryId by rememberSaveable(initialValues.categoryId) {
-        mutableStateOf(initialValues.categoryId.orEmpty())
+        mutableStateOf(initialValues.categoryId)
     }
     var trackStock by rememberSaveable(initialValues.trackStock) {
         mutableStateOf(initialValues.trackStock)
@@ -97,6 +116,12 @@ internal fun ProductForm(
     var categoryMenuExpanded by remember { mutableStateOf(false) }
     var fieldErrors by remember(initialValues) {
         mutableStateOf(CreateProductFormErrors())
+    }
+    val availableCategories = (categoryState as? CategoryState.Success)
+        ?.categories
+        .orEmpty()
+    val categoryOptions = remember(availableCategories) {
+        categoryOptions(availableCategories)
     }
 
     Surface(
@@ -221,11 +246,7 @@ internal fun ProductForm(
                     enabled = !isLoading,
                 ) {
                     Text(
-                        if (usesCategoryId) {
-                            "Gunakan ID kategori"
-                        } else {
-                            "Tanpa kategori"
-                        },
+                        categorySelectionLabel(categoryId, categoryOptions),
                     )
                 }
 
@@ -233,46 +254,56 @@ internal fun ProductForm(
                     expanded = categoryMenuExpanded,
                     onDismissRequest = { categoryMenuExpanded = false },
                 ) {
-                    DropdownMenuItem(
-                        text = { Text("Tanpa kategori") },
-                        onClick = {
-                            usesCategoryId = false
-                            categoryId = ""
-                            fieldErrors = fieldErrors.copy(categoryId = null)
-                            categoryMenuExpanded = false
-                            onInputChanged()
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    )
-                    DropdownMenuItem(
-                        text = { Text("Gunakan ID kategori") },
-                        onClick = {
-                            usesCategoryId = true
-                            categoryMenuExpanded = false
-                            onInputChanged()
-                        },
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    )
+                    categoryOptions.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Text(option.label) },
+                            onClick = {
+                                categoryId = option.id
+                                fieldErrors = fieldErrors.copy(categoryId = null)
+                                categoryMenuExpanded = false
+                                onInputChanged()
+                            },
+                            modifier = Modifier.heightIn(min = 48.dp),
+                        )
+                    }
                 }
             }
 
-            if (usesCategoryId) {
-                OutlinedTextField(
-                    value = categoryId,
-                    onValueChange = {
-                        categoryId = it
-                        fieldErrors = fieldErrors.copy(categoryId = null)
-                        onInputChanged()
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = !isLoading,
-                    isError = fieldErrors.categoryId != null,
-                    label = { Text("ID Kategori") },
-                    supportingText = fieldErrors.categoryId?.let { message ->
-                        { Text(message) }
-                    },
-                    singleLine = true,
+            when (categoryState) {
+                CategoryState.Loading -> Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                    Text(
+                        text = "Memuat kategori...",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                CategoryState.Empty -> Text(
+                    text = "Belum ada kategori. Produk tetap dapat disimpan tanpa kategori.",
+                    style = MaterialTheme.typography.bodySmall,
                 )
+                is CategoryState.Error -> {
+                    Text(
+                        text = categoryState.message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(
+                        onClick = onRetryCategories,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 48.dp),
+                        enabled = !isLoading,
+                    ) {
+                        Text("Coba Muat Kategori")
+                    }
+                }
+                is CategoryState.Success -> Unit
             }
 
             Row(
@@ -325,7 +356,7 @@ internal fun ProductForm(
                                 price = price,
                                 cost = cost,
                                 minimumStock = minimumStock,
-                                categoryId = if (usesCategoryId) categoryId else null,
+                                categoryId = categoryId,
                                 trackStock = trackStock,
                             ),
                         )

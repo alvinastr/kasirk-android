@@ -31,6 +31,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Product
+import com.kasirkita.pos.presentation.stock.StockAdjustmentState
+import com.kasirkita.pos.presentation.stock.StockAdjustmentViewModel
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -38,30 +40,44 @@ import java.util.Locale
 fun ProductManagementScreen(
     onAddProduct: () -> Unit,
     onEditProduct: (Product) -> Unit,
+    onAdjustStock: (Product) -> Unit,
     productCreated: Boolean = false,
     onProductCreatedHandled: () -> Unit = {},
     productUpdated: Boolean = false,
     onProductUpdatedHandled: () -> Unit = {},
+    stockAdjusted: Boolean = false,
+    onStockAdjustedHandled: () -> Unit = {},
     viewModel: ProductViewModel = hiltViewModel(),
+    stockViewModel: StockAdjustmentViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val stockState by stockViewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(productCreated, productUpdated) {
+    LaunchedEffect(Unit) {
+        stockViewModel.loadStocks()
+    }
+
+    LaunchedEffect(productCreated, productUpdated, stockAdjusted) {
         val successMessage = when {
+            stockAdjusted -> "Stok produk berhasil diperbarui."
             productUpdated -> "Perubahan produk berhasil disimpan."
             productCreated -> "Produk berhasil ditambahkan."
             else -> null
         }
 
         if (successMessage != null) {
-            viewModel.refresh()
+            if (stockAdjusted) {
+                stockViewModel.loadStocks(force = true)
+            } else {
+                viewModel.refresh()
+            }
             snackbarHostState.showSnackbar(successMessage)
 
-            if (productUpdated) {
-                onProductUpdatedHandled()
-            } else {
-                onProductCreatedHandled()
+            when {
+                stockAdjusted -> onStockAdjustedHandled()
+                productUpdated -> onProductUpdatedHandled()
+                else -> onProductCreatedHandled()
             }
         }
     }
@@ -96,6 +112,12 @@ fun ProductManagementScreen(
                     Text("Tambah Produk")
                 }
 
+                if (stockState.stockLoadError != null) {
+                    StockLoadError(
+                        onRetry = { stockViewModel.loadStocks(force = true) },
+                    )
+                }
+
                 when (val currentState = state) {
                     ProductState.Loading -> ProductManagementLoading(
                         modifier = Modifier.weight(1f),
@@ -106,7 +128,9 @@ fun ProductManagementScreen(
                     )
                     is ProductState.Success -> ProductManagementList(
                         products = currentState.products,
+                        stockState = stockState,
                         onEditProduct = onEditProduct,
+                        onAdjustStock = onAdjustStock,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -118,6 +142,29 @@ fun ProductManagementScreen(
                     .align(Alignment.BottomCenter)
                     .padding(16.dp),
             )
+        }
+    }
+}
+
+@Composable
+private fun StockLoadError(onRetry: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 12.dp),
+    ) {
+        Text(
+            text = "Jumlah stok tidak dapat dimuat.",
+            color = MaterialTheme.colorScheme.error,
+        )
+        OutlinedButton(
+            onClick = onRetry,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+                .heightIn(min = 48.dp),
+        ) {
+            Text("Coba muat stok")
         }
     }
 }
@@ -165,7 +212,9 @@ private fun ProductManagementError(
 @Composable
 private fun ProductManagementList(
     products: List<Product>,
+    stockState: StockAdjustmentState,
     onEditProduct: (Product) -> Unit,
+    onAdjustStock: (Product) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (products.isEmpty()) {
@@ -193,7 +242,14 @@ private fun ProductManagementList(
             ProductManagementItem(
                 product = product,
                 formattedPrice = numberFormat.format(product.price),
+                stockQuantity = if (stockState.hasLoadedStocks) {
+                    stockState.currentStock(product.id)
+                } else {
+                    null
+                },
+                isStockLoading = stockState.isLoadingStock,
                 onEdit = { onEditProduct(product) },
+                onAdjustStock = { onAdjustStock(product) },
             )
             HorizontalDivider()
         }
@@ -204,7 +260,10 @@ private fun ProductManagementList(
 private fun ProductManagementItem(
     product: Product,
     formattedPrice: String,
+    stockQuantity: Int?,
+    isStockLoading: Boolean,
     onEdit: () -> Unit,
+    onAdjustStock: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -235,19 +294,33 @@ private fun ProductManagementItem(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = if (product.trackStock) {
-                    "Stok: Dikelola"
-                } else {
-                    "Stok: Tidak dikelola"
+                text = when {
+                    !product.trackStock -> "Stok: Tidak dikelola"
+                    stockQuantity != null -> "Stok: $stockQuantity"
+                    isStockLoading -> "Stok: Memuat..."
+                    else -> "Stok: Tidak tersedia"
                 },
             )
         }
 
-        OutlinedButton(
-            onClick = onEdit,
-            modifier = Modifier.heightIn(min = 48.dp),
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Text("Edit")
+            OutlinedButton(
+                onClick = onEdit,
+                modifier = Modifier.heightIn(min = 48.dp),
+            ) {
+                Text("Edit")
+            }
+            if (product.trackStock) {
+                OutlinedButton(
+                    onClick = onAdjustStock,
+                    modifier = Modifier.heightIn(min = 48.dp),
+                ) {
+                    Text("Stok")
+                }
+            }
         }
     }
 }

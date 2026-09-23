@@ -31,6 +31,7 @@ import com.kasirkita.pos.presentation.product.ProductManagementScreen
 import com.kasirkita.pos.presentation.product.ProductScreen
 import com.kasirkita.pos.presentation.receipt.ReceiptScreen
 import com.kasirkita.pos.presentation.shift.ShiftScreen
+import com.kasirkita.pos.presentation.stock.StockAdjustmentScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -61,6 +62,9 @@ fun AppNavigation(
             val productEditRoute = authenticatedSession
                 ?.role
                 ?.let(::productEditRouteFor)
+            val stockAdjustmentRoute = authenticatedSession
+                ?.role
+                ?.let(::stockAdjustmentRouteFor)
             val startDestination = if (authenticatedSession != null) {
                 Screen.Outlet.route
             } else {
@@ -148,7 +152,13 @@ fun AppNavigation(
                 val manageRoute = productManagementRoute
                 val createRoute = productCreateRoute
                 val editRoute = productEditRoute
-                if (manageRoute != null && createRoute != null && editRoute != null) {
+                val stockRoute = stockAdjustmentRoute
+                if (
+                    manageRoute != null &&
+                    createRoute != null &&
+                    editRoute != null &&
+                    stockRoute != null
+                ) {
                     composable(manageRoute) { backStackEntry ->
                         val productCreated by backStackEntry
                             .savedStateHandle
@@ -158,6 +168,10 @@ fun AppNavigation(
                             .savedStateHandle
                             .getStateFlow(PRODUCT_UPDATED_RESULT_KEY, false)
                             .collectAsState()
+                        val stockAdjusted by backStackEntry
+                            .savedStateHandle
+                            .getStateFlow(STOCK_ADJUSTED_RESULT_KEY, false)
+                            .collectAsState()
 
                         ProductManagementScreen(
                             onAddProduct = {
@@ -166,6 +180,11 @@ fun AppNavigation(
                             onEditProduct = { product ->
                                 navController.navigate(
                                     Screen.ProductEdit.createRoute(product.id),
+                                )
+                            },
+                            onAdjustStock = { product ->
+                                navController.navigate(
+                                    Screen.StockAdjustment.createRoute(product.id),
                                 )
                             },
                             productCreated = productCreated,
@@ -178,6 +197,12 @@ fun AppNavigation(
                             onProductUpdatedHandled = {
                                 backStackEntry.savedStateHandle[
                                     PRODUCT_UPDATED_RESULT_KEY
+                                ] = false
+                            },
+                            stockAdjusted = stockAdjusted,
+                            onStockAdjustedHandled = {
+                                backStackEntry.savedStateHandle[
+                                    STOCK_ADJUSTED_RESULT_KEY
                                 ] = false
                             },
                         )
@@ -207,6 +232,23 @@ fun AppNavigation(
                                 navController.previousBackStackEntry
                                     ?.savedStateHandle
                                     ?.set(PRODUCT_UPDATED_RESULT_KEY, true)
+                                navController.popBackStack()
+                            },
+                        )
+                    }
+
+                    composable(stockRoute) { backStackEntry ->
+                        val productId = requireNotNull(
+                            backStackEntry.arguments?.getString(PRODUCT_ID_ARGUMENT),
+                        )
+
+                        StockAdjustmentScreen(
+                            productId = productId,
+                            onCancel = navController::popBackStack,
+                            onAdjustmentSaved = {
+                                navController.previousBackStackEntry
+                                    ?.savedStateHandle
+                                    ?.set(STOCK_ADJUSTED_RESULT_KEY, true)
                                 navController.popBackStack()
                             },
                         )
@@ -264,8 +306,16 @@ internal fun productEditRouteFor(role: UserRole): String? = when (role) {
     UserRole.CASHIER -> null
 }
 
+internal fun stockAdjustmentRouteFor(role: UserRole): String? = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    -> Screen.StockAdjustment.route
+    UserRole.CASHIER -> null
+}
+
 internal const val PRODUCT_CREATED_RESULT_KEY = "product_created"
 internal const val PRODUCT_UPDATED_RESULT_KEY = "product_updated"
+internal const val STOCK_ADJUSTED_RESULT_KEY = "stock_adjusted"
 private const val PRODUCT_ID_ARGUMENT = "productId"
 
 @Composable
