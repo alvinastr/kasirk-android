@@ -26,6 +26,7 @@ import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
 import com.kasirkita.pos.presentation.outlet.OutletScreen
 import com.kasirkita.pos.presentation.product.CreateProductScreen
+import com.kasirkita.pos.presentation.product.EditProductScreen
 import com.kasirkita.pos.presentation.product.ProductManagementScreen
 import com.kasirkita.pos.presentation.product.ProductScreen
 import com.kasirkita.pos.presentation.receipt.ReceiptScreen
@@ -57,6 +58,9 @@ fun AppNavigation(
             val productCreateRoute = authenticatedSession
                 ?.role
                 ?.let(::productCreateRouteFor)
+            val productEditRoute = authenticatedSession
+                ?.role
+                ?.let(::productEditRouteFor)
             val startDestination = if (authenticatedSession != null) {
                 Screen.Outlet.route
             } else {
@@ -143,21 +147,37 @@ fun AppNavigation(
 
                 val manageRoute = productManagementRoute
                 val createRoute = productCreateRoute
-                if (manageRoute != null && createRoute != null) {
+                val editRoute = productEditRoute
+                if (manageRoute != null && createRoute != null && editRoute != null) {
                     composable(manageRoute) { backStackEntry ->
                         val productCreated by backStackEntry
                             .savedStateHandle
                             .getStateFlow(PRODUCT_CREATED_RESULT_KEY, false)
+                            .collectAsState()
+                        val productUpdated by backStackEntry
+                            .savedStateHandle
+                            .getStateFlow(PRODUCT_UPDATED_RESULT_KEY, false)
                             .collectAsState()
 
                         ProductManagementScreen(
                             onAddProduct = {
                                 navController.navigate(createRoute)
                             },
+                            onEditProduct = { product ->
+                                navController.navigate(
+                                    Screen.ProductEdit.createRoute(product.id),
+                                )
+                            },
                             productCreated = productCreated,
                             onProductCreatedHandled = {
                                 backStackEntry.savedStateHandle[
                                     PRODUCT_CREATED_RESULT_KEY
+                                ] = false
+                            },
+                            productUpdated = productUpdated,
+                            onProductUpdatedHandled = {
+                                backStackEntry.savedStateHandle[
+                                    PRODUCT_UPDATED_RESULT_KEY
                                 ] = false
                             },
                         )
@@ -170,6 +190,23 @@ fun AppNavigation(
                                 navController.previousBackStackEntry
                                     ?.savedStateHandle
                                     ?.set(PRODUCT_CREATED_RESULT_KEY, true)
+                                navController.popBackStack()
+                            },
+                        )
+                    }
+
+                    composable(editRoute) { backStackEntry ->
+                        val productId = requireNotNull(
+                            backStackEntry.arguments?.getString(PRODUCT_ID_ARGUMENT),
+                        )
+
+                        EditProductScreen(
+                            productId = productId,
+                            onCancel = navController::popBackStack,
+                            onProductUpdated = {
+                                navController.previousBackStackEntry
+                                    ?.savedStateHandle
+                                    ?.set(PRODUCT_UPDATED_RESULT_KEY, true)
                                 navController.popBackStack()
                             },
                         )
@@ -220,7 +257,16 @@ internal fun productCreateRouteFor(role: UserRole): String? = when (role) {
     UserRole.CASHIER -> null
 }
 
+internal fun productEditRouteFor(role: UserRole): String? = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    -> Screen.ProductEdit.route
+    UserRole.CASHIER -> null
+}
+
 internal const val PRODUCT_CREATED_RESULT_KEY = "product_created"
+internal const val PRODUCT_UPDATED_RESULT_KEY = "product_updated"
+private const val PRODUCT_ID_ARGUMENT = "productId"
 
 @Composable
 private fun SessionLoadingContent() {

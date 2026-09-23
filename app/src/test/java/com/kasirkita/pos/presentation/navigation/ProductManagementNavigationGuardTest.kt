@@ -17,6 +17,10 @@ class ProductManagementNavigationGuardTest {
             Screen.ProductCreate.route,
             productCreateRouteFor(UserRole.OWNER),
         )
+        assertEquals(
+            Screen.ProductEdit.route,
+            productEditRouteFor(UserRole.OWNER),
+        )
     }
 
     @Test
@@ -29,11 +33,24 @@ class ProductManagementNavigationGuardTest {
             Screen.ProductCreate.route,
             productCreateRouteFor(UserRole.ADMIN),
         )
+        assertEquals(
+            Screen.ProductEdit.route,
+            productEditRouteFor(UserRole.ADMIN),
+        )
     }
 
     @Test
     fun cashier_cannotAccessProductManagementRoute() {
         assertNull(productManagementRouteFor(UserRole.CASHIER))
         assertNull(productCreateRouteFor(UserRole.CASHIER))
+        assertNull(productEditRouteFor(UserRole.CASHIER))
+    }
+
+    @Test
+    fun editRoute_containsSelectedProductId() {
+        assertEquals(
+            "products/manage/product-id/edit",
+            Screen.ProductEdit.createRoute("product-id"),
+        )
     }
 }

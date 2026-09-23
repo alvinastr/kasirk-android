@@ -26,6 +26,12 @@ class ProductManagementViewModel @Inject constructor(
     )
     val state: StateFlow<ProductManagementState> = _state.asStateFlow()
 
+    fun clearError() {
+        if (_state.value is ProductManagementState.Error) {
+            _state.value = ProductManagementState.Idle
+        }
+    }
+
     fun createProduct(
         name: String,
         sku: String,
@@ -53,6 +59,7 @@ class ProductManagementViewModel @Inject constructor(
         name: String? = null,
         sku: String? = null,
         categoryId: String? = null,
+        categoryIdChanged: Boolean = false,
         price: Long? = null,
         cost: Long? = null,
         minimumStock: Int? = null,
@@ -64,6 +71,7 @@ class ProductManagementViewModel @Inject constructor(
                 name = name,
                 sku = sku,
                 categoryId = categoryId,
+                categoryIdChanged = categoryIdChanged,
                 price = price,
                 cost = cost,
                 minimumStock = minimumStock,
@@ -103,6 +111,8 @@ internal fun productManagementErrorMessage(throwable: Throwable): String {
                 "SKU sudah digunakan. Gunakan SKU lain."
             "CATEGORY_NOT_FOUND" in normalizedBody ->
                 "Kategori tidak ditemukan. Pilih kategori lain atau gunakan Tanpa kategori."
+            "PRODUCT_NOT_FOUND" in normalizedBody ->
+                "Produk tidak ditemukan. Daftar produk mungkin sudah berubah."
             "VALIDATION_ERROR" in normalizedBody ||
                 throwable.code() == 400 ||
                 throwable.code() == 422 ->
@@ -110,7 +120,7 @@ internal fun productManagementErrorMessage(throwable: Throwable): String {
             throwable.code() == 401 ->
                 "Sesi login berakhir. Silakan login kembali."
             throwable.code() == 403 ->
-                "Anda tidak memiliki izin untuk menambah produk."
+                "Anda tidak memiliki izin untuk mengelola produk."
             else -> "Produk tidak dapat disimpan. Coba lagi."
         }
     }

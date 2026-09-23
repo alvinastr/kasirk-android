@@ -1,8 +1,8 @@
 package com.kasirkita.pos.data.api
 
+import com.google.gson.JsonObject
 import com.kasirkita.pos.data.model.CreateProductRequest
 import com.kasirkita.pos.data.model.ProductResponse
-import com.kasirkita.pos.data.model.UpdateProductRequest
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.PATCH
@@ -22,6 +22,6 @@ interface ProductApi {
     @PATCH("products/{id}")
     suspend fun updateProduct(
         @Path("id") productId: String,
-        @Body request: UpdateProductRequest,
+        @Body request: JsonObject,
     ): ProductResponse
 }

@@ -37,18 +37,32 @@ import java.util.Locale
 @Composable
 fun ProductManagementScreen(
     onAddProduct: () -> Unit,
+    onEditProduct: (Product) -> Unit,
     productCreated: Boolean = false,
     onProductCreatedHandled: () -> Unit = {},
+    productUpdated: Boolean = false,
+    onProductUpdatedHandled: () -> Unit = {},
     viewModel: ProductViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(productCreated) {
-        if (productCreated) {
-            onProductCreatedHandled()
+    LaunchedEffect(productCreated, productUpdated) {
+        val successMessage = when {
+            productUpdated -> "Perubahan produk berhasil disimpan."
+            productCreated -> "Produk berhasil ditambahkan."
+            else -> null
+        }
+
+        if (successMessage != null) {
             viewModel.refresh()
-            snackbarHostState.showSnackbar("Produk berhasil ditambahkan.")
+            snackbarHostState.showSnackbar(successMessage)
+
+            if (productUpdated) {
+                onProductUpdatedHandled()
+            } else {
+                onProductCreatedHandled()
+            }
         }
     }
 
@@ -92,6 +106,7 @@ fun ProductManagementScreen(
                     )
                     is ProductState.Success -> ProductManagementList(
                         products = currentState.products,
+                        onEditProduct = onEditProduct,
                         modifier = Modifier.weight(1f),
                     )
                 }
@@ -150,6 +165,7 @@ private fun ProductManagementError(
 @Composable
 private fun ProductManagementList(
     products: List<Product>,
+    onEditProduct: (Product) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     if (products.isEmpty()) {
@@ -177,6 +193,7 @@ private fun ProductManagementList(
             ProductManagementItem(
                 product = product,
                 formattedPrice = numberFormat.format(product.price),
+                onEdit = { onEditProduct(product) },
             )
             HorizontalDivider()
         }
@@ -187,6 +204,7 @@ private fun ProductManagementList(
 private fun ProductManagementItem(
     product: Product,
     formattedPrice: String,
+    onEdit: () -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -226,11 +244,10 @@ private fun ProductManagementItem(
         }
 
         OutlinedButton(
-            onClick = {},
+            onClick = onEdit,
             modifier = Modifier.heightIn(min = 48.dp),
-            enabled = false,
         ) {
-            Text("Edit (Fase 2)")
+            Text("Edit")
         }
     }
 }

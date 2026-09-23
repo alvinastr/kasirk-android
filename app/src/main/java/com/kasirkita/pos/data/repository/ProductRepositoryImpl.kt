@@ -6,6 +6,7 @@ import com.kasirkita.pos.data.local.ProductLocalDataSource
 import com.kasirkita.pos.data.model.CreateProductRequest
 import com.kasirkita.pos.data.model.ProductResponse
 import com.kasirkita.pos.data.model.UpdateProductRequest
+import com.kasirkita.pos.data.model.toJsonObject
 import com.kasirkita.pos.domain.model.Product
 import com.kasirkita.pos.domain.repository.ProductRepository
 import javax.inject.Inject
@@ -57,6 +58,7 @@ class ProductRepositoryImpl @Inject constructor(
         name: String?,
         sku: String?,
         categoryId: String?,
+        categoryIdChanged: Boolean,
         price: Long?,
         cost: Long?,
         minimumStock: Int?,
@@ -68,11 +70,12 @@ class ProductRepositoryImpl @Inject constructor(
                 name = name,
                 sku = sku,
                 categoryId = categoryId,
+                categoryIdChanged = categoryIdChanged,
                 price = price,
                 cost = cost,
                 minimumStock = minimumStock,
                 trackStock = trackStock,
-            ),
+            ).toJsonObject(),
         ).toEntity().toDomain()
     }
 

@@ -1,12 +1,12 @@
 package com.kasirkita.pos.data.repository
 
+import com.google.gson.JsonObject
 import com.kasirkita.pos.core.database.dao.ProductDao
 import com.kasirkita.pos.core.database.entity.ProductEntity
 import com.kasirkita.pos.data.api.ProductApi
 import com.kasirkita.pos.data.local.ProductLocalDataSource
 import com.kasirkita.pos.data.model.CreateProductRequest
 import com.kasirkita.pos.data.model.ProductResponse
-import com.kasirkita.pos.data.model.UpdateProductRequest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -79,6 +79,27 @@ class ProductRepositoryImplTest {
     }
 
     @Test
+    fun updateProduct_sendsOnlyChangedFieldsAndMapsResponse() = runBlocking {
+        api.updateResponse = sampleResponse(
+            trackStock = false,
+            price = 17_000L,
+        )
+
+        val product = repository.updateProduct(
+            productId = PRODUCT_ID,
+            price = 17_000L,
+            trackStock = false,
+        ).getOrThrow()
+
+        assertEquals(PRODUCT_ID, api.lastUpdateProductId)
+        assertEquals(17_000L, api.lastUpdateRequest?.get("price")?.asLong)
+        assertFalse(api.lastUpdateRequest?.get("track_stock")?.asBoolean ?: true)
+        assertEquals(2, api.lastUpdateRequest?.size())
+        assertEquals(17_000L, product.price)
+        assertFalse(product.trackStock)
+    }
+
+    @Test
     fun getProducts_whenCacheExists_keepsCacheFirstBehavior() = runBlocking {
         dao.products += sampleResponse(trackStock = true).toEntity()
 
@@ -90,13 +111,16 @@ class ProductRepositoryImplTest {
         assertEquals(0, api.getProductsCallCount)
     }
 
-    private fun sampleResponse(trackStock: Boolean) = ProductResponse(
+    private fun sampleResponse(
+        trackStock: Boolean,
+        price: Long = 15_000L,
+    ) = ProductResponse(
         id = PRODUCT_ID,
         tenantId = "tenant-id",
         categoryId = null,
         name = "Kopi Susu",
         sku = "KOPISUSU002",
-        price = 15_000L,
+        price = price,
         cost = 8_000L,
         minimumStock = 0,
         trackStock = trackStock,
@@ -111,6 +135,8 @@ class ProductRepositoryImplTest {
         var updateResponse: ProductResponse? = null
         var updateFailure: Throwable? = null
         var lastCreateRequest: CreateProductRequest? = null
+        var lastUpdateProductId: String? = null
+        var lastUpdateRequest: JsonObject? = null
 
         override suspend fun getProducts(): List<ProductResponse> {
             getProductsCallCount++
@@ -126,8 +152,10 @@ class ProductRepositoryImplTest {
 
         override suspend fun updateProduct(
             productId: String,
-            request: UpdateProductRequest,
+            request: JsonObject,
         ): ProductResponse {
+            lastUpdateProductId = productId
+            lastUpdateRequest = request
             updateFailure?.let { throwable -> throw throwable }
             return requireNotNull(updateResponse)
         }

@@ -6,6 +6,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import retrofit2.HttpException
 import retrofit2.Response
+import java.io.IOException
 
 class ProductManagementErrorMessageTest {
 
@@ -36,6 +37,44 @@ class ProductManagementErrorMessageTest {
             productManagementErrorMessage(
                 httpException(400, "{\"message\":[\"price must be an integer\"]}"),
             ),
+        )
+    }
+
+    @Test
+    fun productNotFound_mapsToReadableMessage() {
+        assertEquals(
+            "Produk tidak ditemukan. Daftar produk mungkin sudah berubah.",
+            productManagementErrorMessage(
+                httpException(404, "{\"message\":\"PRODUCT_NOT_FOUND\"}"),
+            ),
+        )
+    }
+
+    @Test
+    fun unauthorized_mapsToExpiredSessionMessage() {
+        assertEquals(
+            "Sesi login berakhir. Silakan login kembali.",
+            productManagementErrorMessage(
+                httpException(401, "{\"message\":\"Unauthorized\"}"),
+            ),
+        )
+    }
+
+    @Test
+    fun forbidden_mapsToManagementPermissionMessage() {
+        assertEquals(
+            "Anda tidak memiliki izin untuk mengelola produk.",
+            productManagementErrorMessage(
+                httpException(403, "{\"message\":\"Forbidden\"}"),
+            ),
+        )
+    }
+
+    @Test
+    fun networkFailure_mapsToConnectionMessage() {
+        assertEquals(
+            "Tidak dapat terhubung ke server. Periksa koneksi lalu coba lagi.",
+            productManagementErrorMessage(IOException("network unavailable")),
         )
     }
 

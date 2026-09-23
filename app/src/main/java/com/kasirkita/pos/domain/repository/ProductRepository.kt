@@ -22,6 +22,7 @@ interface ProductRepository {
         name: String? = null,
         sku: String? = null,
         categoryId: String? = null,
+        categoryIdChanged: Boolean = false,
         price: Long? = null,
         cost: Long? = null,
         minimumStock: Int? = null,

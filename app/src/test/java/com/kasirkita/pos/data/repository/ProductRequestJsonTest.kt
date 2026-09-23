@@ -3,6 +3,7 @@ package com.kasirkita.pos.data.repository
 import com.google.gson.GsonBuilder
 import com.kasirkita.pos.data.model.CreateProductRequest
 import com.kasirkita.pos.data.model.UpdateProductRequest
+import com.kasirkita.pos.data.model.toJsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -44,26 +45,25 @@ class ProductRequestJsonTest {
         val emptyRequest = UpdateProductRequest()
         assertNull(emptyRequest.name)
         assertNull(emptyRequest.trackStock)
+        assertEquals(0, emptyRequest.toJsonObject().size())
 
         val request = UpdateProductRequest(
-            name = "Kopi Susu Baru",
             sku = "KOPISUSU003",
             categoryId = null,
+            categoryIdChanged = true,
             price = 16_000L,
-            cost = 8_500L,
-            minimumStock = 2,
-            trackStock = true,
         )
 
-        val json = gson.toJsonTree(request).asJsonObject
+        val json = request.toJsonObject()
 
-        assertEquals("Kopi Susu Baru", json.get("name").asString)
         assertEquals("KOPISUSU003", json.get("sku").asString)
         assertTrue(json.get("category_id").isJsonNull)
         assertEquals(16_000L, json.get("price").asLong)
-        assertEquals(8_500L, json.get("cost").asLong)
-        assertEquals(2, json.get("minimum_stock").asInt)
-        assertTrue(json.get("track_stock").asBoolean)
+        assertEquals(3, json.size())
+        assertFalse(json.has("name"))
+        assertFalse(json.has("cost"))
+        assertFalse(json.has("minimum_stock"))
+        assertFalse(json.has("track_stock"))
         assertFalse(json.has("categoryId"))
         assertFalse(json.has("minimumStock"))
         assertFalse(json.has("trackStock"))
