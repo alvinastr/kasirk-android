@@ -3,17 +3,23 @@ package com.kasirkita.pos.presentation.shift
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.domain.model.Shift
-import com.kasirkita.pos.domain.repository.ShiftRepository
+import com.kasirkita.pos.domain.usecase.CloseShiftUseCase
+import com.kasirkita.pos.domain.usecase.GetCurrentShiftUseCase
+import com.kasirkita.pos.domain.usecase.OpenShiftUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
+import java.io.IOException
 import javax.inject.Inject
 
 @HiltViewModel
 class ShiftViewModel @Inject constructor(
-    private val shiftRepository: ShiftRepository,
+    private val getCurrentShiftUseCase: GetCurrentShiftUseCase,
+    private val openShiftUseCase: OpenShiftUseCase,
+    private val closeShiftUseCase: CloseShiftUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ShiftState>(ShiftState.Loading)
@@ -24,12 +30,10 @@ class ShiftViewModel @Inject constructor(
     }
 
     fun loadCurrentShift() {
-        execute(
-            request = shiftRepository::getCurrentShift,
-            onSuccess = { shift ->
-                _state.value = shift.toState()
-            },
-        )
+        viewModelScope.launch {
+            _state.value = ShiftState.Loading
+            _state.value = shiftStateAfterLoad(getCurrentShiftUseCase())
+        }
     }
 
     fun openShift(
@@ -37,68 +41,87 @@ class ShiftViewModel @Inject constructor(
         openingCash: Long,
     ) {
         if (outletId.isBlank()) {
-            _state.value = ShiftState.Error("Outlet ID wajib tersedia")
+            _state.value = ShiftState.Error("Outlet belum dipilih.")
             return
         }
         if (openingCash < 0L) {
-            _state.value = ShiftState.Error("Opening Cash tidak boleh negatif")
+            _state.value = ShiftState.Error("Kas awal tidak boleh negatif.")
             return
         }
 
-        execute(
-            request = {
-                shiftRepository.openShift(
+        viewModelScope.launch {
+            _state.value = ShiftState.Opening
+            _state.value = shiftStateAfterOpen(
+                openShiftUseCase(
                     outletId = outletId,
                     openingCash = openingCash,
-                )
-            },
-            onSuccess = { shift ->
-                _state.value = ShiftState.ShiftLoaded(shift)
-            },
-        )
-    }
-
-    fun closeShift(closingCash: Long) {
-        val activeShift = (_state.value as? ShiftState.ShiftLoaded)?.shift
-        if (activeShift == null) {
-            _state.value = ShiftState.Error("Tidak ada shift aktif")
-            return
-        }
-        if (closingCash < 0L) {
-            _state.value = ShiftState.Error("Closing Cash tidak boleh negatif")
-            return
-        }
-
-        execute(
-            request = {
-                shiftRepository.closeShift(
-                    shiftId = activeShift.id,
-                    closingCash = closingCash,
-                )
-            },
-            onSuccess = {
-                _state.value = ShiftState.NoShift
-            },
-        )
-    }
-
-    private fun <T> execute(
-        request: suspend () -> Result<T>,
-        onSuccess: (T) -> Unit,
-    ) {
-        viewModelScope.launch {
-            _state.value = ShiftState.Loading
-            request().fold(
-                onSuccess = onSuccess,
-                onFailure = { throwable ->
-                    _state.value = ShiftState.Error(
-                        throwable.message ?: "Operasi shift gagal.",
-                    )
-                },
+                ),
             )
         }
     }
 
-    private fun Shift?.toState(): ShiftState =
-        if (this == null) ShiftState.NoShift else ShiftState.ShiftLoaded(this)
+    fun closeShift(closingCash: Long) {
+        val activeShift = when (val currentState = _state.value) {
+            is ShiftState.ShiftLoaded -> currentState.shift
+            is ShiftState.Closing -> currentState.shift
+            else -> null
+        }
+        if (activeShift == null) {
+            _state.value = ShiftState.Error("Tidak ada shift aktif.")
+            return
+        }
+        if (closingCash < 0L) {
+            _state.value = ShiftState.Error("Kas akhir tidak boleh negatif.")
+            return
+        }
+
+        viewModelScope.launch {
+            _state.value = ShiftState.Closing(activeShift)
+            _state.value = shiftStateAfterClose(
+                closeShiftUseCase(
+                    shiftId = activeShift.id,
+                    closingCash = closingCash,
+                ),
+            )
+        }
+    }
+
+    fun startNewShift() {
+        if (_state.value is ShiftState.ShiftClosed) {
+            _state.value = ShiftState.NoShift
+        }
+    }
+}
+
+internal fun shiftStateAfterLoad(result: Result<Shift?>): ShiftState = result.fold(
+    onSuccess = { shift ->
+        if (shift == null) ShiftState.NoShift else ShiftState.ShiftLoaded(shift)
+    },
+    onFailure = { throwable -> ShiftState.Error(shiftErrorMessage(throwable)) },
+)
+
+internal fun shiftStateAfterOpen(result: Result<Shift>): ShiftState = result.fold(
+    onSuccess = ShiftState::ShiftLoaded,
+    onFailure = { throwable -> ShiftState.Error(shiftErrorMessage(throwable)) },
+)
+
+internal fun shiftStateAfterClose(result: Result<Shift>): ShiftState = result.fold(
+    onSuccess = ShiftState::ShiftClosed,
+    onFailure = { throwable -> ShiftState.Error(shiftErrorMessage(throwable)) },
+)
+
+internal fun shiftErrorMessage(throwable: Throwable): String = when {
+    throwable is IOException ->
+        "Tidak dapat terhubung ke server. Periksa koneksi lalu coba lagi."
+    throwable is HttpException && throwable.code() == 400 ->
+        "Nilai kas tidak valid. Periksa kembali input Anda."
+    throwable is HttpException && throwable.code() == 401 ->
+        "Sesi sudah berakhir. Silakan login kembali."
+    throwable is HttpException && throwable.code() == 403 ->
+        "Anda tidak memiliki akses untuk mengelola shift ini."
+    throwable is HttpException && throwable.code() == 404 ->
+        "Shift atau outlet tidak ditemukan."
+    throwable is HttpException && throwable.code() == 409 ->
+        "Status shift sudah berubah. Muat ulang lalu coba lagi."
+    else -> "Operasi shift gagal. Coba lagi."
 }

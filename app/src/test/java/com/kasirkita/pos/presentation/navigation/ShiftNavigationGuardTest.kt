@@ -1,12 +1,21 @@
 package com.kasirkita.pos.presentation.navigation
 
 import com.kasirkita.pos.domain.model.Shift
+import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.presentation.shift.shouldNavigateToHomeFromShift
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShiftNavigationGuardTest {
+
+    @Test
+    fun everyAuthenticatedRole_canAccessShiftRoute() {
+        UserRole.entries.forEach { role ->
+            assertEquals(Screen.Shift.route, shiftRouteFor(role))
+        }
+    }
 
     @Test
     fun initialShiftGate_withMatchingOpenShift_navigatesToHome() {
