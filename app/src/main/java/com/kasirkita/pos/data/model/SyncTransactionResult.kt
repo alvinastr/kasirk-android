@@ -6,7 +6,7 @@ data class SyncTransactionResult(
     @SerializedName("client_transaction_id")
     val clientTransactionId: String,
     val status: String,
-    val transaction: TransactionResponse?,
+    val transaction: TransactionDetailResponse?,
     val error: SyncTransactionError?,
 )
 

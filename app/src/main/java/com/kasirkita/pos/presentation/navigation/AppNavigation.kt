@@ -9,7 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.compose.NavHost
@@ -32,6 +32,8 @@ import com.kasirkita.pos.presentation.product.ProductScreen
 import com.kasirkita.pos.presentation.receipt.ReceiptScreen
 import com.kasirkita.pos.presentation.shift.ShiftScreen
 import com.kasirkita.pos.presentation.stock.StockAdjustmentScreen
+import com.kasirkita.pos.presentation.transaction.TransactionDetailScreen
+import com.kasirkita.pos.presentation.transaction.TransactionHistoryScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,6 +67,15 @@ fun AppNavigation(
             val stockAdjustmentRoute = authenticatedSession
                 ?.role
                 ?.let(::stockAdjustmentRouteFor)
+            val shiftRoute = authenticatedSession
+                ?.role
+                ?.let(::shiftRouteFor)
+            val transactionHistoryRoute = authenticatedSession
+                ?.role
+                ?.let(::transactionHistoryRouteFor)
+            val transactionDetailRoute = authenticatedSession
+                ?.role
+                ?.let(::transactionDetailRouteFor)
             val startDestination = if (authenticatedSession != null) {
                 Screen.Outlet.route
             } else {
@@ -113,6 +124,7 @@ fun AppNavigation(
                         }
                         ShiftScreen(
                             outletId = outlet.id,
+                            outletName = outlet.name,
                             autoNavigateToHome = isGateEntry,
                             onShiftOpen = {
                                 navController.navigate(Screen.Home.route) {
@@ -133,9 +145,12 @@ fun AppNavigation(
                             navController.navigate(Screen.Cart.route)
                         },
                         onShiftClick = {
-                            navController.navigate(Screen.Shift.route)
+                            shiftRoute?.let(navController::navigate)
                         },
                         onManageProductsClick = productManagementRoute?.let { route ->
+                            { navController.navigate(route) }
+                        },
+                        onTransactionsClick = transactionHistoryRoute?.let { route ->
                             { navController.navigate(route) }
                         },
                     )
@@ -277,6 +292,27 @@ fun AppNavigation(
                 composable(Screen.Receipt.route) {
                     ReceiptScreen()
                 }
+
+                val historyRoute = transactionHistoryRoute
+                val detailRoute = transactionDetailRoute
+                if (historyRoute != null && detailRoute != null) {
+                    composable(historyRoute) {
+                        TransactionHistoryScreen(
+                            onBack = navController::popBackStack,
+                            onTransactionClick = { transactionId ->
+                                navController.navigate(
+                                    Screen.TransactionDetail.createRoute(transactionId),
+                                )
+                            },
+                        )
+                    }
+
+                    composable(detailRoute) {
+                        TransactionDetailScreen(
+                            onBack = navController::popBackStack,
+                        )
+                    }
+                }
             }
         }
     }
@@ -284,6 +320,13 @@ fun AppNavigation(
 
 internal fun isShiftGateEntry(previousRoute: String?): Boolean =
     previousRoute != Screen.Home.route
+
+internal fun shiftRouteFor(role: UserRole): String = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    UserRole.CASHIER,
+    -> Screen.Shift.route
+}
 
 internal fun productManagementRouteFor(role: UserRole): String? = when (role) {
     UserRole.OWNER,
@@ -311,6 +354,20 @@ internal fun stockAdjustmentRouteFor(role: UserRole): String? = when (role) {
     UserRole.ADMIN,
     -> Screen.StockAdjustment.route
     UserRole.CASHIER -> null
+}
+
+internal fun transactionHistoryRouteFor(role: UserRole): String = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    UserRole.CASHIER,
+    -> Screen.Transactions.route
+}
+
+internal fun transactionDetailRouteFor(role: UserRole): String = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    UserRole.CASHIER,
+    -> Screen.TransactionDetail.route
 }
 
 internal const val PRODUCT_CREATED_RESULT_KEY = "product_created"

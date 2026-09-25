@@ -25,6 +25,7 @@ fun HomeScreen(
     onCartClick: () -> Unit,
     onShiftClick: () -> Unit,
     onManageProductsClick: (() -> Unit)? = null,
+    onTransactionsClick: (() -> Unit)? = null,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val syncState by viewModel.syncState.collectAsState()
@@ -105,6 +106,17 @@ fun HomeScreen(
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Shift")
+        }
+
+        onTransactionsClick?.let { onClick ->
+            OutlinedButton(
+                onClick = onClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+            ) {
+                Text("Riwayat Transaksi")
+            }
         }
     }
 }

@@ -1,9 +1,20 @@
 package com.kasirkita.pos.data.model
 
 import com.google.gson.annotations.SerializedName
-import com.kasirkita.pos.domain.model.Payment
 import com.kasirkita.pos.domain.model.Transaction
-import com.kasirkita.pos.domain.model.TransactionItem
+
+data class TransactionsResponse(
+    val data: List<TransactionResponse>,
+    val meta: TransactionsMetaResponse,
+)
+
+data class TransactionsMetaResponse(
+    val page: Int,
+    val limit: Int,
+    val total: Int,
+    @SerializedName("total_pages")
+    val totalPages: Int,
+)
 
 data class TransactionResponse(
     @SerializedName("transaction_id")
@@ -21,30 +32,8 @@ data class TransactionResponse(
     val discount: Long,
     val tax: Long,
     val total: Long,
-    val items: List<TransactionItemResponse>,
-    val payments: List<PaymentResponse>,
-    val change: Long?,
     @SerializedName("created_at")
     val createdAt: String,
-)
-
-data class TransactionItemResponse(
-    val id: String,
-    @SerializedName("product_id")
-    val productId: String,
-    val quantity: Int,
-    @SerializedName("unit_price")
-    val unitPrice: Long,
-    val subtotal: Long,
-)
-
-data class PaymentResponse(
-    val id: String,
-    val method: String,
-    val status: String,
-    val amount: Long,
-    @SerializedName("paid_at")
-    val paidAt: String?,
 )
 
 fun TransactionResponse.toDomain(): Transaction = Transaction(
@@ -58,24 +47,8 @@ fun TransactionResponse.toDomain(): Transaction = Transaction(
     discount = discount,
     tax = tax,
     total = total,
-    items = items.map { item ->
-        TransactionItem(
-            id = item.id,
-            productId = item.productId,
-            quantity = item.quantity,
-            unitPrice = item.unitPrice,
-            subtotal = item.subtotal,
-        )
-    },
-    payments = payments.map { payment ->
-        Payment(
-            id = payment.id,
-            method = payment.method,
-            status = payment.status,
-            amount = payment.amount,
-            paidAt = payment.paidAt,
-        )
-    },
-    change = change,
+    items = emptyList(),
+    payments = emptyList(),
+    change = null,
     createdAt = createdAt,
 )
