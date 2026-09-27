@@ -9,9 +9,11 @@ import com.kasirkita.pos.core.network.ApiConstants
 import com.kasirkita.pos.core.network.AuthInterceptor
 import com.kasirkita.pos.core.network.AuthTokenProvider
 import com.kasirkita.pos.data.api.AuthApi
+import com.kasirkita.pos.data.api.AuthV2Api
 import com.kasirkita.pos.data.api.CategoryApi
 import com.kasirkita.pos.data.api.OutletApi
 import com.kasirkita.pos.data.api.ProductApi
+import com.kasirkita.pos.data.api.ReportApi
 import com.kasirkita.pos.data.api.ReceiptApi
 import com.kasirkita.pos.data.api.ShiftApi
 import com.kasirkita.pos.data.api.SyncApi
@@ -86,6 +88,11 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    fun provideAuthV2Api(retrofit: Retrofit): AuthV2Api =
+        retrofit.create(AuthV2Api::class.java)
+
+    @Provides
+    @Singleton
     fun provideCategoryApi(retrofit: Retrofit): CategoryApi =
         retrofit.create(CategoryApi::class.java)
 
@@ -96,6 +103,10 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideProductApi(retrofit: Retrofit): ProductApi = retrofit.create(ProductApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideReportApi(retrofit: Retrofit): ReportApi = retrofit.create(ReportApi::class.java)
 
     @Provides
     @Singleton

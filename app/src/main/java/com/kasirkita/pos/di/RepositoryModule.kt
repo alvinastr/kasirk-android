@@ -1,21 +1,25 @@
 package com.kasirkita.pos.di
 
 import com.kasirkita.pos.data.repository.AuthRepositoryImpl
+import com.kasirkita.pos.data.repository.AuthV2RepositoryImpl
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.data.repository.CategoryRepositoryImpl
 import com.kasirkita.pos.data.repository.OutletRepositoryImpl
 import com.kasirkita.pos.data.repository.OfflineSyncRepositoryImpl
 import com.kasirkita.pos.data.repository.ProductRepositoryImpl
+import com.kasirkita.pos.data.repository.ReportRepositoryImpl
 import com.kasirkita.pos.data.repository.ReceiptRepositoryImpl
 import com.kasirkita.pos.data.repository.ShiftRepositoryImpl
 import com.kasirkita.pos.data.repository.StockRepositoryImpl
 import com.kasirkita.pos.data.repository.TransactionRepositoryImpl
 import com.kasirkita.pos.domain.repository.AuthRepository
+import com.kasirkita.pos.domain.repository.AuthV2Repository
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.CategoryRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import com.kasirkita.pos.domain.repository.ProductRepository
+import com.kasirkita.pos.domain.repository.ReportRepository
 import com.kasirkita.pos.domain.repository.ReceiptRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.domain.repository.StockRepository
@@ -38,6 +42,12 @@ abstract class RepositoryModule {
 
     @Binds
     @Singleton
+    abstract fun bindAuthV2Repository(
+        implementation: AuthV2RepositoryImpl,
+    ): AuthV2Repository
+
+    @Binds
+    @Singleton
     abstract fun bindCategoryRepository(
         implementation: CategoryRepositoryImpl,
     ): CategoryRepository
@@ -47,6 +57,12 @@ abstract class RepositoryModule {
     abstract fun bindProductRepository(
         implementation: ProductRepositoryImpl,
     ): ProductRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindReportRepository(
+        implementation: ReportRepositoryImpl,
+    ): ReportRepository
 
     @Binds
     @Singleton

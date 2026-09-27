@@ -9,7 +9,7 @@ import com.kasirkita.pos.data.model.SyncTransactionError
 import com.kasirkita.pos.data.model.SyncTransactionResult
 import com.kasirkita.pos.data.model.SyncTransactionsRequest
 import com.kasirkita.pos.data.model.SyncTransactionsResponse
-import com.kasirkita.pos.data.model.TransactionResponse
+import com.kasirkita.pos.data.model.TransactionDetailResponse
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.OfflineTransactionStatus
 import kotlinx.coroutines.flow.Flow
@@ -252,7 +252,7 @@ class OfflineSyncRepositoryImplTest {
     ): SyncTransactionResult = SyncTransactionResult(
         clientTransactionId = transaction.clientTransactionId,
         status = "SYNCED",
-        transaction = TransactionResponse(
+        transaction = TransactionDetailResponse(
             transactionId = serverTransactionId,
             clientTransactionId = transaction.clientTransactionId,
             outletId = transaction.outletId,

@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -17,7 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 
 @Composable
 fun HomeScreen(
@@ -26,6 +28,7 @@ fun HomeScreen(
     onShiftClick: () -> Unit,
     onManageProductsClick: (() -> Unit)? = null,
     onTransactionsClick: (() -> Unit)? = null,
+    onReportsClick: (() -> Unit)? = null,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val syncState by viewModel.syncState.collectAsState()
@@ -33,10 +36,10 @@ fun HomeScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(
             space = 16.dp,
-            alignment = Alignment.CenterVertically,
         ),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -116,6 +119,17 @@ fun HomeScreen(
                     .heightIn(min = 48.dp),
             ) {
                 Text("Riwayat Transaksi")
+            }
+        }
+
+        onReportsClick?.let { onClick ->
+            OutlinedButton(
+                onClick = onClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 48.dp),
+            ) {
+                Text("Laporan")
             }
         }
     }

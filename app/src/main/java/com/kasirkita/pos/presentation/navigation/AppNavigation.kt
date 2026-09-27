@@ -30,6 +30,7 @@ import com.kasirkita.pos.presentation.product.EditProductScreen
 import com.kasirkita.pos.presentation.product.ProductManagementScreen
 import com.kasirkita.pos.presentation.product.ProductScreen
 import com.kasirkita.pos.presentation.receipt.ReceiptScreen
+import com.kasirkita.pos.presentation.reports.ReportsScreen
 import com.kasirkita.pos.presentation.shift.ShiftScreen
 import com.kasirkita.pos.presentation.stock.StockAdjustmentScreen
 import com.kasirkita.pos.presentation.transaction.TransactionDetailScreen
@@ -76,6 +77,9 @@ fun AppNavigation(
             val transactionDetailRoute = authenticatedSession
                 ?.role
                 ?.let(::transactionDetailRouteFor)
+            val reportsRoute = authenticatedSession
+                ?.role
+                ?.let(::reportsRouteFor)
             val startDestination = if (authenticatedSession != null) {
                 Screen.Outlet.route
             } else {
@@ -151,6 +155,9 @@ fun AppNavigation(
                             { navController.navigate(route) }
                         },
                         onTransactionsClick = transactionHistoryRoute?.let { route ->
+                            { navController.navigate(route) }
+                        },
+                        onReportsClick = reportsRoute?.let { route ->
                             { navController.navigate(route) }
                         },
                     )
@@ -313,6 +320,12 @@ fun AppNavigation(
                         )
                     }
                 }
+
+                reportsRoute?.let { route ->
+                    composable(route) {
+                        ReportsScreen(onBack = navController::popBackStack)
+                    }
+                }
             }
         }
     }
@@ -368,6 +381,13 @@ internal fun transactionDetailRouteFor(role: UserRole): String = when (role) {
     UserRole.ADMIN,
     UserRole.CASHIER,
     -> Screen.TransactionDetail.route
+}
+
+internal fun reportsRouteFor(role: UserRole): String? = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    -> Screen.Reports.route
+    UserRole.CASHIER -> null
 }
 
 internal const val PRODUCT_CREATED_RESULT_KEY = "product_created"
