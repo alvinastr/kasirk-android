@@ -17,7 +17,6 @@ import com.kasirkita.pos.data.model.StoreResolveResponse
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.model.UserRole
-import com.kasirkita.pos.domain.model.UserSession
 import com.kasirkita.pos.domain.repository.OutletRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -30,8 +29,8 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
@@ -105,7 +104,6 @@ class AppNavigationViewModelTest {
         val fixture = fixture(
             session = authSession(expiresAt = 0L),
             refreshFailure = IOException("network unavailable"),
-            legacySession = legacySession(),
         )
 
         fixture.viewModel()
@@ -117,15 +115,19 @@ class AppNavigationViewModelTest {
     }
 
     @Test
-    fun noAuthV2Session_usesLegacySessionAsMigrationFallback() {
-        val fixture = fixture(legacySession = legacySession())
+    fun authV1SessionCannotBypassAuthV2Startup() {
+        val fixture = fixture()
 
         fixture.viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        val state = fixture.state() as SessionState.Authenticated
-        assertTrue(state.session is NavigationSession.AuthV1)
-        assertEquals(UserRole.ADMIN, state.session.role)
+        assertEquals(SessionState.Unauthenticated, fixture.state())
+        assertEquals(AuthV2Screen.Graph.route, startupRouteFor(fixture.state()))
+        assertFalse(
+            AppNavigationViewModel::class.java.declaredConstructors.any { constructor ->
+                LegacySessionReader::class.java in constructor.parameterTypes
+            },
+        )
     }
 
     @Test
@@ -145,7 +147,6 @@ class AppNavigationViewModelTest {
     private fun fixture(
         session: AuthSession? = null,
         refreshFailure: Throwable? = null,
-        legacySession: UserSession? = null,
     ): Fixture {
         val authSessionDataStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
         session?.let { storedSession ->
@@ -159,7 +160,6 @@ class AppNavigationViewModelTest {
         )
         return Fixture(
             authSessionDataStore = authSessionDataStore,
-            legacySessionReader = FakeLegacySessionReader(legacySession),
             refreshTokenCoordinator = coordinator,
             api = api,
         )
@@ -167,7 +167,6 @@ class AppNavigationViewModelTest {
 
     private class Fixture(
         val authSessionDataStore: AuthSessionDataStore,
-        private val legacySessionReader: LegacySessionReader,
         private val refreshTokenCoordinator: RefreshTokenCoordinator,
         val api: FakeAuthV2Api,
     ) {
@@ -175,18 +174,11 @@ class AppNavigationViewModelTest {
 
         fun viewModel(): AppNavigationViewModel = AppNavigationViewModel(
             authSessionDataStore = authSessionDataStore,
-            legacySessionReader = legacySessionReader,
             refreshTokenCoordinator = refreshTokenCoordinator,
             outletRepository = FakeOutletRepository(),
         ).also { created -> viewModel = created }
 
         fun state(): SessionState = viewModel.sessionState.value
-    }
-
-    private class FakeLegacySessionReader(
-        private val session: UserSession?,
-    ) : LegacySessionReader {
-        override suspend fun getSession(): UserSession? = session
     }
 
     private class FakeOutletRepository : OutletRepository {
@@ -256,13 +248,6 @@ class AppNavigationViewModelTest {
             refreshToken = "old-refresh-token",
             expiresAt = expiresAt,
             deviceId = "8f1fbf18-ed1e-4db8-a78d-857238e08e62",
-        )
-
-        fun legacySession() = UserSession(
-            accessToken = "legacy-access-token",
-            tenantId = "legacy-tenant-id",
-            userId = "legacy-user-id",
-            role = UserRole.ADMIN,
         )
     }
 }

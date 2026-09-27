@@ -16,7 +16,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
-import com.kasirkita.pos.core.datastore.LegacySessionReader
 import com.kasirkita.pos.core.network.RefreshTokenCoordinator
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.Outlet
@@ -102,6 +101,8 @@ fun AppNavigation(
                     )
                 }
 
+                // Legacy Auth V1 is kept temporarily for rollback.
+                // Normal startup never selects this route.
                 composable(Screen.Login.route) {
                     LoginScreen(
                         onLoginSuccess = { session ->
@@ -437,6 +438,7 @@ sealed interface NavigationSession {
         override val role: UserRole = value.role
     }
 
+    // Legacy Auth V1 is kept temporarily for rollback and reference.
     data class AuthV1(val value: UserSession) : NavigationSession {
         override val role: UserRole = value.role
     }
@@ -452,7 +454,6 @@ internal fun startupRouteFor(state: SessionState): String = when (state) {
 @HiltViewModel
 class AppNavigationViewModel @Inject constructor(
     private val authSessionDataStore: AuthSessionDataStore,
-    private val legacySessionReader: LegacySessionReader,
     private val refreshTokenCoordinator: RefreshTokenCoordinator,
     outletRepository: OutletRepository,
 ) : ViewModel() {
@@ -471,6 +472,8 @@ class AppNavigationViewModel @Inject constructor(
         )
     }
 
+    // Legacy Auth V1 is kept temporarily for an explicit rollback.
+    // This callback is not part of normal startup authentication.
     fun onAuthV1Authenticated(session: UserSession) {
         _sessionState.value = SessionState.Authenticated(
             NavigationSession.AuthV1(session),
@@ -490,23 +493,9 @@ class AppNavigationViewModel @Inject constructor(
     private suspend fun resolveStartupSession(): SessionState {
         val authV2Session = readAuthV2Session()
 
-        if (authV2Session != null) {
-            return resolveAuthV2Session(authV2Session)
-        }
-
-        val authV1Session = try {
-            legacySessionReader.getSession()
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Throwable) {
-            null
-        }
-
-        return if (authV1Session != null) {
-            SessionState.Authenticated(NavigationSession.AuthV1(authV1Session))
-        } else {
-            SessionState.Unauthenticated
-        }
+        return authV2Session
+            ?.let { session -> resolveAuthV2Session(session) }
+            ?: SessionState.Unauthenticated
     }
 
     private suspend fun resolveAuthV2Session(session: AuthSession): SessionState {
