@@ -14,12 +14,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import com.kasirkita.pos.presentation.authv2.LogoutState
+import com.kasirkita.pos.presentation.authv2.LogoutViewModel
 
 @Composable
 fun HomeScreen(
@@ -29,9 +32,19 @@ fun HomeScreen(
     onManageProductsClick: (() -> Unit)? = null,
     onTransactionsClick: (() -> Unit)? = null,
     onReportsClick: (() -> Unit)? = null,
+    onLogoutComplete: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
+    logoutViewModel: LogoutViewModel = hiltViewModel(),
 ) {
     val syncState by viewModel.syncState.collectAsState()
+    val logoutState by logoutViewModel.state.collectAsState()
+
+    LaunchedEffect(logoutState) {
+        if (logoutState == LogoutState.LoggedOut) {
+            logoutViewModel.acknowledgeLoggedOut()
+            onLogoutComplete()
+        }
+    }
 
     Column(
         modifier = Modifier
@@ -131,6 +144,29 @@ fun HomeScreen(
             ) {
                 Text("Laporan")
             }
+        }
+
+        OutlinedButton(
+            onClick = logoutViewModel::logout,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
+            enabled = logoutState != LogoutState.Loading,
+        ) {
+            Text(
+                if (logoutState == LogoutState.Loading) {
+                    "Keluar..."
+                } else {
+                    "Keluar"
+                },
+            )
+        }
+
+        (logoutState as? LogoutState.Error)?.let { state ->
+            Text(
+                text = state.message,
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }

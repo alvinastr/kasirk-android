@@ -25,4 +25,8 @@ class OutletRepositoryImpl @Inject constructor(
     override fun selectOutlet(outlet: Outlet) {
         _selectedOutlet.value = outlet
     }
+
+    override fun clearSelectedOutlet() {
+        _selectedOutlet.value = null
+    }
 }

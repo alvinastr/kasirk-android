@@ -172,6 +172,13 @@ fun AppNavigation(
                         onReportsClick = reportsRoute?.let { route ->
                             { navController.navigate(route) }
                         },
+                        onLogoutComplete = {
+                            viewModel.onLoggedOut()
+                            navController.navigate(AuthV2Screen.Graph.route) {
+                                popUpTo(navController.graph.id)
+                                launchSingleTop = true
+                            }
+                        },
                     )
                 }
 
@@ -468,6 +475,10 @@ class AppNavigationViewModel @Inject constructor(
         _sessionState.value = SessionState.Authenticated(
             NavigationSession.AuthV1(session),
         )
+    }
+
+    fun onLoggedOut() {
+        _sessionState.value = SessionState.Unauthenticated
     }
 
     private fun checkSession() {

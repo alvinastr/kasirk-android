@@ -128,6 +128,20 @@ class AppNavigationViewModelTest {
         assertEquals(UserRole.ADMIN, state.session.role)
     }
 
+    @Test
+    fun onLoggedOut_clearsCurrentUserState() {
+        val fixture = fixture(
+            session = authSession(expiresAt = Long.MAX_VALUE),
+        )
+        val viewModel = fixture.viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.onLoggedOut()
+
+        assertEquals(SessionState.Unauthenticated, fixture.state())
+        assertEquals(AuthV2Screen.Graph.route, startupRouteFor(fixture.state()))
+    }
+
     private fun fixture(
         session: AuthSession? = null,
         refreshFailure: Throwable? = null,
@@ -181,6 +195,8 @@ class AppNavigationViewModelTest {
         override suspend fun getOutlets(): Result<List<Outlet>> = Result.success(emptyList())
 
         override fun selectOutlet(outlet: Outlet) = Unit
+
+        override fun clearSelectedOutlet() = Unit
     }
 
     private class FakeAuthV2Api(

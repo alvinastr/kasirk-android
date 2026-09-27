@@ -1,5 +1,6 @@
 package com.kasirkita.pos.di
 
+import com.kasirkita.pos.core.datastore.LegacySessionCleaner
 import com.kasirkita.pos.core.datastore.LegacySessionReader
 import com.kasirkita.pos.core.datastore.TokenDataStoreLegacySessionReader
 import dagger.Binds
@@ -17,4 +18,10 @@ abstract class SessionModule {
     abstract fun bindLegacySessionReader(
         implementation: TokenDataStoreLegacySessionReader,
     ): LegacySessionReader
+
+    @Binds
+    @Singleton
+    abstract fun bindLegacySessionCleaner(
+        implementation: TokenDataStoreLegacySessionReader,
+    ): LegacySessionCleaner
 }

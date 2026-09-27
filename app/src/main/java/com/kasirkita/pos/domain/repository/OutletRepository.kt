@@ -9,4 +9,6 @@ interface OutletRepository {
     suspend fun getOutlets(): Result<List<Outlet>>
 
     fun selectOutlet(outlet: Outlet)
+
+    fun clearSelectedOutlet()
 }
