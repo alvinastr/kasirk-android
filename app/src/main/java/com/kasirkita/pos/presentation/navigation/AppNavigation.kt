@@ -15,7 +15,10 @@ import androidx.lifecycle.viewModelScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.kasirkita.pos.core.datastore.TokenDataStore
+import com.kasirkita.pos.core.datastore.AuthSessionDataStore
+import com.kasirkita.pos.core.datastore.LegacySessionReader
+import com.kasirkita.pos.core.network.RefreshTokenCoordinator
+import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.domain.model.UserSession
@@ -36,6 +39,7 @@ import com.kasirkita.pos.presentation.stock.StockAdjustmentScreen
 import com.kasirkita.pos.presentation.transaction.TransactionDetailScreen
 import com.kasirkita.pos.presentation.transaction.TransactionHistoryScreen
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -80,20 +84,28 @@ fun AppNavigation(
             val reportsRoute = authenticatedSession
                 ?.role
                 ?.let(::reportsRouteFor)
-            val startDestination = if (authenticatedSession != null) {
-                Screen.Outlet.route
-            } else {
-                Screen.Login.route
-            }
+            val startDestination = startupRouteFor(currentState)
 
             NavHost(
                 navController = navController,
                 startDestination = startDestination,
             ) {
+                composable(AuthV2Screen.Graph.route) {
+                    AuthV2Navigation(
+                        onAuthenticated = { session ->
+                            viewModel.onAuthV2Authenticated(session)
+                            navController.navigate(Screen.Outlet.route) {
+                                popUpTo(AuthV2Screen.Graph.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
+
                 composable(Screen.Login.route) {
                     LoginScreen(
                         onLoginSuccess = { session ->
-                            viewModel.onAuthenticated(session)
+                            viewModel.onAuthV1Authenticated(session)
                             navController.navigate(Screen.Outlet.route) {
                                 popUpTo(Screen.Login.route) { inclusive = true }
                                 launchSingleTop = true
@@ -407,13 +419,34 @@ private fun SessionLoadingContent() {
 
 sealed interface SessionState {
     data object Checking : SessionState
-    data class Authenticated(val session: UserSession) : SessionState
+    data class Authenticated(val session: NavigationSession) : SessionState
     data object Unauthenticated : SessionState
+}
+
+sealed interface NavigationSession {
+    val role: UserRole
+
+    data class AuthV2(val value: AuthSession) : NavigationSession {
+        override val role: UserRole = value.role
+    }
+
+    data class AuthV1(val value: UserSession) : NavigationSession {
+        override val role: UserRole = value.role
+    }
+}
+
+internal fun startupRouteFor(state: SessionState): String = when (state) {
+    is SessionState.Authenticated -> Screen.Outlet.route
+    SessionState.Checking,
+    SessionState.Unauthenticated,
+    -> AuthV2Screen.Graph.route
 }
 
 @HiltViewModel
 class AppNavigationViewModel @Inject constructor(
-    private val tokenDataStore: TokenDataStore,
+    private val authSessionDataStore: AuthSessionDataStore,
+    private val legacySessionReader: LegacySessionReader,
+    private val refreshTokenCoordinator: RefreshTokenCoordinator,
     outletRepository: OutletRepository,
 ) : ViewModel() {
 
@@ -425,21 +458,89 @@ class AppNavigationViewModel @Inject constructor(
         checkSession()
     }
 
-    fun onAuthenticated(session: UserSession) {
-        _sessionState.value = SessionState.Authenticated(session)
+    fun onAuthV2Authenticated(session: AuthSession) {
+        _sessionState.value = SessionState.Authenticated(
+            NavigationSession.AuthV2(session),
+        )
+    }
+
+    fun onAuthV1Authenticated(session: UserSession) {
+        _sessionState.value = SessionState.Authenticated(
+            NavigationSession.AuthV1(session),
+        )
     }
 
     private fun checkSession() {
         viewModelScope.launch {
-            val session = runCatching {
-                tokenDataStore.getSession()
-            }.getOrNull()
+            _sessionState.value = resolveStartupSession()
+        }
+    }
 
-            _sessionState.value = if (session != null) {
-                SessionState.Authenticated(session)
-            } else {
-                SessionState.Unauthenticated
-            }
+    private suspend fun resolveStartupSession(): SessionState {
+        val authV2Session = readAuthV2Session()
+
+        if (authV2Session != null) {
+            return resolveAuthV2Session(authV2Session)
+        }
+
+        val authV1Session = try {
+            legacySessionReader.getSession()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
+
+        return if (authV1Session != null) {
+            SessionState.Authenticated(NavigationSession.AuthV1(authV1Session))
+        } else {
+            SessionState.Unauthenticated
+        }
+    }
+
+    private suspend fun resolveAuthV2Session(session: AuthSession): SessionState {
+        if (session.expiresAt > System.currentTimeMillis()) {
+            return SessionState.Authenticated(NavigationSession.AuthV2(session))
+        }
+
+        val refreshedAccessToken = try {
+            refreshTokenCoordinator.refreshAccessToken(session.accessToken)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
+
+        if (refreshedAccessToken == null) {
+            clearAuthV2Session()
+            return SessionState.Unauthenticated
+        }
+
+        val refreshedSession = readAuthV2Session()
+
+        return if (refreshedSession != null) {
+            SessionState.Authenticated(NavigationSession.AuthV2(refreshedSession))
+        } else {
+            clearAuthV2Session()
+            SessionState.Unauthenticated
+        }
+    }
+
+    private suspend fun readAuthV2Session(): AuthSession? = try {
+        authSessionDataStore.getSession()
+    } catch (error: CancellationException) {
+        throw error
+    } catch (_: Throwable) {
+        null
+    }
+
+    private suspend fun clearAuthV2Session() {
+        try {
+            authSessionDataStore.clearSession()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            Unit
         }
     }
 }

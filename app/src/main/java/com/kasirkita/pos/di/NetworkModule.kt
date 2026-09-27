@@ -4,10 +4,12 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
-import com.kasirkita.pos.core.datastore.TokenDataStore
 import com.kasirkita.pos.core.network.ApiConstants
+import com.kasirkita.pos.core.network.AuthAuthenticator
 import com.kasirkita.pos.core.network.AuthInterceptor
 import com.kasirkita.pos.core.network.AuthTokenProvider
+import com.kasirkita.pos.core.network.CompositeAuthTokenProvider
+import com.kasirkita.pos.core.network.RefreshClient
 import com.kasirkita.pos.data.api.AuthApi
 import com.kasirkita.pos.data.api.AuthV2Api
 import com.kasirkita.pos.data.api.CategoryApi
@@ -37,7 +39,9 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideAuthTokenProvider(tokenDataStore: TokenDataStore): AuthTokenProvider = tokenDataStore
+    fun provideAuthTokenProvider(
+        compositeAuthTokenProvider: CompositeAuthTokenProvider,
+    ): AuthTokenProvider = compositeAuthTokenProvider
 
     @Provides
     @Singleton
@@ -62,6 +66,7 @@ object NetworkModule {
     @Singleton
     fun provideOkHttpClient(
         authInterceptor: AuthInterceptor,
+        authAuthenticator: AuthAuthenticator,
         loggingInterceptor: HttpLoggingInterceptor,
     ): OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
@@ -69,6 +74,16 @@ object NetworkModule {
         .writeTimeout(NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .addInterceptor(authInterceptor)
         .addInterceptor(loggingInterceptor)
+        .authenticator(authAuthenticator)
+        .build()
+
+    @Provides
+    @Singleton
+    @RefreshClient
+    fun provideRefreshOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .connectTimeout(NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .readTimeout(NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        .writeTimeout(NETWORK_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
 
     @Provides
@@ -84,12 +99,31 @@ object NetworkModule {
 
     @Provides
     @Singleton
+    @RefreshClient
+    fun provideRefreshRetrofit(
+        gson: Gson,
+        @RefreshClient okHttpClient: OkHttpClient,
+    ): Retrofit = Retrofit.Builder()
+        .baseUrl(ApiConstants.BASE_URL)
+        .client(okHttpClient)
+        .addConverterFactory(GsonConverterFactory.create(gson))
+        .build()
+
+    @Provides
+    @Singleton
     fun provideAuthApi(retrofit: Retrofit): AuthApi = retrofit.create(AuthApi::class.java)
 
     @Provides
     @Singleton
     fun provideAuthV2Api(retrofit: Retrofit): AuthV2Api =
         retrofit.create(AuthV2Api::class.java)
+
+    @Provides
+    @Singleton
+    @RefreshClient
+    fun provideRefreshAuthV2Api(
+        @RefreshClient retrofit: Retrofit,
+    ): AuthV2Api = retrofit.create(AuthV2Api::class.java)
 
     @Provides
     @Singleton
