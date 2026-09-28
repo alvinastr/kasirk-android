@@ -28,7 +28,7 @@ class ReceiptViewModel @Inject constructor(
     fun loadReceipt() {
         val id = transactionId
         if (id.isNullOrBlank()) {
-            _state.value = ReceiptState.Error("Transaction ID tidak tersedia")
+            _state.value = ReceiptState.Error(RECEIPT_LOAD_ERROR_MESSAGE)
             return
         }
 
@@ -38,10 +38,8 @@ class ReceiptViewModel @Inject constructor(
                 onSuccess = { receipt ->
                     _state.value = ReceiptState.Success(receipt)
                 },
-                onFailure = { throwable ->
-                    _state.value = ReceiptState.Error(
-                        throwable.message ?: "Gagal mengambil receipt",
-                    )
+                onFailure = {
+                    _state.value = ReceiptState.Error(RECEIPT_LOAD_ERROR_MESSAGE)
                 },
             )
         }
@@ -51,3 +49,6 @@ class ReceiptViewModel @Inject constructor(
         const val TRANSACTION_ID_ARGUMENT = "transactionId"
     }
 }
+
+internal const val RECEIPT_LOAD_ERROR_MESSAGE =
+    "Transaksi berhasil, tetapi struk belum dapat dimuat."

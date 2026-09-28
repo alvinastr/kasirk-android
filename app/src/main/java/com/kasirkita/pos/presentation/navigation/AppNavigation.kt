@@ -292,8 +292,11 @@ fun AppNavigation(
                 composable(Screen.Checkout.route) {
                     CheckoutScreen(
                         onCheckoutSuccess = { transactionId ->
-                            navController.navigate(Screen.Receipt.createRoute(transactionId)) {
-                                popUpTo(Screen.Checkout.route) { inclusive = true }
+                            val destination = receiptDestination(transactionId)
+                            navController.navigate(destination.route) {
+                                popUpTo(destination.popUpToRoute) {
+                                    inclusive = destination.popUpToInclusive
+                                }
                                 launchSingleTop = true
                             }
                         },
@@ -301,7 +304,17 @@ fun AppNavigation(
                 }
 
                 composable(Screen.Receipt.route) {
-                    ReceiptScreen()
+                    ReceiptScreen(
+                        onNewTransaction = {
+                            val destination = newTransactionDestination()
+                            navController.navigate(destination.route) {
+                                popUpTo(destination.popUpToRoute) {
+                                    inclusive = destination.popUpToInclusive
+                                }
+                                launchSingleTop = true
+                            }
+                        },
+                    )
                 }
 
                 val historyRoute = transactionHistoryRoute
@@ -337,6 +350,24 @@ fun AppNavigation(
 
 internal fun isShiftGateEntry(previousRoute: String?): Boolean =
     previousRoute != Screen.Home.route
+
+internal data class SalesFlowDestination(
+    val route: String,
+    val popUpToRoute: String,
+    val popUpToInclusive: Boolean = false,
+)
+
+internal fun receiptDestination(transactionId: String): SalesFlowDestination =
+    SalesFlowDestination(
+        route = Screen.Receipt.createRoute(transactionId),
+        popUpToRoute = Screen.Home.route,
+    )
+
+internal fun newTransactionDestination(): SalesFlowDestination =
+    SalesFlowDestination(
+        route = Screen.Products.route,
+        popUpToRoute = Screen.Home.route,
+    )
 
 internal fun shiftRouteFor(role: UserRole): String = when (role) {
     UserRole.OWNER,
