@@ -3,7 +3,6 @@ package com.kasirkita.pos.presentation.authv2
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
-import com.kasirkita.pos.core.datastore.LegacySessionCleaner
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.usecase.LogoutUseCase
@@ -21,7 +20,6 @@ import javax.inject.Inject
 class LogoutViewModel @Inject constructor(
     private val logoutUseCase: LogoutUseCase,
     private val authSessionDataStore: AuthSessionDataStore,
-    private val legacySessionCleaner: LegacySessionCleaner,
     private val outletRepository: OutletRepository,
     private val cartRepository: CartRepository,
 ) : ViewModel() {
@@ -85,7 +83,6 @@ class LogoutViewModel @Inject constructor(
         }
 
         attempt { authSessionDataStore.clearSession() }
-        attempt { legacySessionCleaner.clearSession() }
         attempt { outletRepository.clearSelectedOutlet() }
         attempt { cartRepository.clearCart() }
 

@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-09-19
+Last verified: 2026-09-28
 
 ## Project Overview
 
@@ -29,7 +29,7 @@ Konfigurasi loopback tersebut hanya workaround development dan bukan keputusan n
 
 ## Current Architecture
 
-- `core`: infrastruktur bersama, yaitu Room database/DAO/entity, DataStore session, konstanta network, dan JWT `AuthInterceptor`.
+- `core`: infrastruktur bersama, yaitu Room database/DAO/entity, DataStore session, konstanta network, dan Bearer `AuthInterceptor`.
 - `data`: Retrofit API, request/response DTO, local data source, mapping, serta implementasi repository yang mengakses network, Room, atau state in-memory.
 - `domain`: model domain, kontrak repository, dan use case. Layer ini menjadi batas antara data dan presentation.
 - `presentation`: state, Hilt ViewModel, Compose screen, dan Navigation Compose untuk setiap fitur.
@@ -41,14 +41,15 @@ Project masih berupa satu Android application module. Folder di atas adalah pack
 
 ### Authentication
 
-- `POST /auth/login` menggunakan email, password, dan tenant ID.
-- Access token dan payload JWT (`sub`, `tenant_id`, `role`) diproses menjadi `UserSession`.
-- Session disimpan menggunakan DataStore Preferences: access token, tenant ID, user ID, dan role.
-- `AuthInterceptor` menambahkan `Authorization: Bearer <token>` ketika token tersedia.
-- `LoginViewModel` dan `LoginScreen` telah tersedia.
-- Session/navigation guard memilih Login atau Outlet berdasarkan keberadaan access token.
-
-Catatan: guard saat ini hanya memeriksa apakah token tersedia dan tidak kosong; expiry atau validitas JWT belum diperiksa.
+- Auth V2 menggunakan login berbasis PIN melalui store resolve, user selection, dan PIN login.
+- Endpoint autentikasi aktif adalah `POST /auth/v2/store/resolve`, `POST /auth/v2/pin/login`, `POST /auth/v2/refresh`, `POST /auth/v2/logout`, dan `GET /auth/v2/me`.
+- `DeviceIdProvider` membuat dan mempertahankan device ID yang stabil untuk device session backend.
+- `AuthSessionDataStore` menjadi satu-satunya penyimpanan session autentikasi. Data yang disimpan mencakup identitas user, tenant, role, outlet, access token, refresh token, expiry, dan device ID.
+- `AuthV2TokenProvider` menjadi satu-satunya bearer token provider untuk `AuthInterceptor`.
+- `RefreshTokenCoordinator` menjalankan refresh token rotation secara single-flight dan menyimpan token pair baru.
+- `AuthAuthenticator` menangani HTTP 401, mengecualikan endpoint login, refresh, dan logout dari refresh loop, lalu mengulang request dengan access token baru ketika refresh berhasil.
+- Startup navigation memulihkan session Auth V2, memeriksa expiry access token, mencoba refresh bila diperlukan, dan kembali ke Store Login jika session tidak ada atau refresh gagal.
+- Logout merevoke current device session bila backend dapat dijangkau, lalu selalu membersihkan session lokal, selected outlet, dan cart tanpa menghapus offline transaction queue.
 
 ### Outlet
 
@@ -160,7 +161,11 @@ Database builder mendaftarkan `MIGRATION_1_2` dan `MIGRATION_2_3` secara eksplis
 Endpoint yang saat ini digunakan Android:
 
 ```text
-POST /auth/login
+POST /auth/v2/store/resolve
+POST /auth/v2/pin/login
+POST /auth/v2/refresh
+POST /auth/v2/logout
+GET  /auth/v2/me
 
 GET  /outlets
 
@@ -177,7 +182,7 @@ GET  /receipts/{transaction_id}
 POST /sync/transactions
 ```
 
-Semua endpoint terautentikasi menerima Bearer JWT melalui `AuthInterceptor`, kecuali login yang tetap berjalan tanpa header ketika token belum tersedia.
+Semua endpoint bisnis terautentikasi menerima Bearer access token melalui `AuthInterceptor`. Store resolve dan PIN login berjalan tanpa session sebelumnya. Refresh menggunakan refresh token, sedangkan logout merevoke current device session.
 
 ## Important Technical Decisions
 
@@ -190,23 +195,28 @@ Semua endpoint terautentikasi menerima Bearer JWT melalui `AuthInterceptor`, kec
 7. Product menggunakan Room cache dengan strategi cache-first dan manual refresh.
 8. Cart masih in-memory menggunakan `StateFlow`.
 9. Selected outlet masih in-memory menggunakan `StateFlow`.
-10. JWT session disimpan menggunakan DataStore Preferences.
+10. `AuthSessionDataStore` menjadi satu-satunya storage session autentikasi dan menyimpan access token serta refresh token Auth V2.
 11. Workaround emulator lokal saat ini menggunakan `http://127.0.0.1:3000/` dengan `adb reverse`; ini bukan konfigurasi production permanen.
 12. Manual sync memproses maksimal 100 record `PENDING` dan mencocokkan hasil menggunakan client transaction ID.
 13. Backend menjadi satu-satunya source of truth untuk validasi/decrement stok berdasarkan `Product.track_stock`; Android tidak menolak checkout berdasarkan stok lokal.
 14. `track_stock` tidak ditambahkan ke online maupun offline transaction payload karena backend menyelesaikan aturan tersebut dari product ID.
+15. `AuthV2TokenProvider` menjadi satu-satunya sumber bearer token untuk request terautentikasi.
+16. Access token yang expired dipulihkan melalui refresh token rotation single-flight; kegagalan refresh membersihkan session dan mengembalikan aplikasi ke Store Login.
 
 ## Current Navigation Flow
 
 Startup flow:
 
 ```text
-Access token tidak tersedia -> Login
-Access token tersedia       -> Outlet Selection
+Session Auth V2 tidak tersedia       -> Store Login
+Session Auth V2 valid                -> Outlet Selection
+Access token expired                 -> Refresh token
+Refresh berhasil                     -> Outlet Selection
+Refresh gagal                        -> Clear session -> Store Login
 
-Login -> Outlet Selection -> Shift
-                              |-- tidak ada shift OPEN -> tetap di Shift
-                              `-- shift OPEN -> Home
+Store Login -> User Selection -> PIN Login -> Outlet Selection -> Shift
+                                                       |-- tidak ada shift OPEN -> tetap di Shift
+                                                       `-- shift OPEN -> Home
 ```
 
 Main flow:
@@ -329,17 +339,16 @@ Audit code-level terakhir dilakukan pada 2026-09-17 sebelum implementasi WorkMan
 - Belum ada Customer module pada Android.
 - Belum ada Reports dashboard/UI pada Android.
 - Belum ada printer atau receipt printing integration.
-- Belum ada global handling untuk HTTP 401, token expiry, refresh token, atau forced re-login.
+- Offline PIN verification belum tersedia.
+- Logout hanya merevoke current device session; session user pada perangkat lain tidak ikut direvoke.
 - Checkout menampilkan HTTP business error melalui `HttpException.message`; parsing error body backend menjadi pesan yang lebih spesifik belum tersedia.
-- `TokenDataStore.clearSession()` tersedia, tetapi belum ada logout repository/use case/UI/navigation flow yang lengkap.
 - Retry untuk record `FAILED` tersedia pada repository, tetapi belum dihubungkan ke tombol atau queue-management UI.
 - `deleteSynced()` tersedia pada DAO, tetapi belum ada retention/cleanup policy atau UI untuk record synced.
 - Offline transaction yang selesai disinkronkan tidak otomatis membuka atau menyimpan receipt lokal.
 - Room schema export masih dinonaktifkan; migration 2->3 sudah memiliki instrumentation test khusus.
 - Product cache tidak difilter per tenant ketika dibaca; pergantian akun/tenant dapat membaca cache lama sebelum refresh.
 - Offline queue tidak menyimpan tenant/user owner secara eksplisit; account switching perlu di-hardening sebelum digunakan pada perangkat bersama.
-- Session guard hanya mengecek token tidak kosong, bukan signature atau expiry JWT.
-- UI belum menerapkan behavior/otorisasi berbeda untuk role OWNER, ADMIN, dan CASHIER; seluruh role menggunakan flow screen yang sama.
+- Role guard sudah membatasi route manajemen dan reports untuk OWNER/ADMIN, sedangkan backend tetap menjadi authority final. Audit manual per role masih diperlukan untuk seluruh variasi UX bisnis.
 - Jika current shift `OPEN` berasal dari outlet berbeda dengan outlet yang baru dipilih, ShiftScreen masih dapat meneruskan ke Home. Checkout tetap memblokir transaksi karena outlet mismatch, tetapi UX pemilihan outlet/shift perlu di-hardening.
 
 ## Next Milestones
@@ -349,7 +358,7 @@ Audit code-level terakhir dilakukan pada 2026-09-17 sebelum implementasi WorkMan
 3. Transaction History.
 4. Customer Module.
 5. Reports Dashboard.
-6. Authentication/session hardening.
+6. Auth V2 follow-up hardening dan strategi offline PIN.
 7. Printer/receipt printing.
 
 ## Rules For Future Development

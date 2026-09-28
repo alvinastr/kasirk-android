@@ -145,11 +145,9 @@ Verified results:
 
 ## Known Limitations
 
-- Auth V1 remains available as a temporary fallback.
-- The Android project has not removed the Auth V1 implementation.
 - Offline PIN verification is not available.
-- Logout currently revokes only the active device session, not every session belonging to the user.
+- Logout currently revokes only the active device session. Sessions on the user's other devices are not revoked.
 
 ## Conclusion
 
-The Android Auth V2 flow passed end-to-end testing. It is ready to become the primary authentication flow after the remaining UI and login migration work is complete.
+The Android Auth V2 flow passed end-to-end testing and is now the application's only authentication flow. The implementation covers startup session restoration, token refresh, authenticated navigation, and local logout cleanup.

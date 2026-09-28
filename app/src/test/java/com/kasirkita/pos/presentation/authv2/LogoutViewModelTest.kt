@@ -4,7 +4,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
-import com.kasirkita.pos.core.datastore.LegacySessionCleaner
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.AuthTokens
@@ -58,7 +57,6 @@ class LogoutViewModelTest {
         assertEquals("refresh-token", fixture.authRepository.lastLogoutToken)
         assertNull(fixture.outletRepository.selectedOutlet.value)
         assertTrue(fixture.cartRepository.getCart().value.items.isEmpty())
-        assertTrue(fixture.legacySessionCleaner.cleared)
         assertEquals(LogoutState.LoggedOut, fixture.viewModel.state.value)
     }
 
@@ -74,7 +72,6 @@ class LogoutViewModelTest {
         assertNull(fixture.authSessionDataStore.getSession())
         assertNull(fixture.outletRepository.selectedOutlet.value)
         assertTrue(fixture.cartRepository.getCart().value.items.isEmpty())
-        assertTrue(fixture.legacySessionCleaner.cleared)
         assertEquals(LogoutState.LoggedOut, fixture.viewModel.state.value)
     }
 
@@ -96,7 +93,6 @@ class LogoutViewModelTest {
             authSessionDataStore.saveSession(authSession())
         }
         val authRepository = FakeAuthV2Repository(logoutResult)
-        val legacySessionCleaner = FakeLegacySessionCleaner()
         val outletRepository = FakeOutletRepository()
         val cartRepository = CartRepositoryImpl().apply {
             addProduct(product())
@@ -104,7 +100,6 @@ class LogoutViewModelTest {
         val viewModel = LogoutViewModel(
             logoutUseCase = LogoutUseCase(authRepository),
             authSessionDataStore = authSessionDataStore,
-            legacySessionCleaner = legacySessionCleaner,
             outletRepository = outletRepository,
             cartRepository = cartRepository,
         )
@@ -112,7 +107,6 @@ class LogoutViewModelTest {
             viewModel = viewModel,
             authSessionDataStore = authSessionDataStore,
             authRepository = authRepository,
-            legacySessionCleaner = legacySessionCleaner,
             outletRepository = outletRepository,
             cartRepository = cartRepository,
         )
@@ -122,7 +116,6 @@ class LogoutViewModelTest {
         val viewModel: LogoutViewModel,
         val authSessionDataStore: AuthSessionDataStore,
         val authRepository: FakeAuthV2Repository,
-        val legacySessionCleaner: FakeLegacySessionCleaner,
         val outletRepository: FakeOutletRepository,
         val cartRepository: CartRepositoryImpl,
     )
@@ -151,14 +144,6 @@ class LogoutViewModelTest {
         override suspend fun logout(refreshToken: String): Result<Unit> {
             lastLogoutToken = refreshToken
             return logoutResult
-        }
-    }
-
-    private class FakeLegacySessionCleaner : LegacySessionCleaner {
-        var cleared = false
-
-        override suspend fun clearSession() {
-            cleared = true
         }
     }
 

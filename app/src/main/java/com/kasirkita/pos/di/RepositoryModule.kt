@@ -1,6 +1,5 @@
 package com.kasirkita.pos.di
 
-import com.kasirkita.pos.data.repository.AuthRepositoryImpl
 import com.kasirkita.pos.data.repository.AuthV2RepositoryImpl
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.data.repository.CategoryRepositoryImpl
@@ -12,7 +11,6 @@ import com.kasirkita.pos.data.repository.ReceiptRepositoryImpl
 import com.kasirkita.pos.data.repository.ShiftRepositoryImpl
 import com.kasirkita.pos.data.repository.StockRepositoryImpl
 import com.kasirkita.pos.data.repository.TransactionRepositoryImpl
-import com.kasirkita.pos.domain.repository.AuthRepository
 import com.kasirkita.pos.domain.repository.AuthV2Repository
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.CategoryRepository
@@ -33,12 +31,6 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class RepositoryModule {
-
-    @Binds
-    @Singleton
-    abstract fun bindAuthRepository(
-        implementation: AuthRepositoryImpl,
-    ): AuthRepository
 
     @Binds
     @Singleton

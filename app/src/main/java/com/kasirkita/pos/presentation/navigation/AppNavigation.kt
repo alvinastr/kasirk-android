@@ -20,9 +20,7 @@ import com.kasirkita.pos.core.network.RefreshTokenCoordinator
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.model.UserRole
-import com.kasirkita.pos.domain.model.UserSession
 import com.kasirkita.pos.domain.repository.OutletRepository
-import com.kasirkita.pos.presentation.auth.LoginScreen
 import com.kasirkita.pos.presentation.cart.CartScreen
 import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
@@ -95,20 +93,6 @@ fun AppNavigation(
                             viewModel.onAuthV2Authenticated(session)
                             navController.navigate(Screen.Outlet.route) {
                                 popUpTo(AuthV2Screen.Graph.route) { inclusive = true }
-                                launchSingleTop = true
-                            }
-                        },
-                    )
-                }
-
-                // Legacy Auth V1 is kept temporarily for rollback.
-                // Normal startup never selects this route.
-                composable(Screen.Login.route) {
-                    LoginScreen(
-                        onLoginSuccess = { session ->
-                            viewModel.onAuthV1Authenticated(session)
-                            navController.navigate(Screen.Outlet.route) {
-                                popUpTo(Screen.Login.route) { inclusive = true }
                                 launchSingleTop = true
                             }
                         },
@@ -437,11 +421,6 @@ sealed interface NavigationSession {
     data class AuthV2(val value: AuthSession) : NavigationSession {
         override val role: UserRole = value.role
     }
-
-    // Legacy Auth V1 is kept temporarily for rollback and reference.
-    data class AuthV1(val value: UserSession) : NavigationSession {
-        override val role: UserRole = value.role
-    }
 }
 
 internal fun startupRouteFor(state: SessionState): String = when (state) {
@@ -469,14 +448,6 @@ class AppNavigationViewModel @Inject constructor(
     fun onAuthV2Authenticated(session: AuthSession) {
         _sessionState.value = SessionState.Authenticated(
             NavigationSession.AuthV2(session),
-        )
-    }
-
-    // Legacy Auth V1 is kept temporarily for an explicit rollback.
-    // This callback is not part of normal startup authentication.
-    fun onAuthV1Authenticated(session: UserSession) {
-        _sessionState.value = SessionState.Authenticated(
-            NavigationSession.AuthV1(session),
         )
     }
 

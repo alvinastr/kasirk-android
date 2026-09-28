@@ -4,7 +4,6 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
-import com.kasirkita.pos.core.datastore.LegacySessionReader
 import com.kasirkita.pos.core.network.RefreshTokenCoordinator
 import com.kasirkita.pos.data.api.AuthV2Api
 import com.kasirkita.pos.data.model.AuthTokenResponse
@@ -29,7 +28,6 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
@@ -112,22 +110,6 @@ class AppNavigationViewModelTest {
         assertEquals(SessionState.Unauthenticated, fixture.state())
         assertNull(fixture.authSessionDataStore.getSession())
         assertEquals(AuthV2Screen.Graph.route, startupRouteFor(fixture.state()))
-    }
-
-    @Test
-    fun authV1SessionCannotBypassAuthV2Startup() {
-        val fixture = fixture()
-
-        fixture.viewModel()
-        dispatcher.scheduler.advanceUntilIdle()
-
-        assertEquals(SessionState.Unauthenticated, fixture.state())
-        assertEquals(AuthV2Screen.Graph.route, startupRouteFor(fixture.state()))
-        assertFalse(
-            AppNavigationViewModel::class.java.declaredConstructors.any { constructor ->
-                LegacySessionReader::class.java in constructor.parameterTypes
-            },
-        )
     }
 
     @Test
