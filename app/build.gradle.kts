@@ -6,6 +6,15 @@ plugins {
     id("com.google.dagger.hilt.android")
 }
 
+val debugApiBaseUrl = providers
+    .gradleProperty("kasirkita.debugApiBaseUrl")
+    .orElse("http://127.0.0.1:3000/")
+    .get()
+val releaseApiBaseUrl = providers
+    .gradleProperty("kasirkita.releaseApiBaseUrl")
+    .orElse("https://api.kasirkita.invalid/")
+    .get()
+
 android {
     namespace = "com.kasirkita.pos"
 
@@ -24,7 +33,13 @@ android {
     }
 
     buildTypes {
+        debug {
+            buildConfigField("String", "API_BASE_URL", "\"$debugApiBaseUrl\"")
+        }
+
         release {
+            buildConfigField("String", "API_BASE_URL", "\"$releaseApiBaseUrl\"")
+
             optimization {
                 enable = false
             }
@@ -37,6 +52,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig = true
         compose = true
     }
 }

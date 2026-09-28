@@ -6,6 +6,11 @@ data class CartItem(
     val sku: String,
     val price: Long,
     val quantity: Int,
+    val trackStock: Boolean = false,
+    val availableStock: Int? = null,
 ) {
     fun subtotal(): Long = price * quantity.toLong()
+
+    fun canIncreaseQuantity(): Boolean =
+        !trackStock || quantity < (availableStock ?: 0)
 }

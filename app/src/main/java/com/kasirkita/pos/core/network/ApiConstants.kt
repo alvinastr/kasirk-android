@@ -1,5 +1,7 @@
 package com.kasirkita.pos.core.network
 
+import com.kasirkita.pos.BuildConfig
+
 object ApiConstants {
-    const val BASE_URL = "http://127.0.0.1:3000/"
+    val BASE_URL: String = BuildConfig.API_BASE_URL
 }

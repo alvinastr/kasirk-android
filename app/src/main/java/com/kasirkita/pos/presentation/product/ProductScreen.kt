@@ -21,25 +21,25 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.kasirkita.pos.domain.model.Product
 import java.text.NumberFormat
 import java.util.Locale
 
 @Composable
 fun ProductScreen(
     onCartClick: () -> Unit = {},
-    viewModel: ProductViewModel = hiltViewModel(),
+    viewModel: ProductCatalogViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
 
     when (val currentState = state) {
-        ProductState.Loading -> LoadingContent()
-        is ProductState.Error -> ErrorContent(
+        ProductCatalogState.Loading -> LoadingContent()
+        is ProductCatalogState.Error -> ErrorContent(
             message = currentState.message,
             onRetry = viewModel::loadProducts,
         )
-        is ProductState.Success -> ProductList(
-            products = currentState.products,
+        is ProductCatalogState.Success -> ProductList(
+            items = currentState.items,
+            message = currentState.message,
             onRefresh = viewModel::refresh,
             onAddToCart = viewModel::addToCart,
             onCartClick = onCartClick,
@@ -84,9 +84,10 @@ private fun ErrorContent(
 
 @Composable
 private fun ProductList(
-    products: List<Product>,
+    items: List<ProductCatalogItem>,
+    message: String?,
     onRefresh: () -> Unit,
-    onAddToCart: (Product) -> Unit,
+    onAddToCart: (ProductCatalogItem) -> Unit,
     onCartClick: () -> Unit,
 ) {
     val numberFormat = remember {
@@ -114,7 +115,15 @@ private fun ProductList(
             Text("Buka Cart")
         }
 
-        if (products.isEmpty()) {
+        message?.let { feedback ->
+            Text(
+                text = feedback,
+                modifier = Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        if (items.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
@@ -126,9 +135,10 @@ private fun ProductList(
                 modifier = Modifier.fillMaxSize(),
             ) {
                 items(
-                    items = products,
-                    key = Product::id,
-                ) { product ->
+                    items = items,
+                    key = { item -> item.product.id },
+                ) { item ->
+                    val product = item.product
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -141,17 +151,25 @@ private fun ProductList(
                         )
                         Text("SKU: ${product.sku}")
                         Text("Harga: Rp${numberFormat.format(product.price)}")
-                        Text("Stok minimum: ${product.minimumStock}")
                         Text(
                             if (product.trackStock) {
-                                "Stok dikelola"
+                                if (item.stockQuantity == 0) {
+                                    "Stok: 0 (Stok habis)"
+                                } else {
+                                    "Stok: ${item.stockQuantity}"
+                                }
                             } else {
-                                "Tanpa pelacakan stok"
+                                "Stok tidak dikelola"
+                            },
+                            color = if (product.trackStock && item.stockQuantity == 0) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
                             },
                         )
                         Button(
-                            onClick = { onAddToCart(product) },
-                            enabled = product.isActive,
+                            onClick = { onAddToCart(item) },
+                            enabled = product.isActive && item.canAddToCart,
                         ) {
                             Text("Tambah ke Cart")
                         }

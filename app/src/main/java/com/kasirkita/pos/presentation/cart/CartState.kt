@@ -4,4 +4,5 @@ import com.kasirkita.pos.domain.model.Cart
 
 data class CartState(
     val cart: Cart = Cart(),
+    val errorMessage: String? = null,
 )

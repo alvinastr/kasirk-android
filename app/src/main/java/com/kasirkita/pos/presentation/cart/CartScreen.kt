@@ -79,6 +79,11 @@ fun CartScreen(
                         Text("SKU: ${item.sku}")
                         Text("Harga: Rp${numberFormat.format(item.price)}")
                         Text("Subtotal: Rp${numberFormat.format(item.subtotal())}")
+                        if (item.trackStock) {
+                            Text("Stok tersedia: ${item.availableStock ?: 0}")
+                        } else {
+                            Text("Stok tidak dikelola")
+                        }
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -91,6 +96,7 @@ fun CartScreen(
                             Text("${item.quantity}")
                             TextButton(
                                 onClick = { viewModel.increaseQuantity(item.productId) },
+                                enabled = item.canIncreaseQuantity(),
                             ) {
                                 Text("+")
                             }
@@ -104,6 +110,14 @@ fun CartScreen(
                     HorizontalDivider()
                 }
             }
+        }
+
+        state.errorMessage?.let { message ->
+            Text(
+                text = message,
+                modifier = Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.error,
+            )
         }
 
         Text(

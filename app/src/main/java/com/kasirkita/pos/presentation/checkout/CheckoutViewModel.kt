@@ -14,7 +14,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 import java.io.IOException
+import java.util.Locale
 import java.util.UUID
 import javax.inject.Inject
 
@@ -110,7 +112,7 @@ class CheckoutViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = throwable?.message ?: "Checkout gagal",
+                        errorMessage = checkoutErrorMessage(throwable),
                     )
                 }
                 return@launch
@@ -151,4 +153,18 @@ class CheckoutViewModel @Inject constructor(
     private companion object {
         const val OPEN_STATUS = "OPEN"
     }
+}
+
+internal fun checkoutErrorMessage(throwable: Throwable?): String {
+    if (throwable is HttpException) {
+        val responseBody = runCatching {
+            throwable.response()?.errorBody()?.string()
+        }.getOrNull().orEmpty().uppercase(Locale.ROOT)
+
+        if ("INSUFFICIENT_STOCK" in responseBody || "INSUFFICIENT STOCK" in responseBody) {
+            return "Stok tidak mencukupi. Kurangi jumlah produk di cart lalu coba lagi."
+        }
+    }
+
+    return throwable?.message ?: "Checkout gagal"
 }
