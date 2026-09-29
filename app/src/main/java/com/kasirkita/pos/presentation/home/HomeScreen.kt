@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -32,6 +33,7 @@ fun HomeScreen(
     onManageProductsClick: (() -> Unit)? = null,
     onTransactionsClick: (() -> Unit)? = null,
     onReportsClick: (() -> Unit)? = null,
+    onOfflineProblemsClick: () -> Unit,
     onLogoutComplete: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
     logoutViewModel: LogoutViewModel = hiltViewModel(),
@@ -61,26 +63,59 @@ fun HomeScreen(
             style = MaterialTheme.typography.headlineMedium,
         )
 
-        Text(
-            text = "Pending Sync: ${syncState.pendingCount}",
-            style = MaterialTheme.typography.titleMedium,
-        )
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "Sinkronisasi Offline",
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = "Menunggu sinkronisasi: ${syncState.pendingCount}",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Text(
+                text = "Perlu tindakan: ${syncState.actionRequiredCount}",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (syncState.actionRequiredCount > 0) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onBackground
+                },
+            )
+        }
 
         Button(
             onClick = viewModel::syncNow,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
             enabled = syncState.pendingCount > 0 && !syncState.isSyncing,
         ) {
             if (syncState.isSyncing) {
-                CircularProgressIndicator()
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    strokeWidth = 2.dp,
+                )
             } else {
-                Text("Sync Sekarang")
+                Text("Sinkronkan Sekarang")
             }
+        }
+
+        OutlinedButton(
+            onClick = onOfflineProblemsClick,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
+        ) {
+            Text("Lihat Masalah Sinkronisasi")
         }
 
         syncState.lastResult?.let { result ->
             Text(
-                "Sync: ${result.synced} berhasil, " +
+                "Sinkronisasi: ${result.synced} berhasil, " +
                     "${result.failed} gagal, ${result.pending} masih pending",
             )
         }
@@ -94,7 +129,9 @@ fun HomeScreen(
 
         Button(
             onClick = onProductsClick,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
         ) {
             Text("Produk")
         }
@@ -112,14 +149,18 @@ fun HomeScreen(
 
         Button(
             onClick = onCartClick,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
         ) {
             Text("Cart")
         }
 
         Button(
             onClick = onShiftClick,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp),
         ) {
             Text("Shift")
         }

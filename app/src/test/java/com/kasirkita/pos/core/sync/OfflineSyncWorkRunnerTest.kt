@@ -171,11 +171,23 @@ class OfflineSyncWorkRunnerTest {
             limit: Int,
         ): Result<List<OfflineTransaction>> = error("Not used")
 
+        override suspend fun getRecoveryTransactions(
+            limit: Int,
+        ): Result<List<OfflineTransaction>> = error("Not used")
+
         override suspend fun syncPendingTransactions(): Result<SyncOutcome> = error("Not used")
 
         override suspend fun retryFailedTransaction(
             clientTransactionId: String,
         ): Result<SyncOutcome> = error("Not used")
+
+        override suspend fun deleteFailedTransaction(
+            clientTransactionId: String,
+        ): Result<Unit> = error("Not used")
+
+        override suspend fun acknowledgeReconciliation(
+            clientTransactionId: String,
+        ): Result<Unit> = error("Not used")
 
         override suspend fun retryFailedTransactions(): Result<SyncOutcome> = error("Not used")
     }

@@ -161,6 +161,21 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getRecoveryTransactions(
+        limit: Int,
+    ): Result<List<OfflineTransaction>> = runCatching {
+        val identity = requireIdentity()
+        if (limit <= 0) {
+            emptyList()
+        } else {
+            offlineTransactionDao.getRecoveryTransactions(
+                tenantId = identity.tenantId,
+                userId = identity.userId,
+                limit = limit.coerceAtMost(MAX_BATCH_SIZE),
+            ).map { entity -> entity.toDomain() }
+        }
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeQueueSummary(): Flow<OfflineQueueSummary> =
         authSessionDataStore.sessionFlow
@@ -204,12 +219,42 @@ class OfflineSyncRepositoryImpl @Inject constructor(
     override suspend fun retryFailedTransaction(
         clientTransactionId: String,
     ): Result<SyncOutcome> = runSynchronizedSync { identity ->
+        val transaction = offlineTransactionDao.getByClientTransactionId(
+            tenantId = identity.tenantId,
+            userId = identity.userId,
+            clientTransactionId = clientTransactionId,
+        )
+        require(transaction?.status == OfflineTransactionStatus.FAILED) {
+            "Only rejected offline transactions can be retried manually"
+        }
         offlineTransactionDao.retryFailedTransaction(
             tenantId = identity.tenantId,
             userId = identity.userId,
             clientTransactionId = clientTransactionId,
         )
         syncPendingTransactions(identity)
+    }
+
+    override suspend fun deleteFailedTransaction(
+        clientTransactionId: String,
+    ): Result<Unit> = runSynchronizedAccountAction { identity ->
+        val deleted = offlineTransactionDao.deleteFailedTransaction(
+            tenantId = identity.tenantId,
+            userId = identity.userId,
+            clientTransactionId = clientTransactionId,
+        )
+        check(deleted == 1) { "Rejected offline transaction was not found" }
+    }
+
+    override suspend fun acknowledgeReconciliation(
+        clientTransactionId: String,
+    ): Result<Unit> = runSynchronizedAccountAction { identity ->
+        val deleted = offlineTransactionDao.acknowledgeReconciliation(
+            tenantId = identity.tenantId,
+            userId = identity.userId,
+            clientTransactionId = clientTransactionId,
+        )
+        check(deleted == 1) { "Reconciliation transaction was not found" }
     }
 
     override suspend fun retryFailedTransactions(): Result<SyncOutcome> =
@@ -233,6 +278,20 @@ class OfflineSyncRepositoryImpl @Inject constructor(
                     return@withLock SyncOutcome.AuthenticationUnavailable
                 }
                 operation(identity)
+            },
+        )
+    } catch (exception: CancellationException) {
+        throw exception
+    } catch (throwable: Throwable) {
+        Result.failure(throwable)
+    }
+
+    private suspend fun <T> runSynchronizedAccountAction(
+        operation: suspend (SessionIdentity) -> T,
+    ): Result<T> = try {
+        Result.success(
+            syncMutex.withLock {
+                operation(requireIdentity())
             },
         )
     } catch (exception: CancellationException) {

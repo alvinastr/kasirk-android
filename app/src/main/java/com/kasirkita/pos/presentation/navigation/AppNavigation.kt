@@ -26,6 +26,7 @@ import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.presentation.cart.CartScreen
 import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
+import com.kasirkita.pos.presentation.offline.OfflineRecoveryScreen
 import com.kasirkita.pos.presentation.outlet.OutletScreen
 import com.kasirkita.pos.presentation.product.CreateProductScreen
 import com.kasirkita.pos.presentation.product.EditProductScreen
@@ -161,6 +162,9 @@ fun AppNavigation(
                         onReportsClick = reportsRoute?.let { route ->
                             { navController.navigate(route) }
                         },
+                        onOfflineProblemsClick = {
+                            navController.navigate(Screen.OfflineRecovery.route)
+                        },
                         onLogoutComplete = {
                             viewModel.onLoggedOut()
                             navController.navigate(AuthV2Screen.Graph.route) {
@@ -177,6 +181,10 @@ fun AppNavigation(
                             navController.navigate(Screen.Cart.route)
                         },
                     )
+                }
+
+                composable(Screen.OfflineRecovery.route) {
+                    OfflineRecoveryScreen(onBack = navController::popBackStack)
                 }
 
                 val manageRoute = productManagementRoute

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.domain.model.SyncOutcome
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import com.kasirkita.pos.domain.usecase.SyncPendingTransactionsUseCase
+import com.kasirkita.pos.presentation.offline.offlineRecoveryErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -24,9 +25,12 @@ class HomeViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            offlineSyncRepository.observePendingCount().collect { pendingCount ->
+            offlineSyncRepository.observeQueueSummary().collect { summary ->
                 _syncState.update { state ->
-                    state.copy(pendingCount = pendingCount)
+                    state.copy(
+                        pendingCount = summary.pendingCount,
+                        actionRequiredCount = summary.failedCount,
+                    )
                 }
             }
         }
@@ -55,7 +59,7 @@ class HomeViewModel @Inject constructor(
                             is SyncOutcome.RetryableFailure -> it.copy(
                                 isSyncing = false,
                                 lastResult = outcome.result,
-                                errorMessage = outcome.message,
+                                errorMessage = offlineRecoveryErrorMessage(outcome.message),
                             )
                             SyncOutcome.AuthenticationUnavailable -> it.copy(
                                 isSyncing = false,
@@ -73,7 +77,7 @@ class HomeViewModel @Inject constructor(
                     _syncState.update {
                         it.copy(
                             isSyncing = false,
-                            errorMessage = throwable.message ?: "Sinkronisasi gagal",
+                            errorMessage = offlineRecoveryErrorMessage(throwable),
                         )
                     }
                 },

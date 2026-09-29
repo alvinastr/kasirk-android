@@ -25,6 +25,8 @@ interface OfflineSyncRepository {
 
     suspend fun getActionRequiredTransactions(limit: Int = 100): Result<List<OfflineTransaction>>
 
+    suspend fun getRecoveryTransactions(limit: Int = 100): Result<List<OfflineTransaction>>
+
     fun observeQueueSummary(): Flow<OfflineQueueSummary>
 
     fun observePendingCount(): Flow<Int>
@@ -37,6 +39,10 @@ interface OfflineSyncRepository {
     ): Result<SyncOutcome>
 
     suspend fun retryFailedTransaction(clientTransactionId: String): Result<SyncOutcome>
+
+    suspend fun deleteFailedTransaction(clientTransactionId: String): Result<Unit>
+
+    suspend fun acknowledgeReconciliation(clientTransactionId: String): Result<Unit>
 
     suspend fun retryFailedTransactions(): Result<SyncOutcome>
 }

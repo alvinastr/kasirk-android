@@ -78,6 +78,22 @@ interface OfflineTransactionDao {
 
     @Query(
         """
+        SELECT * FROM offline_transactions
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND status IN ('RETRYABLE', 'FAILED', 'RECONCILIATION_REQUIRED')
+        ORDER BY updatedAt ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getRecoveryTransactions(
+        tenantId: String,
+        userId: String,
+        limit: Int,
+    ): List<OfflineTransactionEntity>
+
+    @Query(
+        """
         SELECT COUNT(*) FROM offline_transactions
         WHERE tenantId = :tenantId
           AND userId = :userId
@@ -219,6 +235,36 @@ interface OfflineTransactionDao {
         userId: String,
         clientTransactionId: String,
     )
+
+    @Query(
+        """
+        DELETE FROM offline_transactions
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND clientTransactionId = :clientTransactionId
+          AND status = 'FAILED'
+        """,
+    )
+    suspend fun deleteFailedTransaction(
+        tenantId: String,
+        userId: String,
+        clientTransactionId: String,
+    ): Int
+
+    @Query(
+        """
+        DELETE FROM offline_transactions
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND clientTransactionId = :clientTransactionId
+          AND status = 'RECONCILIATION_REQUIRED'
+        """,
+    )
+    suspend fun acknowledgeReconciliation(
+        tenantId: String,
+        userId: String,
+        clientTransactionId: String,
+    ): Int
 
     @Query(
         """

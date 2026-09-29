@@ -421,6 +421,115 @@ class OfflineSyncRepositoryImplTest {
     }
 
     @Test
+    fun recoveryTransactions_includeRetryableRejectedAndReconciliationRecords() = runBlocking {
+        queueTransaction("retryable-client")
+        queueTransaction("rejected-client")
+        queueTransaction("reconciliation-client")
+        queueTransaction("pending-client")
+        dao.markRetryable(
+            TENANT_ID,
+            USER_ID,
+            listOf("retryable-client"),
+            "offline",
+        )
+        dao.markFailed(TENANT_ID, USER_ID, "rejected-client", "rejected")
+        dao.markReconciliationRequired(
+            TENANT_ID,
+            USER_ID,
+            "reconciliation-client",
+            "server-transaction-id",
+            "financial mismatch",
+        )
+
+        val records = repository.getRecoveryTransactions().getOrThrow()
+            .associateBy { transaction -> transaction.clientTransactionId }
+
+        assertEquals(3, records.size)
+        assertEquals(
+            OfflineTransactionFailureType.RETRYABLE,
+            records["retryable-client"]?.failureType,
+        )
+        assertEquals(
+            OfflineTransactionFailureType.REJECTED,
+            records["rejected-client"]?.failureType,
+        )
+        assertEquals(
+            OfflineTransactionFailureType.RECONCILIATION_REQUIRED,
+            records["reconciliation-client"]?.failureType,
+        )
+        assertNull(records["pending-client"])
+    }
+
+    @Test
+    fun recoveryActions_deleteOnlyRejectedAndAcknowledgeOnlyReconciliation() = runBlocking {
+        queueTransaction("rejected-client")
+        queueTransaction("reconciliation-client")
+        dao.markFailed(TENANT_ID, USER_ID, "rejected-client", "rejected")
+        dao.markReconciliationRequired(
+            TENANT_ID,
+            USER_ID,
+            "reconciliation-client",
+            "server-transaction-id",
+            "financial mismatch",
+        )
+
+        repository.deleteFailedTransaction("rejected-client").getOrThrow()
+        val invalidDelete = repository.deleteFailedTransaction("reconciliation-client")
+        repository.acknowledgeReconciliation("reconciliation-client").getOrThrow()
+
+        assertNull(dao.find("rejected-client"))
+        assertTrue(invalidDelete.isFailure)
+        assertNull(dao.find("reconciliation-client"))
+    }
+
+    @Test
+    fun recoveryDeletion_cannotRemoveAnotherAccountsRecord() = runBlocking {
+        val owned = queueTransaction("owned-rejected")
+        dao.markFailed(TENANT_ID, USER_ID, owned.clientTransactionId, "rejected")
+        dao.insert(
+            owned.toEntity().copy(
+                id = "other-account-rejected",
+                tenantId = OTHER_TENANT_ID,
+                userId = OTHER_USER_ID,
+                clientTransactionId = "other-account-rejected",
+            ),
+        )
+
+        val deleteResult = repository.deleteFailedTransaction("other-account-rejected")
+        sessionStore.clearSession()
+        sessionStore.saveSession(
+            session().copy(tenantId = OTHER_TENANT_ID, userId = OTHER_USER_ID),
+        )
+        val otherAccountRecord = repository.getTransaction(
+            "other-account-rejected",
+        ).getOrThrow()
+
+        assertTrue(deleteResult.isFailure)
+        assertNotNull(otherAccountRecord)
+    }
+
+    @Test
+    fun reconciliationTransaction_cannotBeRetried() = runBlocking {
+        queueTransaction("reconciliation-client")
+        dao.markReconciliationRequired(
+            TENANT_ID,
+            USER_ID,
+            "reconciliation-client",
+            "server-transaction-id",
+            "financial mismatch",
+        )
+
+        val result = repository.retryFailedTransaction("reconciliation-client")
+
+        assertTrue(result.isFailure)
+        assertEquals(0, api.callCount)
+        assertEquals(
+            OfflineTransactionStatus.RECONCILIATION_REQUIRED,
+            dao.find("reconciliation-client")?.status,
+        )
+    }
+
+    @Test
     fun sync_sendsAtMostOneHundredTransactions() = runBlocking {
         repeat(101) {
             queueTransaction(UUID.randomUUID().toString())
@@ -683,6 +792,25 @@ class OfflineSyncRepositoryImplTest {
             .take(limit)
             .toList()
 
+        override suspend fun getRecoveryTransactions(
+            tenantId: String,
+            userId: String,
+            limit: Int,
+        ): List<OfflineTransactionEntity> = records.values
+            .asSequence()
+            .filter { entity ->
+                entity.tenantId == tenantId &&
+                    entity.userId == userId &&
+                    entity.status in setOf(
+                        OfflineTransactionStatus.RETRYABLE,
+                        OfflineTransactionStatus.FAILED,
+                        OfflineTransactionStatus.RECONCILIATION_REQUIRED,
+                    )
+            }
+            .sortedBy(OfflineTransactionEntity::updatedAt)
+            .take(limit)
+            .toList()
+
         override fun observePendingCount(tenantId: String, userId: String): Flow<Int> =
             revision.map {
                 records.values.count { entity ->
@@ -825,6 +953,22 @@ class OfflineSyncRepositoryImplTest {
             }
         }
 
+        override suspend fun deleteFailedTransaction(
+            tenantId: String,
+            userId: String,
+            clientTransactionId: String,
+        ): Int = delete(tenantId, userId, clientTransactionId) { entity ->
+            entity.status == OfflineTransactionStatus.FAILED
+        }
+
+        override suspend fun acknowledgeReconciliation(
+            tenantId: String,
+            userId: String,
+            clientTransactionId: String,
+        ): Int = delete(tenantId, userId, clientTransactionId) { entity ->
+            entity.status == OfflineTransactionStatus.RECONCILIATION_REQUIRED
+        }
+
         override suspend fun deleteSynced(tenantId: String, userId: String) {
             records.entries.removeAll { (_, entity) ->
                 entity.tenantId == tenantId &&
@@ -871,6 +1015,23 @@ class OfflineSyncRepositoryImplTest {
             } ?: return
             records[entry.key] = transform(entry.value)
             revision.value++
+        }
+
+        private fun delete(
+            tenantId: String,
+            userId: String,
+            clientTransactionId: String,
+            condition: (OfflineTransactionEntity) -> Boolean,
+        ): Int {
+            val entry = records.entries.firstOrNull { (_, entity) ->
+                entity.tenantId == tenantId &&
+                    entity.userId == userId &&
+                    entity.clientTransactionId == clientTransactionId &&
+                    condition(entity)
+            } ?: return 0
+            records.remove(entry.key)
+            revision.value++
+            return 1
         }
     }
 
