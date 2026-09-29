@@ -159,6 +159,20 @@ class OfflineSyncRepositoryImplTest {
     }
 
     @Test
+    fun accountScopedSync_withDifferentActiveAccount_isIgnored() = runBlocking {
+        queueTransaction("owned-by-current-account")
+
+        val outcome = repository.syncPendingTransactionsForAccount(
+            tenantId = OTHER_TENANT_ID,
+            userId = OTHER_USER_ID,
+        ).getOrThrow()
+
+        assertEquals(SyncOutcome.AuthenticationUnavailable, outcome)
+        assertEquals(0, api.callCount)
+        assertEquals(1, dao.pendingCount())
+    }
+
+    @Test
     fun queueTransaction_persistsTheCompleteRequestWithTheSameClientId() = runBlocking {
         val clientTransactionId = UUID.randomUUID().toString()
         val queued = queueTransaction(clientTransactionId)

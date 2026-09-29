@@ -165,6 +165,15 @@ class OfflineSyncRepositoryImpl @Inject constructor(
     override suspend fun syncPendingTransactions(): Result<SyncOutcome> =
         runSynchronizedSync { identity -> syncPendingTransactions(identity) }
 
+    override suspend fun syncPendingTransactionsForAccount(
+        tenantId: String,
+        userId: String,
+    ): Result<SyncOutcome> = runSynchronizedSync(
+        expectedIdentity = SessionIdentity(tenantId = tenantId, userId = userId),
+    ) { identity ->
+        syncPendingTransactions(identity)
+    }
+
     override suspend fun retryFailedTransaction(
         clientTransactionId: String,
     ): Result<SyncOutcome> = runSynchronizedSync { identity ->
@@ -186,12 +195,16 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         }
 
     private suspend fun runSynchronizedSync(
+        expectedIdentity: SessionIdentity? = null,
         operation: suspend (SessionIdentity) -> SyncOutcome,
     ): Result<SyncOutcome> = try {
         Result.success(
             syncMutex.withLock {
                 val identity = currentIdentity()
                     ?: return@withLock SyncOutcome.AuthenticationUnavailable
+                if (expectedIdentity != null && identity != expectedIdentity) {
+                    return@withLock SyncOutcome.AuthenticationUnavailable
+                }
                 operation(identity)
             },
         )

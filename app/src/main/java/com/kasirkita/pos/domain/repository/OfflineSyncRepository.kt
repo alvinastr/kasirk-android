@@ -27,6 +27,11 @@ interface OfflineSyncRepository {
 
     suspend fun syncPendingTransactions(): Result<SyncOutcome>
 
+    suspend fun syncPendingTransactionsForAccount(
+        tenantId: String,
+        userId: String,
+    ): Result<SyncOutcome>
+
     suspend fun retryFailedTransaction(clientTransactionId: String): Result<SyncOutcome>
 
     suspend fun retryFailedTransactions(): Result<SyncOutcome>

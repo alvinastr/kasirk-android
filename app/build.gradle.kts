@@ -80,7 +80,9 @@ dependencies {
     // =====================
     implementation("com.google.dagger:hilt-android:2.59.2")
     implementation("androidx.hilt:hilt-navigation-compose:1.4.0")
+    implementation("androidx.hilt:hilt-work:1.4.0")
     ksp("com.google.dagger:hilt-compiler:2.59.2")
+    ksp("androidx.hilt:hilt-compiler:1.4.0")
 
 
     // =====================
@@ -142,6 +144,12 @@ dependencies {
     implementation(
         "androidx.navigation:navigation-compose:2.9.3"
     )
+
+
+    // =====================
+    // BACKGROUND SYNC
+    // =====================
+    implementation("androidx.work:work-runtime-ktx:2.11.2")
 
 
     // TEST
