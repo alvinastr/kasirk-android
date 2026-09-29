@@ -1,6 +1,7 @@
 package com.kasirkita.pos.core.network
 
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
+import com.kasirkita.pos.core.datastore.toSessionIdentity
 import com.kasirkita.pos.data.api.AuthV2Api
 import com.kasirkita.pos.data.model.RefreshTokenRequest
 import kotlinx.coroutines.CancellationException
@@ -30,6 +31,7 @@ class RefreshTokenCoordinator internal constructor(
     suspend fun refreshAccessToken(failedAccessToken: String?): String? =
         refreshMutex.withLock {
             val session = authSessionDataStore.getSession() ?: return@withLock null
+            val identity = session.toSessionIdentity()
 
             if (
                 failedAccessToken != null &&
@@ -56,16 +58,21 @@ class RefreshTokenCoordinator internal constructor(
                     currentTimeMillis(),
                     Math.multiplyExact(response.expiresIn, MILLIS_PER_SECOND),
                 )
-                authSessionDataStore.updateTokenPair(
+                val updated = authSessionDataStore.updateTokenPair(
+                    expectedIdentity = identity,
+                    expectedRefreshToken = session.refreshToken,
                     accessToken = response.accessToken,
                     refreshToken = response.refreshToken,
                     expiresAt = expiresAt,
                 )
-                response.accessToken
+                response.accessToken.takeIf { updated }
             } catch (error: CancellationException) {
                 throw error
             } catch (_: Throwable) {
-                authSessionDataStore.clearSession()
+                authSessionDataStore.clearSessionIfMatches(
+                    expectedIdentity = identity,
+                    expectedRefreshToken = session.refreshToken,
+                )
                 null
             }
         }

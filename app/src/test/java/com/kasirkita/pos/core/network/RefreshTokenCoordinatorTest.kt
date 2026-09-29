@@ -16,6 +16,7 @@ import com.kasirkita.pos.data.model.StoreResolveResponse
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.UserRole
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
@@ -98,6 +99,43 @@ class RefreshTokenCoordinatorTest {
         assertEquals(NEW_ACCESS_TOKEN, updated.accessToken)
         assertEquals(NEW_REFRESH_TOKEN, updated.refreshToken)
         assertEquals(NOW_MILLIS + EXPIRES_IN_SECONDS * 1_000L, updated.expiresAt)
+    }
+
+    @Test
+    fun delayedRefresh_doesNotOverwriteAReplacementAccount() = runBlocking {
+        val store = sessionStore()
+        val refreshStarted = CompletableDeferred<Unit>()
+        val releaseRefresh = CompletableDeferred<Unit>()
+        val api = FakeAuthV2Api(
+            refresh = {
+                refreshStarted.complete(Unit)
+                releaseRefresh.await()
+                tokenResponse()
+            },
+        )
+        val coordinator = coordinator(api, store)
+
+        val refresh = async(Dispatchers.Default) {
+            coordinator.refreshAccessToken(OLD_ACCESS_TOKEN)
+        }
+        refreshStarted.await()
+        store.clearSession()
+        val replacement = AuthSession(
+            userId = "replacement-user",
+            userName = "Kasir Pengganti",
+            tenantId = "replacement-tenant",
+            role = UserRole.CASHIER,
+            outletId = "replacement-outlet",
+            accessToken = "replacement-access-token",
+            refreshToken = "replacement-refresh-token",
+            expiresAt = Long.MAX_VALUE,
+            deviceId = DEVICE_ID,
+        )
+        store.saveSession(replacement)
+        releaseRefresh.complete(Unit)
+
+        assertNull(refresh.await())
+        assertEquals(replacement, store.getSession())
     }
 
     private suspend fun sessionStore(): AuthSessionDataStore = AuthSessionDataStore(
