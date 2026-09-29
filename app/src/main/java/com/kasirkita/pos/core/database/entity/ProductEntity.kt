@@ -2,11 +2,12 @@ package com.kasirkita.pos.core.database.entity
 
 import androidx.room.ColumnInfo
 import androidx.room.Entity
-import androidx.room.PrimaryKey
 
-@Entity(tableName = "products")
+@Entity(
+    tableName = "products",
+    primaryKeys = ["tenantId", "id"],
+)
 data class ProductEntity(
-    @PrimaryKey
     val id: String,
     val tenantId: String,
     val categoryId: String?,

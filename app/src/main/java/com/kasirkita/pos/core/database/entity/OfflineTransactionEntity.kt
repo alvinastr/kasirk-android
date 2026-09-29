@@ -2,17 +2,18 @@ package com.kasirkita.pos.core.database.entity
 
 import androidx.room.Entity
 import androidx.room.Index
-import androidx.room.PrimaryKey
 
 @Entity(
     tableName = "offline_transactions",
+    primaryKeys = ["tenantId", "userId", "clientTransactionId"],
     indices = [
-        Index(value = ["clientTransactionId"], unique = true),
+        Index(value = ["tenantId", "userId", "status", "createdAt"]),
     ],
 )
 data class OfflineTransactionEntity(
-    @PrimaryKey
     val id: String,
+    val tenantId: String,
+    val userId: String,
     val clientTransactionId: String,
     val outletId: String,
     val payloadJson: String,

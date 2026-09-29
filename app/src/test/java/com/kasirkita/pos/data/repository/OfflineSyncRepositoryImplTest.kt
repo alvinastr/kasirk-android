@@ -1,8 +1,12 @@
 package com.kasirkita.pos.data.repository
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import com.google.gson.GsonBuilder
 import com.kasirkita.pos.core.database.dao.OfflineTransactionDao
 import com.kasirkita.pos.core.database.entity.OfflineTransactionEntity
+import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.data.api.SyncApi
 import com.kasirkita.pos.data.model.CreateTransactionRequest
 import com.kasirkita.pos.data.model.SyncTransactionError
@@ -11,9 +15,13 @@ import com.kasirkita.pos.data.model.SyncTransactionsRequest
 import com.kasirkita.pos.data.model.SyncTransactionsResponse
 import com.kasirkita.pos.data.model.TransactionDetailResponse
 import com.kasirkita.pos.domain.model.CartItem
+import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.OfflineTransactionStatus
+import com.kasirkita.pos.domain.model.UserRole
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -29,6 +37,7 @@ class OfflineSyncRepositoryImplTest {
 
     private lateinit var dao: FakeOfflineTransactionDao
     private lateinit var api: FakeSyncApi
+    private lateinit var sessionStore: AuthSessionDataStore
     private lateinit var repository: OfflineSyncRepositoryImpl
     private val gson = GsonBuilder().serializeNulls().create()
 
@@ -36,10 +45,13 @@ class OfflineSyncRepositoryImplTest {
     fun setUp() {
         dao = FakeOfflineTransactionDao()
         api = FakeSyncApi()
+        sessionStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
+        runBlocking { sessionStore.saveSession(session()) }
         repository = OfflineSyncRepositoryImpl(
             offlineTransactionDao = dao,
             syncApi = api,
             gson = gson,
+            authSessionDataStore = sessionStore,
         )
     }
 
@@ -49,7 +61,42 @@ class OfflineSyncRepositoryImplTest {
 
         assertEquals(OfflineTransactionStatus.PENDING, queued.status)
         assertEquals(0, queued.retryCount)
+        assertEquals(TENANT_ID, queued.tenantId)
+        assertEquals(USER_ID, queued.userId)
         assertEquals(1, dao.pendingCount())
+    }
+
+    @Test
+    fun pendingTransactions_areIsolatedByTenantAndUser() = runBlocking {
+        val current = queueTransaction()
+        dao.insert(
+            current.toEntity().copy(
+                id = "other-account-row",
+                tenantId = OTHER_TENANT_ID,
+                userId = OTHER_USER_ID,
+            ),
+        )
+
+        val pending = repository.getPendingTransactions(100).getOrThrow()
+
+        assertEquals(listOf(current.clientTransactionId), pending.map { it.clientTransactionId })
+        assertEquals(1, repository.observePendingCount().first())
+    }
+
+    @Test
+    fun queueTransaction_withoutSession_failsWithoutPersisting() = runBlocking {
+        sessionStore.clearSession()
+
+        val result = repository.queueTransaction(
+            clientTransactionId = UUID.randomUUID().toString(),
+            outletId = OUTLET_ID,
+            customerId = null,
+            items = listOf(sampleCartItem()),
+            paymentAmount = 10_000L,
+        )
+
+        assertTrue(result.isFailure)
+        assertEquals(0, dao.totalCount())
     }
 
     @Test
@@ -297,42 +344,60 @@ class OfflineSyncRepositoryImplTest {
 
     private class FakeOfflineTransactionDao : OfflineTransactionDao {
         private val records = linkedMapOf<String, OfflineTransactionEntity>()
-        private val pendingCount = MutableStateFlow(0)
+        private val revision = MutableStateFlow(0)
         var insertFailure: Throwable? = null
 
         override suspend fun insert(transaction: OfflineTransactionEntity): Long {
             insertFailure?.let { throwable -> throw throwable }
             val duplicate = records.values.any {
-                it.id == transaction.id ||
+                it.tenantId == transaction.tenantId &&
+                    it.userId == transaction.userId &&
                     it.clientTransactionId == transaction.clientTransactionId
             }
             if (duplicate) return -1L
 
             records[transaction.id] = transaction
-            updatePendingCount()
+            revision.value++
             return records.size.toLong()
         }
 
         override suspend fun getByClientTransactionId(
+            tenantId: String,
+            userId: String,
             clientTransactionId: String,
-        ): OfflineTransactionEntity? = find(clientTransactionId)
+        ): OfflineTransactionEntity? = find(tenantId, userId, clientTransactionId)
 
         override suspend fun getPendingTransactions(
+            tenantId: String,
+            userId: String,
             limit: Int,
         ): List<OfflineTransactionEntity> = records.values
             .asSequence()
-            .filter { it.status == OfflineTransactionStatus.PENDING }
+            .filter { entity ->
+                entity.tenantId == tenantId &&
+                    entity.userId == userId &&
+                    entity.status == OfflineTransactionStatus.PENDING
+            }
             .sortedBy(OfflineTransactionEntity::createdAt)
             .take(limit)
             .toList()
 
-        override fun observePendingCount(): Flow<Int> = pendingCount
+        override fun observePendingCount(tenantId: String, userId: String): Flow<Int> =
+            revision.map {
+                records.values.count { entity ->
+                    entity.tenantId == tenantId &&
+                        entity.userId == userId &&
+                        entity.status == OfflineTransactionStatus.PENDING
+                }
+            }
 
         override suspend fun markSynced(
+            tenantId: String,
+            userId: String,
             clientTransactionId: String,
             serverTransactionId: String,
         ) {
-            update(clientTransactionId) { entity ->
+            update(tenantId, userId, clientTransactionId) { entity ->
                 entity.copy(
                     status = OfflineTransactionStatus.SYNCED,
                     serverTransactionId = serverTransactionId,
@@ -342,10 +407,12 @@ class OfflineSyncRepositoryImplTest {
         }
 
         override suspend fun markFailed(
+            tenantId: String,
+            userId: String,
             clientTransactionId: String,
             error: String,
         ) {
-            update(clientTransactionId) { entity ->
+            update(tenantId, userId, clientTransactionId) { entity ->
                 entity.copy(
                     status = OfflineTransactionStatus.FAILED,
                     lastError = error,
@@ -354,9 +421,13 @@ class OfflineSyncRepositoryImplTest {
             }
         }
 
-        override suspend fun incrementRetry(clientTransactionIds: List<String>) {
+        override suspend fun incrementRetry(
+            tenantId: String,
+            userId: String,
+            clientTransactionIds: List<String>,
+        ) {
             clientTransactionIds.forEach { clientTransactionId ->
-                update(clientTransactionId) { entity ->
+                update(tenantId, userId, clientTransactionId) { entity ->
                     if (entity.status == OfflineTransactionStatus.PENDING) {
                         entity.copy(retryCount = entity.retryCount + 1)
                     } else {
@@ -366,9 +437,13 @@ class OfflineSyncRepositoryImplTest {
             }
         }
 
-        override suspend fun retryFailedTransactions() {
+        override suspend fun retryFailedTransactions(tenantId: String, userId: String) {
             records.replaceAll { _, entity ->
-                if (entity.status == OfflineTransactionStatus.FAILED) {
+                if (
+                    entity.tenantId == tenantId &&
+                    entity.userId == userId &&
+                    entity.status == OfflineTransactionStatus.FAILED
+                ) {
                     entity.copy(
                         status = OfflineTransactionStatus.PENDING,
                         lastError = null,
@@ -377,44 +452,101 @@ class OfflineSyncRepositoryImplTest {
                     entity
                 }
             }
-            updatePendingCount()
+            revision.value++
         }
 
-        override suspend fun deleteSynced() {
+        override suspend fun deleteSynced(tenantId: String, userId: String) {
             records.entries.removeAll { (_, entity) ->
-                entity.status == OfflineTransactionStatus.SYNCED
+                entity.tenantId == tenantId &&
+                    entity.userId == userId &&
+                    entity.status == OfflineTransactionStatus.SYNCED
             }
-            updatePendingCount()
+            revision.value++
         }
 
         fun find(clientTransactionId: String): OfflineTransactionEntity? =
-            records.values.firstOrNull {
-                it.clientTransactionId == clientTransactionId
-            }
+            find(TENANT_ID, USER_ID, clientTransactionId)
 
-        fun pendingCount(): Int = pendingCount.value
+        fun pendingCount(): Int = records.values.count { entity ->
+            entity.tenantId == TENANT_ID &&
+                entity.userId == USER_ID &&
+                entity.status == OfflineTransactionStatus.PENDING
+        }
+
+        fun totalCount(): Int = records.size
+
+        private fun find(
+            tenantId: String,
+            userId: String,
+            clientTransactionId: String,
+        ): OfflineTransactionEntity? = records.values.firstOrNull { entity ->
+            entity.tenantId == tenantId &&
+                entity.userId == userId &&
+                entity.clientTransactionId == clientTransactionId
+        }
 
         private fun update(
+            tenantId: String,
+            userId: String,
             clientTransactionId: String,
             transform: (OfflineTransactionEntity) -> OfflineTransactionEntity,
         ) {
             val entry = records.entries.firstOrNull {
-                it.value.clientTransactionId == clientTransactionId
+                it.value.tenantId == tenantId &&
+                    it.value.userId == userId &&
+                    it.value.clientTransactionId == clientTransactionId
             } ?: return
             records[entry.key] = transform(entry.value)
-            updatePendingCount()
+            revision.value++
         }
+    }
 
-        private fun updatePendingCount() {
-            pendingCount.value = records.values.count {
-                it.status == OfflineTransactionStatus.PENDING
-            }
+    private fun session() = AuthSession(
+        userId = USER_ID,
+        userName = "Kasir Utama",
+        tenantId = TENANT_ID,
+        role = UserRole.CASHIER,
+        outletId = OUTLET_ID,
+        accessToken = "access-token",
+        refreshToken = "refresh-token",
+        expiresAt = Long.MAX_VALUE,
+        deviceId = "device-id",
+    )
+
+    private fun com.kasirkita.pos.domain.model.OfflineTransaction.toEntity() =
+        OfflineTransactionEntity(
+            id = id,
+            tenantId = tenantId,
+            userId = userId,
+            clientTransactionId = clientTransactionId,
+            outletId = outletId,
+            payloadJson = payloadJson,
+            status = status,
+            serverTransactionId = serverTransactionId,
+            lastError = lastError,
+            retryCount = retryCount,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+        )
+
+    private class InMemoryPreferencesDataStore : DataStore<Preferences> {
+        private val state = MutableStateFlow<Preferences>(emptyPreferences())
+
+        override val data: Flow<Preferences> = state
+
+        override suspend fun updateData(
+            transform: suspend (Preferences) -> Preferences,
+        ): Preferences = transform(state.value).also { updated ->
+            state.value = updated
         }
     }
 
     private companion object {
         const val OUTLET_ID = "ce591e13-afd5-46ee-b3a3-5a0fdc51c2ce"
         const val PRODUCT_ID = "c3c3c3c3-aaaa-4444-bbbb-222222222222"
+        const val TENANT_ID = "tenant-id"
+        const val OTHER_TENANT_ID = "other-tenant-id"
         const val USER_ID = "8f1fbf18-ed1e-4db8-a78d-857238e08e62"
+        const val OTHER_USER_ID = "other-user-id"
     }
 }

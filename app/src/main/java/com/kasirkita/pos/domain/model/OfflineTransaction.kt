@@ -2,6 +2,8 @@ package com.kasirkita.pos.domain.model
 
 data class OfflineTransaction(
     val id: String,
+    val tenantId: String,
+    val userId: String,
     val clientTransactionId: String,
     val outletId: String,
     val payloadJson: String,

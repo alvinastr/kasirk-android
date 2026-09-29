@@ -6,9 +6,13 @@ import androidx.sqlite.db.SupportSQLiteOpenHelper
 import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.kasirkita.pos.core.database.entity.OfflineTransactionEntity
 import com.kasirkita.pos.core.database.entity.ProductEntity
+import com.kasirkita.pos.domain.model.OfflineTransactionStatus
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -35,7 +39,7 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrate2To3_existingProductDefaultsToTrackedStock() = runBlocking {
+    fun migrate2To4_existingProductDefaultsToTrackedStock() = runBlocking {
         createVersionTwoDatabase()
 
         database = Room.databaseBuilder(
@@ -43,12 +47,33 @@ class AppDatabaseMigrationTest {
             AppDatabase::class.java,
             TEST_DATABASE_NAME,
         )
-            .addMigrations(AppDatabase.MIGRATION_2_3)
+            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
             .build()
 
-        val product = requireNotNull(database).productDao().getProducts().single()
+        val product = requireNotNull(database).productDao().getProducts(TENANT_ID).single()
 
         assertTrue(product.trackStock)
+    }
+
+    @Test
+    fun migrate3To4_preservesProductsAndDiscardsUnownedOfflineRows() = runBlocking {
+        createVersionThreeDatabase()
+
+        database = Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            TEST_DATABASE_NAME,
+        )
+            .addMigrations(AppDatabase.MIGRATION_3_4)
+            .build()
+
+        val migrated = requireNotNull(database)
+        assertEquals(1, migrated.productDao().getProducts(TENANT_ID).size)
+        assertTrue(
+            migrated.offlineTransactionDao()
+                .getPendingTransactions(TENANT_ID, USER_ID, 100)
+                .isEmpty(),
+        )
     }
 
     @Test
@@ -72,9 +97,52 @@ class AppDatabaseMigrationTest {
         )
 
         requireNotNull(database).productDao().insertProducts(listOf(product))
-        val cached = requireNotNull(database).productDao().getProducts().single()
+        val cached = requireNotNull(database).productDao().getProducts(TENANT_ID).single()
 
         assertFalse(cached.trackStock)
+    }
+
+    @Test
+    fun currentSchema_isolatesProductsByTenant() = runBlocking {
+        database = Room.inMemoryDatabaseBuilder(
+            context,
+            AppDatabase::class.java,
+        ).build()
+        val firstTenantProduct = product(id = "shared-product", tenantId = TENANT_ID)
+        val secondTenantProduct = product(id = "shared-product", tenantId = OTHER_TENANT_ID)
+
+        requireNotNull(database).productDao().insertProducts(
+            listOf(firstTenantProduct, secondTenantProduct),
+        )
+
+        assertEquals(
+            listOf(TENANT_ID),
+            requireNotNull(database).productDao()
+                .getProducts(TENANT_ID)
+                .map(ProductEntity::tenantId),
+        )
+        assertEquals(
+            listOf(OTHER_TENANT_ID),
+            requireNotNull(database).productDao()
+                .getProducts(OTHER_TENANT_ID)
+                .map(ProductEntity::tenantId),
+        )
+    }
+
+    @Test
+    fun currentSchema_isolatesOfflineTransactionsByTenantAndUser() = runBlocking {
+        database = Room.inMemoryDatabaseBuilder(
+            context,
+            AppDatabase::class.java,
+        ).build()
+        val dao = requireNotNull(database).offlineTransactionDao()
+        dao.insert(offlineTransaction(TENANT_ID, USER_ID))
+        dao.insert(offlineTransaction(TENANT_ID, OTHER_USER_ID))
+        dao.insert(offlineTransaction(OTHER_TENANT_ID, USER_ID))
+
+        assertEquals(1, dao.getPendingTransactions(TENANT_ID, USER_ID, 100).size)
+        assertEquals(1, dao.observePendingCount(TENANT_ID, OTHER_USER_ID).first())
+        assertEquals(1, dao.getPendingTransactions(OTHER_TENANT_ID, USER_ID, 100).size)
     }
 
     private fun createVersionTwoDatabase() {
@@ -151,7 +219,129 @@ class AppDatabaseMigrationTest {
             .use { helper -> helper.writableDatabase }
     }
 
+    private fun createVersionThreeDatabase() {
+        val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(TEST_DATABASE_NAME)
+            .callback(
+                object : SupportSQLiteOpenHelper.Callback(3) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `products` (
+                                `id` TEXT NOT NULL,
+                                `tenantId` TEXT NOT NULL,
+                                `categoryId` TEXT,
+                                `name` TEXT NOT NULL,
+                                `sku` TEXT NOT NULL,
+                                `price` INTEGER NOT NULL,
+                                `cost` INTEGER NOT NULL,
+                                `minimumStock` INTEGER NOT NULL,
+                                `isActive` INTEGER NOT NULL,
+                                `createdAt` TEXT NOT NULL,
+                                `trackStock` INTEGER NOT NULL DEFAULT 1,
+                                PRIMARY KEY(`id`)
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `offline_transactions` (
+                                `id` TEXT NOT NULL,
+                                `clientTransactionId` TEXT NOT NULL,
+                                `outletId` TEXT NOT NULL,
+                                `payloadJson` TEXT NOT NULL,
+                                `status` TEXT NOT NULL,
+                                `serverTransactionId` TEXT,
+                                `lastError` TEXT,
+                                `retryCount` INTEGER NOT NULL,
+                                `createdAt` INTEGER NOT NULL,
+                                `updatedAt` INTEGER NOT NULL,
+                                PRIMARY KEY(`id`)
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            CREATE UNIQUE INDEX IF NOT EXISTS
+                            `index_offline_transactions_clientTransactionId`
+                            ON `offline_transactions` (`clientTransactionId`)
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            INSERT INTO `products` (
+                                `id`, `tenantId`, `categoryId`, `name`, `sku`, `price`,
+                                `cost`, `minimumStock`, `isActive`, `createdAt`, `trackStock`
+                            ) VALUES (
+                                'legacy-product', '$TENANT_ID', NULL, 'Legacy Product', 'LEGACY',
+                                10000, 5000, 0, 1, '2026-09-18T00:00:00.000Z', 1
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            INSERT INTO `offline_transactions` (
+                                `id`, `clientTransactionId`, `outletId`, `payloadJson`, `status`,
+                                `serverTransactionId`, `lastError`, `retryCount`, `createdAt`, `updatedAt`
+                            ) VALUES (
+                                'legacy-offline', 'legacy-client', 'outlet-id', '{}', 'PENDING',
+                                NULL, NULL, 0, 1, 1
+                            )
+                            """.trimIndent(),
+                        )
+                    }
+
+                    override fun onUpgrade(
+                        db: SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                },
+            )
+            .build()
+
+        FrameworkSQLiteOpenHelperFactory()
+            .create(configuration)
+            .use { helper -> helper.writableDatabase }
+    }
+
+    private fun product(id: String, tenantId: String) = ProductEntity(
+        id = id,
+        tenantId = tenantId,
+        categoryId = null,
+        name = "Product $tenantId",
+        sku = "SKU-$tenantId",
+        price = 10_000L,
+        cost = 5_000L,
+        minimumStock = 0,
+        trackStock = true,
+        isActive = true,
+        createdAt = "2026-09-19T00:00:00.000Z",
+    )
+
+    private fun offlineTransaction(
+        tenantId: String,
+        userId: String,
+    ) = OfflineTransactionEntity(
+        id = "row-$tenantId-$userId",
+        tenantId = tenantId,
+        userId = userId,
+        clientTransactionId = "shared-client-id",
+        outletId = "outlet-id",
+        payloadJson = "{}",
+        status = OfflineTransactionStatus.PENDING,
+        serverTransactionId = null,
+        lastError = null,
+        retryCount = 0,
+        createdAt = 1L,
+        updatedAt = 1L,
+    )
+
     private companion object {
         const val TEST_DATABASE_NAME = "track-stock-migration-test.db"
+        const val TENANT_ID = "tenant-id"
+        const val OTHER_TENANT_ID = "other-tenant-id"
+        const val USER_ID = "user-id"
+        const val OTHER_USER_ID = "other-user-id"
     }
 }

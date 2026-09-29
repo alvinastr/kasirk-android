@@ -9,9 +9,10 @@ import javax.inject.Singleton
 class ProductLocalDataSource @Inject constructor(
     private val productDao: ProductDao,
 ) {
-    suspend fun getProducts(): List<ProductEntity> = productDao.getProducts()
+    suspend fun getProducts(tenantId: String): List<ProductEntity> =
+        productDao.getProducts(tenantId)
 
-    suspend fun saveProducts(products: List<ProductEntity>) {
-        productDao.replaceProducts(products)
+    suspend fun saveProducts(tenantId: String, products: List<ProductEntity>) {
+        productDao.replaceProducts(tenantId, products)
     }
 }

@@ -1,12 +1,20 @@
 package com.kasirkita.pos.data.repository
 
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
 import com.google.gson.JsonObject
 import com.kasirkita.pos.core.database.dao.ProductDao
 import com.kasirkita.pos.core.database.entity.ProductEntity
+import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.data.api.ProductApi
 import com.kasirkita.pos.data.local.ProductLocalDataSource
 import com.kasirkita.pos.data.model.CreateProductRequest
 import com.kasirkita.pos.data.model.ProductResponse
+import com.kasirkita.pos.domain.model.AuthSession
+import com.kasirkita.pos.domain.model.UserRole
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,15 +28,19 @@ class ProductRepositoryImplTest {
 
     private lateinit var api: FakeProductApi
     private lateinit var dao: FakeProductDao
+    private lateinit var sessionStore: AuthSessionDataStore
     private lateinit var repository: ProductRepositoryImpl
 
     @Before
     fun setUp() {
         api = FakeProductApi()
         dao = FakeProductDao()
+        sessionStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
+        runBlocking { sessionStore.saveSession(session()) }
         repository = ProductRepositoryImpl(
             productApi = api,
             localDataSource = ProductLocalDataSource(dao),
+            authSessionDataStore = sessionStore,
         )
     }
 
@@ -111,12 +123,68 @@ class ProductRepositoryImplTest {
         assertEquals(0, api.getProductsCallCount)
     }
 
+    @Test
+    fun getProducts_doesNotExposeAnotherTenantsCache() = runBlocking {
+        dao.products += sampleResponse(
+            trackStock = true,
+            tenantId = OTHER_TENANT_ID,
+        ).toEntity()
+        api.productsResponse = listOf(sampleResponse(trackStock = false))
+
+        val products = repository.getProducts().getOrThrow()
+
+        assertEquals(listOf(TENANT_ID), products.map { product -> product.tenantId })
+        assertEquals(1, api.getProductsCallCount)
+        assertEquals(1, dao.getProducts(OTHER_TENANT_ID).size)
+    }
+
+    @Test
+    fun refreshProducts_replacesOnlyTheCurrentTenantsCache() = runBlocking {
+        dao.products += sampleResponse(
+            trackStock = true,
+            tenantId = OTHER_TENANT_ID,
+        ).toEntity()
+        api.productsResponse = listOf(sampleResponse(trackStock = false))
+
+        repository.refreshProducts().getOrThrow()
+
+        assertEquals(1, dao.getProducts(TENANT_ID).size)
+        assertEquals(1, dao.getProducts(OTHER_TENANT_ID).size)
+    }
+
+    @Test
+    fun refreshProducts_rejectsAProductOwnedByAnotherTenant() = runBlocking {
+        api.productsResponse = listOf(
+            sampleResponse(
+                trackStock = true,
+                tenantId = OTHER_TENANT_ID,
+            ),
+        )
+
+        val result = repository.refreshProducts()
+
+        assertTrue(result.isFailure)
+        assertTrue(dao.getProducts(TENANT_ID).isEmpty())
+    }
+
+    @Test
+    fun getProducts_withoutSession_failsWithoutReadingCacheOrApi() = runBlocking {
+        sessionStore.clearSession()
+
+        val result = repository.getProducts()
+
+        assertTrue(result.isFailure)
+        assertEquals(0, dao.readCount)
+        assertEquals(0, api.getProductsCallCount)
+    }
+
     private fun sampleResponse(
         trackStock: Boolean,
         price: Long = 15_000L,
+        tenantId: String = TENANT_ID,
     ) = ProductResponse(
         id = PRODUCT_ID,
-        tenantId = "tenant-id",
+        tenantId = tenantId,
         categoryId = null,
         name = "Kopi Susu",
         sku = "KOPISUSU002",
@@ -163,20 +231,56 @@ class ProductRepositoryImplTest {
 
     private class FakeProductDao : ProductDao {
         val products = mutableListOf<ProductEntity>()
+        var readCount = 0
 
-        override suspend fun getProducts(): List<ProductEntity> = products.toList()
-
-        override suspend fun insertProducts(products: List<ProductEntity>) {
-            this.products += products
+        override suspend fun getProducts(tenantId: String): List<ProductEntity> {
+            readCount++
+            return products.filter { product -> product.tenantId == tenantId }
         }
 
-        override suspend fun deleteAll() {
-            products.clear()
+        override suspend fun insertProducts(products: List<ProductEntity>) {
+            products.forEach { product ->
+                this.products.removeAll { stored ->
+                    stored.tenantId == product.tenantId && stored.id == product.id
+                }
+                this.products += product
+            }
+        }
+
+        override suspend fun deleteAll(tenantId: String) {
+            products.removeAll { product -> product.tenantId == tenantId }
+        }
+    }
+
+    private fun session() = AuthSession(
+        userId = USER_ID,
+        userName = "Kasir Utama",
+        tenantId = TENANT_ID,
+        role = UserRole.CASHIER,
+        outletId = "outlet-id",
+        accessToken = "access-token",
+        refreshToken = "refresh-token",
+        expiresAt = Long.MAX_VALUE,
+        deviceId = "device-id",
+    )
+
+    private class InMemoryPreferencesDataStore : DataStore<Preferences> {
+        private val state = MutableStateFlow<Preferences>(emptyPreferences())
+
+        override val data: Flow<Preferences> = state
+
+        override suspend fun updateData(
+            transform: suspend (Preferences) -> Preferences,
+        ): Preferences = transform(state.value).also { updated ->
+            state.value = updated
         }
     }
 
     private companion object {
         const val PRODUCT_ID = "product-id"
         const val CATEGORY_ID = "category-id"
+        const val TENANT_ID = "tenant-id"
+        const val OTHER_TENANT_ID = "other-tenant-id"
+        const val USER_ID = "user-id"
     }
 }

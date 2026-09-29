@@ -16,26 +16,43 @@ interface OfflineTransactionDao {
     @Query(
         """
         SELECT * FROM offline_transactions
-        WHERE clientTransactionId = :clientTransactionId
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND clientTransactionId = :clientTransactionId
         LIMIT 1
         """,
     )
     suspend fun getByClientTransactionId(
+        tenantId: String,
+        userId: String,
         clientTransactionId: String,
     ): OfflineTransactionEntity?
 
     @Query(
         """
         SELECT * FROM offline_transactions
-        WHERE status = 'PENDING'
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND status = 'PENDING'
         ORDER BY createdAt ASC
         LIMIT :limit
         """,
     )
-    suspend fun getPendingTransactions(limit: Int): List<OfflineTransactionEntity>
+    suspend fun getPendingTransactions(
+        tenantId: String,
+        userId: String,
+        limit: Int,
+    ): List<OfflineTransactionEntity>
 
-    @Query("SELECT COUNT(*) FROM offline_transactions WHERE status = 'PENDING'")
-    fun observePendingCount(): Flow<Int>
+    @Query(
+        """
+        SELECT COUNT(*) FROM offline_transactions
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND status = 'PENDING'
+        """,
+    )
+    fun observePendingCount(tenantId: String, userId: String): Flow<Int>
 
     @Query(
         """
@@ -44,10 +61,14 @@ interface OfflineTransactionDao {
             serverTransactionId = :serverTransactionId,
             lastError = NULL,
             updatedAt = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-        WHERE clientTransactionId = :clientTransactionId
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND clientTransactionId = :clientTransactionId
         """,
     )
     suspend fun markSynced(
+        tenantId: String,
+        userId: String,
         clientTransactionId: String,
         serverTransactionId: String,
     )
@@ -59,10 +80,14 @@ interface OfflineTransactionDao {
             lastError = :error,
             retryCount = retryCount + 1,
             updatedAt = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-        WHERE clientTransactionId = :clientTransactionId
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND clientTransactionId = :clientTransactionId
         """,
     )
     suspend fun markFailed(
+        tenantId: String,
+        userId: String,
         clientTransactionId: String,
         error: String,
     )
@@ -72,11 +97,17 @@ interface OfflineTransactionDao {
         UPDATE offline_transactions
         SET retryCount = retryCount + 1,
             updatedAt = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-        WHERE clientTransactionId IN (:clientTransactionIds)
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND clientTransactionId IN (:clientTransactionIds)
           AND status = 'PENDING'
         """,
     )
-    suspend fun incrementRetry(clientTransactionIds: List<String>)
+    suspend fun incrementRetry(
+        tenantId: String,
+        userId: String,
+        clientTransactionIds: List<String>,
+    )
 
     @Query(
         """
@@ -84,11 +115,20 @@ interface OfflineTransactionDao {
         SET status = 'PENDING',
             lastError = NULL,
             updatedAt = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-        WHERE status = 'FAILED'
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND status = 'FAILED'
         """,
     )
-    suspend fun retryFailedTransactions()
+    suspend fun retryFailedTransactions(tenantId: String, userId: String)
 
-    @Query("DELETE FROM offline_transactions WHERE status = 'SYNCED'")
-    suspend fun deleteSynced()
+    @Query(
+        """
+        DELETE FROM offline_transactions
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND status = 'SYNCED'
+        """,
+    )
+    suspend fun deleteSynced(tenantId: String, userId: String)
 }
