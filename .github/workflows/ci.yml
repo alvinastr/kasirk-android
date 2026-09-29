@@ -1,0 +1,108 @@
+name: Android CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android platform
+        run: sdkmanager "platforms;android-37" "build-tools;37.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare reports directory
+        run: mkdir -p artifacts/test-logs
+
+      - name: Run unit tests
+        run: ./gradlew --no-daemon testDebugUnitTest 2>&1 | tee artifacts/test-logs/unit.log
+
+      - name: Run Android lint
+        run: ./gradlew --no-daemon lintDebug 2>&1 | tee artifacts/test-logs/lint.log
+
+      - name: Build debug and release variants
+        run: ./gradlew --no-daemon assembleDebug assembleRelease 2>&1 | tee artifacts/test-logs/build.log
+
+      - name: Upload failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-verification-reports
+          path: |
+            artifacts/test-logs
+            app/build/reports
+            app/build/test-results
+          if-no-files-found: warn
+
+  instrumentation:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Enable KVM access
+        run: sudo chmod 666 /dev/kvm
+
+      - name: Prepare reports directory
+        run: mkdir -p artifacts/test-logs
+
+      - name: Run API 37 instrumentation tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 37
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: ./gradlew --no-daemon connectedDebugAndroidTest 2>&1 | tee artifacts/test-logs/instrumentation.log
+
+      - name: Upload instrumentation failure reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumentation-reports
+          path: |
+            artifacts/test-logs
+            app/build/reports/androidTests
+            app/build/outputs/androidTest-results
+          if-no-files-found: warn
