@@ -2,6 +2,7 @@ package com.kasirkita.pos.presentation.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kasirkita.pos.domain.model.SyncOutcome
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import com.kasirkita.pos.domain.usecase.SyncPendingTransactionsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,13 +44,29 @@ class HomeViewModel @Inject constructor(
                 )
             }
             syncPendingTransactions().fold(
-                onSuccess = { result ->
+                onSuccess = { outcome ->
                     _syncState.update {
-                        it.copy(
-                            isSyncing = false,
-                            lastResult = result,
-                            errorMessage = null,
-                        )
+                        when (outcome) {
+                            is SyncOutcome.Completed -> it.copy(
+                                isSyncing = false,
+                                lastResult = outcome.result,
+                                errorMessage = null,
+                            )
+                            is SyncOutcome.RetryableFailure -> it.copy(
+                                isSyncing = false,
+                                lastResult = outcome.result,
+                                errorMessage = outcome.message,
+                            )
+                            SyncOutcome.AuthenticationUnavailable -> it.copy(
+                                isSyncing = false,
+                                errorMessage = "Sesi autentikasi tidak tersedia",
+                            )
+                            is SyncOutcome.ActionRequired -> it.copy(
+                                isSyncing = false,
+                                lastResult = outcome.result,
+                                errorMessage = "Ada transaksi yang memerlukan tindakan",
+                            )
+                        }
                     }
                 },
                 onFailure = { throwable ->

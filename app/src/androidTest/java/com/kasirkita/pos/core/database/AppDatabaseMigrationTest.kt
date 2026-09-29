@@ -39,6 +39,31 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
+    fun migrate1To4_preservesProductsAndCreatesAccountScopedOfflineQueue() = runBlocking {
+        createVersionOneDatabase()
+
+        database = Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            TEST_DATABASE_NAME,
+        )
+            .addMigrations(
+                AppDatabase.MIGRATION_1_2,
+                AppDatabase.MIGRATION_2_3,
+                AppDatabase.MIGRATION_3_4,
+            )
+            .build()
+
+        val migrated = requireNotNull(database)
+        assertTrue(migrated.productDao().getProducts(TENANT_ID).single().trackStock)
+        assertTrue(
+            migrated.offlineTransactionDao()
+                .getPendingTransactions(TENANT_ID, USER_ID, 100)
+                .isEmpty(),
+        )
+    }
+
+    @Test
     fun migrate2To4_existingProductDefaultsToTrackedStock() = runBlocking {
         createVersionTwoDatabase()
 
@@ -139,10 +164,75 @@ class AppDatabaseMigrationTest {
         dao.insert(offlineTransaction(TENANT_ID, USER_ID))
         dao.insert(offlineTransaction(TENANT_ID, OTHER_USER_ID))
         dao.insert(offlineTransaction(OTHER_TENANT_ID, USER_ID))
+        dao.markFailed(TENANT_ID, USER_ID, "shared-client-id", "needs action")
+        dao.markFailed(TENANT_ID, OTHER_USER_ID, "shared-client-id", "other user")
+        dao.markFailed(OTHER_TENANT_ID, USER_ID, "shared-client-id", "other tenant")
+
+        assertEquals(0, dao.getPendingTransactions(TENANT_ID, USER_ID, 100).size)
+        assertEquals(1, dao.getFailedTransactions(TENANT_ID, USER_ID, 100).size)
+        assertEquals(
+            1,
+            dao.observeCountByStatus(TENANT_ID, USER_ID, OfflineTransactionStatus.FAILED).first(),
+        )
+        assertEquals(0, dao.observePendingCount(TENANT_ID, OTHER_USER_ID).first())
+        assertEquals(0, dao.getPendingTransactions(OTHER_TENANT_ID, USER_ID, 100).size)
+
+        dao.retryFailedTransaction(TENANT_ID, USER_ID, "shared-client-id")
 
         assertEquals(1, dao.getPendingTransactions(TENANT_ID, USER_ID, 100).size)
-        assertEquals(1, dao.observePendingCount(TENANT_ID, OTHER_USER_ID).first())
-        assertEquals(1, dao.getPendingTransactions(OTHER_TENANT_ID, USER_ID, 100).size)
+        assertEquals(0, dao.getFailedTransactions(TENANT_ID, USER_ID, 100).size)
+        assertEquals(1, dao.getFailedTransactions(TENANT_ID, OTHER_USER_ID, 100).size)
+        assertEquals(1, dao.getFailedTransactions(OTHER_TENANT_ID, USER_ID, 100).size)
+    }
+
+    private fun createVersionOneDatabase() {
+        val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(TEST_DATABASE_NAME)
+            .callback(
+                object : SupportSQLiteOpenHelper.Callback(1) {
+                    override fun onCreate(db: SupportSQLiteDatabase) {
+                        db.execSQL(
+                            """
+                            CREATE TABLE IF NOT EXISTS `products` (
+                                `id` TEXT NOT NULL,
+                                `tenantId` TEXT NOT NULL,
+                                `categoryId` TEXT,
+                                `name` TEXT NOT NULL,
+                                `sku` TEXT NOT NULL,
+                                `price` INTEGER NOT NULL,
+                                `cost` INTEGER NOT NULL,
+                                `minimumStock` INTEGER NOT NULL,
+                                `isActive` INTEGER NOT NULL,
+                                `createdAt` TEXT NOT NULL,
+                                PRIMARY KEY(`id`)
+                            )
+                            """.trimIndent(),
+                        )
+                        db.execSQL(
+                            """
+                            INSERT INTO `products` (
+                                `id`, `tenantId`, `categoryId`, `name`, `sku`,
+                                `price`, `cost`, `minimumStock`, `isActive`, `createdAt`
+                            ) VALUES (
+                                'legacy-product', '$TENANT_ID', NULL, 'Legacy Product', 'LEGACY',
+                                10000, 5000, 0, 1, '2026-09-18T00:00:00.000Z'
+                            )
+                            """.trimIndent(),
+                        )
+                    }
+
+                    override fun onUpgrade(
+                        db: SupportSQLiteDatabase,
+                        oldVersion: Int,
+                        newVersion: Int,
+                    ) = Unit
+                },
+            )
+            .build()
+
+        FrameworkSQLiteOpenHelperFactory()
+            .create(configuration)
+            .use { helper -> helper.writableDatabase }
     }
 
     private fun createVersionTwoDatabase() {

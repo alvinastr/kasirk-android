@@ -1,8 +1,9 @@
 package com.kasirkita.pos.domain.repository
 
 import com.kasirkita.pos.domain.model.CartItem
+import com.kasirkita.pos.domain.model.OfflineQueueSummary
 import com.kasirkita.pos.domain.model.OfflineTransaction
-import com.kasirkita.pos.domain.model.SyncResult
+import com.kasirkita.pos.domain.model.SyncOutcome
 import kotlinx.coroutines.flow.Flow
 
 interface OfflineSyncRepository {
@@ -16,9 +17,17 @@ interface OfflineSyncRepository {
 
     suspend fun getPendingTransactions(limit: Int = 100): Result<List<OfflineTransaction>>
 
+    suspend fun getTransaction(clientTransactionId: String): Result<OfflineTransaction?>
+
+    suspend fun getFailedTransactions(limit: Int = 100): Result<List<OfflineTransaction>>
+
+    fun observeQueueSummary(): Flow<OfflineQueueSummary>
+
     fun observePendingCount(): Flow<Int>
 
-    suspend fun syncPendingTransactions(): Result<SyncResult>
+    suspend fun syncPendingTransactions(): Result<SyncOutcome>
 
-    suspend fun retryFailedTransactions(): Result<SyncResult>
+    suspend fun retryFailedTransaction(clientTransactionId: String): Result<SyncOutcome>
+
+    suspend fun retryFailedTransactions(): Result<SyncOutcome>
 }

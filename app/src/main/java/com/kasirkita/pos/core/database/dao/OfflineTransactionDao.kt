@@ -46,6 +46,22 @@ interface OfflineTransactionDao {
 
     @Query(
         """
+        SELECT * FROM offline_transactions
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND status = 'FAILED'
+        ORDER BY updatedAt ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getFailedTransactions(
+        tenantId: String,
+        userId: String,
+        limit: Int,
+    ): List<OfflineTransactionEntity>
+
+    @Query(
+        """
         SELECT COUNT(*) FROM offline_transactions
         WHERE tenantId = :tenantId
           AND userId = :userId
@@ -53,6 +69,20 @@ interface OfflineTransactionDao {
         """,
     )
     fun observePendingCount(tenantId: String, userId: String): Flow<Int>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM offline_transactions
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND status = :status
+        """,
+    )
+    fun observeCountByStatus(
+        tenantId: String,
+        userId: String,
+        status: String,
+    ): Flow<Int>
 
     @Query(
         """
@@ -121,6 +151,24 @@ interface OfflineTransactionDao {
         """,
     )
     suspend fun retryFailedTransactions(tenantId: String, userId: String)
+
+    @Query(
+        """
+        UPDATE offline_transactions
+        SET status = 'PENDING',
+            lastError = NULL,
+            updatedAt = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND clientTransactionId = :clientTransactionId
+          AND status = 'FAILED'
+        """,
+    )
+    suspend fun retryFailedTransaction(
+        tenantId: String,
+        userId: String,
+        clientTransactionId: String,
+    )
 
     @Query(
         """

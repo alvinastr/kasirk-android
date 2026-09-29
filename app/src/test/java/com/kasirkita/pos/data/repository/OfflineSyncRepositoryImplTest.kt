@@ -17,18 +17,25 @@ import com.kasirkita.pos.data.model.TransactionDetailResponse
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.OfflineTransactionStatus
+import com.kasirkita.pos.domain.model.SyncOutcome
+import com.kasirkita.pos.domain.model.SyncRetryableFailureReason
 import com.kasirkita.pos.domain.model.UserRole
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import okhttp3.ResponseBody.Companion.toResponseBody
 import retrofit2.Response
 import java.io.IOException
 import java.util.UUID
@@ -84,6 +91,48 @@ class OfflineSyncRepositoryImplTest {
     }
 
     @Test
+    fun queueSummaryAndFailedLookup_areIsolatedByTenantAndUser() = runBlocking {
+        val failed = queueTransaction("failed-current")
+        queueTransaction("pending-current")
+        dao.markFailed(TENANT_ID, USER_ID, failed.clientTransactionId, "needs action")
+        dao.insert(
+            failed.toEntity().copy(
+                id = "failed-other-account",
+                tenantId = OTHER_TENANT_ID,
+                userId = OTHER_USER_ID,
+                clientTransactionId = "other-account-only",
+            ),
+        )
+
+        val summary = repository.observeQueueSummary().first()
+        val failedTransactions = repository.getFailedTransactions().getOrThrow()
+
+        assertEquals(1, summary.pendingCount)
+        assertEquals(1, summary.failedCount)
+        assertEquals(listOf("failed-current"), failedTransactions.map { it.clientTransactionId })
+        assertEquals("failed-current", repository.getTransaction("failed-current").getOrThrow()?.id)
+        assertNull(repository.getTransaction("other-account-only").getOrThrow())
+    }
+
+    @Test
+    fun retryFailedTransaction_retriesOnlyTheOwnedSelectedTransaction() = runBlocking {
+        queueTransaction("failed-selected")
+        queueTransaction("failed-untouched")
+        dao.markFailed(TENANT_ID, USER_ID, "failed-selected", "first")
+        dao.markFailed(TENANT_ID, USER_ID, "failed-untouched", "second")
+        api.responder = { request -> Response.success(successResponse(request)) }
+
+        val outcome = repository.retryFailedTransaction("failed-selected").getOrThrow()
+
+        assertTrue(outcome is SyncOutcome.Completed)
+        assertEquals(OfflineTransactionStatus.SYNCED, dao.find("failed-selected")?.status)
+        assertEquals(OfflineTransactionStatus.FAILED, dao.find("failed-untouched")?.status)
+        assertEquals(listOf("failed-selected"), api.lastRequest?.transactions?.map {
+            it.clientTransactionId
+        })
+    }
+
+    @Test
     fun queueTransaction_withoutSession_failsWithoutPersisting() = runBlocking {
         sessionStore.clearSession()
 
@@ -97,6 +146,16 @@ class OfflineSyncRepositoryImplTest {
 
         assertTrue(result.isFailure)
         assertEquals(0, dao.totalCount())
+    }
+
+    @Test
+    fun sync_withoutSession_returnsAuthenticationUnavailable() = runBlocking {
+        sessionStore.clearSession()
+
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+
+        assertEquals(SyncOutcome.AuthenticationUnavailable, outcome)
+        assertEquals(0, api.callCount)
     }
 
     @Test
@@ -143,7 +202,8 @@ class OfflineSyncRepositoryImplTest {
             Response.success(successResponse(request))
         }
 
-        val result = repository.syncPendingTransactions().getOrThrow()
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+        val result = (outcome as SyncOutcome.Completed).result
         val stored = dao.find(clientTransactionId)
 
         assertEquals(1, result.synced)
@@ -178,7 +238,8 @@ class OfflineSyncRepositoryImplTest {
             )
         }
 
-        val result = repository.syncPendingTransactions().getOrThrow()
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+        val result = (outcome as SyncOutcome.ActionRequired).result
         val stored = dao.find(clientTransactionId)
 
         assertEquals(1, result.failed)
@@ -196,10 +257,25 @@ class OfflineSyncRepositoryImplTest {
         val result = repository.syncPendingTransactions()
         val stored = dao.find(clientTransactionId)
 
-        assertTrue(result.isFailure)
+        val outcome = result.getOrThrow() as SyncOutcome.RetryableFailure
+        assertEquals(SyncRetryableFailureReason.TRANSPORT, outcome.reason)
         assertEquals(OfflineTransactionStatus.PENDING, stored?.status)
         assertEquals(1, stored?.retryCount)
         assertEquals(1, dao.pendingCount())
+    }
+
+    @Test
+    fun serverFailure_isRetryableAndKeepsTransactionPending() = runBlocking {
+        val clientTransactionId = UUID.randomUUID().toString()
+        queueTransaction(clientTransactionId)
+        api.responder = { Response.error(503, "unavailable".toResponseBody()) }
+
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+            as SyncOutcome.RetryableFailure
+
+        assertEquals(SyncRetryableFailureReason.SERVER, outcome.reason)
+        assertEquals(OfflineTransactionStatus.PENDING, dao.find(clientTransactionId)?.status)
+        assertEquals(1, dao.find(clientTransactionId)?.retryCount)
     }
 
     @Test
@@ -211,7 +287,8 @@ class OfflineSyncRepositoryImplTest {
             Response.success(successResponse(request))
         }
 
-        val result = repository.syncPendingTransactions().getOrThrow()
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+        val result = (outcome as SyncOutcome.Completed).result
 
         assertEquals(100, api.lastRequest?.transactions?.size)
         assertEquals(100, result.synced)
@@ -226,10 +303,37 @@ class OfflineSyncRepositoryImplTest {
         }
 
         repository.syncPendingTransactions().getOrThrow()
-        val secondResult = repository.syncPendingTransactions().getOrThrow()
+        val secondOutcome = repository.syncPendingTransactions().getOrThrow()
+        val secondResult = (secondOutcome as SyncOutcome.Completed).result
 
         assertEquals(1, api.callCount)
         assertEquals(0, secondResult.total)
+    }
+
+    @Test
+    fun concurrentSyncRequests_doNotOverlap() = runBlocking {
+        queueTransaction("serialized-client")
+        val requestStarted = CompletableDeferred<Unit>()
+        val releaseRequest = CompletableDeferred<Unit>()
+        api.responder = { request ->
+            requestStarted.complete(Unit)
+            releaseRequest.await()
+            Response.success(successResponse(request))
+        }
+
+        coroutineScope {
+            val first = async { repository.syncPendingTransactions().getOrThrow() }
+            requestStarted.await()
+            val second = async { repository.syncPendingTransactions().getOrThrow() }
+            yield()
+
+            assertEquals(1, api.callCount)
+            releaseRequest.complete(Unit)
+            assertTrue(first.await() is SyncOutcome.Completed)
+            assertTrue(second.await() is SyncOutcome.Completed)
+        }
+
+        assertEquals(1, api.callCount)
     }
 
     @Test
@@ -382,6 +486,21 @@ class OfflineSyncRepositoryImplTest {
             .take(limit)
             .toList()
 
+        override suspend fun getFailedTransactions(
+            tenantId: String,
+            userId: String,
+            limit: Int,
+        ): List<OfflineTransactionEntity> = records.values
+            .asSequence()
+            .filter { entity ->
+                entity.tenantId == tenantId &&
+                    entity.userId == userId &&
+                    entity.status == OfflineTransactionStatus.FAILED
+            }
+            .sortedBy(OfflineTransactionEntity::updatedAt)
+            .take(limit)
+            .toList()
+
         override fun observePendingCount(tenantId: String, userId: String): Flow<Int> =
             revision.map {
                 records.values.count { entity ->
@@ -390,6 +509,18 @@ class OfflineSyncRepositoryImplTest {
                         entity.status == OfflineTransactionStatus.PENDING
                 }
             }
+
+        override fun observeCountByStatus(
+            tenantId: String,
+            userId: String,
+            status: String,
+        ): Flow<Int> = revision.map {
+            records.values.count { entity ->
+                entity.tenantId == tenantId &&
+                    entity.userId == userId &&
+                    entity.status == status
+            }
+        }
 
         override suspend fun markSynced(
             tenantId: String,
@@ -453,6 +584,23 @@ class OfflineSyncRepositoryImplTest {
                 }
             }
             revision.value++
+        }
+
+        override suspend fun retryFailedTransaction(
+            tenantId: String,
+            userId: String,
+            clientTransactionId: String,
+        ) {
+            update(tenantId, userId, clientTransactionId) { entity ->
+                if (entity.status == OfflineTransactionStatus.FAILED) {
+                    entity.copy(
+                        status = OfflineTransactionStatus.PENDING,
+                        lastError = null,
+                    )
+                } else {
+                    entity
+                }
+            }
         }
 
         override suspend fun deleteSynced(tenantId: String, userId: String) {
