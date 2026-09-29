@@ -79,6 +79,10 @@ class ShiftRepositoryImpl @Inject constructor(
         return result
     }
 
+    override fun clearCurrentShift() {
+        _currentShift.value = null
+    }
+
     private fun Response<ShiftResponse>.requireBody(): ShiftResponse =
         body() ?: error("Shift response body is empty")
 

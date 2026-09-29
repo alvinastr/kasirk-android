@@ -92,6 +92,17 @@ class ShiftRepositoryImplTest {
         assertSame(expected, result.exceptionOrNull())
     }
 
+    @Test
+    fun clearCurrentShift_removesPublishedShiftWithoutApiCall() = runBlocking {
+        val api = FakeShiftApi(currentResponse = Response.success(openShiftResponse()))
+        val repository = ShiftRepositoryImpl(api)
+        repository.getCurrentShift().getOrThrow()
+
+        repository.clearCurrentShift()
+
+        assertNull(repository.currentShift.value)
+    }
+
     private class FakeShiftApi(
         private val currentResponse: Response<ShiftResponse> = Response.success(openShiftResponse()),
         private val openResponse: Response<ShiftResponse> = Response.success(openShiftResponse()),

@@ -3,8 +3,7 @@ package com.kasirkita.pos.presentation.authv2
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
-import com.kasirkita.pos.domain.repository.CartRepository
-import com.kasirkita.pos.domain.repository.OutletRepository
+import com.kasirkita.pos.core.session.SessionBoundaryCleaner
 import com.kasirkita.pos.domain.usecase.LogoutUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -20,8 +19,7 @@ import javax.inject.Inject
 class LogoutViewModel @Inject constructor(
     private val logoutUseCase: LogoutUseCase,
     private val authSessionDataStore: AuthSessionDataStore,
-    private val outletRepository: OutletRepository,
-    private val cartRepository: CartRepository,
+    private val sessionBoundaryCleaner: SessionBoundaryCleaner,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<LogoutState>(LogoutState.Idle)
@@ -72,7 +70,7 @@ class LogoutViewModel @Inject constructor(
     }
 
     private suspend fun clearLocalState(): Throwable? {
-        var firstFailure: Throwable? = null
+        var firstFailure = sessionBoundaryCleaner.clear()
 
         suspend fun attempt(block: suspend () -> Unit) {
             try {
@@ -83,8 +81,6 @@ class LogoutViewModel @Inject constructor(
         }
 
         attempt { authSessionDataStore.clearSession() }
-        attempt { outletRepository.clearSelectedOutlet() }
-        attempt { cartRepository.clearCart() }
 
         return firstFailure
     }

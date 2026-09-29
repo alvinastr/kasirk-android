@@ -17,4 +17,6 @@ interface ShiftRepository {
         shiftId: String,
         closingCash: Long,
     ): Result<Shift>
+
+    fun clearCurrentShift()
 }

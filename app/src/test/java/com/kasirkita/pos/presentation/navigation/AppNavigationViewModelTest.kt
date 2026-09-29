@@ -5,7 +5,9 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.core.network.RefreshTokenCoordinator
+import com.kasirkita.pos.core.session.SessionBoundaryCleaner
 import com.kasirkita.pos.data.api.AuthV2Api
+import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.data.model.AuthTokenResponse
 import com.kasirkita.pos.data.model.CurrentUserResponse
 import com.kasirkita.pos.data.model.LogoutRequest
@@ -15,8 +17,11 @@ import com.kasirkita.pos.data.model.StoreResolveRequest
 import com.kasirkita.pos.data.model.StoreResolveResponse
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.Outlet
+import com.kasirkita.pos.domain.model.Product
+import com.kasirkita.pos.domain.model.Shift
 import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.domain.repository.OutletRepository
+import com.kasirkita.pos.domain.repository.ShiftRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -76,6 +81,9 @@ class AppNavigationViewModelTest {
         assertEquals("user-id", navigationSession.value.userId)
         assertEquals(Screen.Outlet.route, startupRouteFor(state))
         assertEquals(0, fixture.api.refreshCalls)
+        assertEquals("outlet-id", fixture.outletRepository.selectedOutlet.value?.id)
+        assertEquals(1, fixture.cartRepository.getCart().value.totalItems())
+        assertEquals("shift-id", fixture.shiftRepository.currentShift.value?.id)
     }
 
     @Test
@@ -109,7 +117,32 @@ class AppNavigationViewModelTest {
 
         assertEquals(SessionState.Unauthenticated, fixture.state())
         assertNull(fixture.authSessionDataStore.getSession())
+        assertNull(fixture.outletRepository.selectedOutlet.value)
+        assertEquals(0, fixture.cartRepository.getCart().value.totalItems())
+        assertNull(fixture.shiftRepository.currentShift.value)
         assertEquals(AuthV2Screen.Graph.route, startupRouteFor(fixture.state()))
+    }
+
+    @Test
+    fun accountIdentityChange_clearsVolatileBusinessState() = runBlocking {
+        val fixture = fixture(
+            session = authSession(expiresAt = Long.MAX_VALUE),
+        )
+        fixture.viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        fixture.authSessionDataStore.clearSession()
+        fixture.authSessionDataStore.saveSession(
+            authSession(expiresAt = Long.MAX_VALUE).copy(
+                tenantId = "other-tenant",
+                userId = "other-user",
+            ),
+        )
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(fixture.outletRepository.selectedOutlet.value)
+        assertEquals(0, fixture.cartRepository.getCart().value.totalItems())
+        assertNull(fixture.shiftRepository.currentShift.value)
     }
 
     @Test
@@ -140,10 +173,18 @@ class AppNavigationViewModelTest {
             authSessionDataStore = authSessionDataStore,
             currentTimeMillis = { NOW_MILLIS },
         )
+        val outletRepository = FakeOutletRepository()
+        val cartRepository = CartRepositoryImpl().apply {
+            addProduct(product())
+        }
+        val shiftRepository = FakeShiftRepository()
         return Fixture(
             authSessionDataStore = authSessionDataStore,
             refreshTokenCoordinator = coordinator,
             api = api,
+            outletRepository = outletRepository,
+            cartRepository = cartRepository,
+            shiftRepository = shiftRepository,
         )
     }
 
@@ -151,26 +192,59 @@ class AppNavigationViewModelTest {
         val authSessionDataStore: AuthSessionDataStore,
         private val refreshTokenCoordinator: RefreshTokenCoordinator,
         val api: FakeAuthV2Api,
+        val outletRepository: FakeOutletRepository,
+        val cartRepository: CartRepositoryImpl,
+        val shiftRepository: FakeShiftRepository,
     ) {
         private lateinit var viewModel: AppNavigationViewModel
 
         fun viewModel(): AppNavigationViewModel = AppNavigationViewModel(
             authSessionDataStore = authSessionDataStore,
             refreshTokenCoordinator = refreshTokenCoordinator,
-            outletRepository = FakeOutletRepository(),
+            outletRepository = outletRepository,
+            sessionBoundaryCleaner = SessionBoundaryCleaner(
+                cartRepository = cartRepository,
+                outletRepository = outletRepository,
+                shiftRepository = shiftRepository,
+            ),
         ).also { created -> viewModel = created }
 
         fun state(): SessionState = viewModel.sessionState.value
     }
 
     private class FakeOutletRepository : OutletRepository {
-        override val selectedOutlet: StateFlow<Outlet?> = MutableStateFlow(null)
+        private val outletState = MutableStateFlow<Outlet?>(outlet())
+        override val selectedOutlet: StateFlow<Outlet?> = outletState
 
         override suspend fun getOutlets(): Result<List<Outlet>> = Result.success(emptyList())
 
-        override fun selectOutlet(outlet: Outlet) = Unit
+        override fun selectOutlet(outlet: Outlet) {
+            outletState.value = outlet
+        }
 
-        override fun clearSelectedOutlet() = Unit
+        override fun clearSelectedOutlet() {
+            outletState.value = null
+        }
+    }
+
+    private class FakeShiftRepository : ShiftRepository {
+        override val currentShift = MutableStateFlow<Shift?>(shift())
+
+        override suspend fun getCurrentShift(): Result<Shift?> = error("Not used")
+
+        override suspend fun openShift(
+            outletId: String,
+            openingCash: Long,
+        ): Result<Shift> = error("Not used")
+
+        override suspend fun closeShift(
+            shiftId: String,
+            closingCash: Long,
+        ): Result<Shift> = error("Not used")
+
+        override fun clearCurrentShift() {
+            currentShift.value = null
+        }
     }
 
     private class FakeAuthV2Api(
@@ -230,6 +304,42 @@ class AppNavigationViewModelTest {
             refreshToken = "old-refresh-token",
             expiresAt = expiresAt,
             deviceId = "8f1fbf18-ed1e-4db8-a78d-857238e08e62",
+        )
+
+        fun outlet() = Outlet(
+            id = "outlet-id",
+            tenantId = "tenant-id",
+            name = "Outlet Utama",
+            address = null,
+            isActive = true,
+            createdAt = "2026-09-27T00:00:00Z",
+        )
+
+        fun product() = Product(
+            id = "product-id",
+            tenantId = "tenant-id",
+            categoryId = null,
+            name = "Kopi",
+            sku = "KOPI-01",
+            price = 15_000L,
+            cost = 8_000L,
+            minimumStock = 0,
+            trackStock = false,
+            isActive = true,
+            createdAt = "2026-09-27T00:00:00Z",
+        )
+
+        fun shift() = Shift(
+            id = "shift-id",
+            outletId = "outlet-id",
+            userId = "user-id",
+            openingCash = 50_000L,
+            closingCash = null,
+            expectedCash = null,
+            difference = null,
+            status = "OPEN",
+            openedAt = "2026-09-27T08:00:00Z",
+            closedAt = null,
         )
     }
 }

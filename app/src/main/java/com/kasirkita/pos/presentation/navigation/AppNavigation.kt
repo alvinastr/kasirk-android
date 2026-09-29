@@ -16,7 +16,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
+import com.kasirkita.pos.core.datastore.toSessionIdentity
 import com.kasirkita.pos.core.network.RefreshTokenCoordinator
+import com.kasirkita.pos.core.session.SessionBoundaryCleaner
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.model.UserRole
@@ -40,6 +42,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -466,6 +470,7 @@ class AppNavigationViewModel @Inject constructor(
     private val authSessionDataStore: AuthSessionDataStore,
     private val refreshTokenCoordinator: RefreshTokenCoordinator,
     outletRepository: OutletRepository,
+    private val sessionBoundaryCleaner: SessionBoundaryCleaner,
 ) : ViewModel() {
 
     private val _sessionState = MutableStateFlow<SessionState>(SessionState.Checking)
@@ -474,6 +479,7 @@ class AppNavigationViewModel @Inject constructor(
 
     init {
         checkSession()
+        observeSessionBoundaries()
     }
 
     fun onAuthV2Authenticated(session: AuthSession) {
@@ -514,7 +520,18 @@ class AppNavigationViewModel @Inject constructor(
         }
 
         if (refreshedAccessToken == null) {
-            clearAuthV2Session()
+            val currentSession = readAuthV2Session()
+            if (
+                currentSession != null &&
+                (
+                    currentSession.toSessionIdentity() != session.toSessionIdentity() ||
+                        currentSession.refreshToken != session.refreshToken
+                )
+            ) {
+                return SessionState.Authenticated(NavigationSession.AuthV2(currentSession))
+            }
+
+            clearAuthV2Session(session)
             return SessionState.Unauthenticated
         }
 
@@ -523,7 +540,6 @@ class AppNavigationViewModel @Inject constructor(
         return if (refreshedSession != null) {
             SessionState.Authenticated(NavigationSession.AuthV2(refreshedSession))
         } else {
-            clearAuthV2Session()
             SessionState.Unauthenticated
         }
     }
@@ -536,9 +552,34 @@ class AppNavigationViewModel @Inject constructor(
         null
     }
 
-    private suspend fun clearAuthV2Session() {
+    private fun observeSessionBoundaries() {
+        viewModelScope.launch {
+            var previousIdentity = authSessionDataStore.getSession()?.toSessionIdentity()
+            var hasPreviousIdentity = previousIdentity != null
+
+            authSessionDataStore.sessionFlow
+                .map { session -> session?.toSessionIdentity() }
+                .distinctUntilChanged()
+                .collect { identity ->
+                    val crossedBoundary = hasPreviousIdentity && identity != previousIdentity
+                    if (identity == null || crossedBoundary) {
+                        sessionBoundaryCleaner.clear()
+                    }
+                    if (identity == null) {
+                        _sessionState.value = SessionState.Unauthenticated
+                    }
+                    previousIdentity = identity
+                    hasPreviousIdentity = true
+                }
+        }
+    }
+
+    private suspend fun clearAuthV2Session(session: AuthSession) {
         try {
-            authSessionDataStore.clearSession()
+            authSessionDataStore.clearSessionIfMatches(
+                expectedIdentity = session.toSessionIdentity(),
+                expectedRefreshToken = session.refreshToken,
+            )
         } catch (error: CancellationException) {
             throw error
         } catch (_: Throwable) {
