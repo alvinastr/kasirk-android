@@ -33,7 +33,7 @@ interface OfflineTransactionDao {
         SELECT * FROM offline_transactions
         WHERE tenantId = :tenantId
           AND userId = :userId
-          AND status = 'PENDING'
+          AND status IN ('PENDING', 'RETRYABLE')
         ORDER BY createdAt ASC
         LIMIT :limit
         """,
@@ -62,10 +62,26 @@ interface OfflineTransactionDao {
 
     @Query(
         """
+        SELECT * FROM offline_transactions
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND status IN ('FAILED', 'RECONCILIATION_REQUIRED')
+        ORDER BY updatedAt ASC
+        LIMIT :limit
+        """,
+    )
+    suspend fun getActionRequiredTransactions(
+        tenantId: String,
+        userId: String,
+        limit: Int,
+    ): List<OfflineTransactionEntity>
+
+    @Query(
+        """
         SELECT COUNT(*) FROM offline_transactions
         WHERE tenantId = :tenantId
           AND userId = :userId
-          AND status = 'PENDING'
+          AND status IN ('PENDING', 'RETRYABLE')
         """,
     )
     fun observePendingCount(tenantId: String, userId: String): Flow<Int>
@@ -83,6 +99,16 @@ interface OfflineTransactionDao {
         userId: String,
         status: String,
     ): Flow<Int>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM offline_transactions
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND status IN ('FAILED', 'RECONCILIATION_REQUIRED')
+        """,
+    )
+    fun observeActionRequiredCount(tenantId: String, userId: String): Flow<Int>
 
     @Query(
         """
@@ -125,18 +151,42 @@ interface OfflineTransactionDao {
     @Query(
         """
         UPDATE offline_transactions
-        SET retryCount = retryCount + 1,
+        SET status = 'RECONCILIATION_REQUIRED',
+            serverTransactionId = :serverTransactionId,
+            lastError = :error,
+            retryCount = retryCount + 1,
+            updatedAt = CAST(strftime('%s', 'now') AS INTEGER) * 1000
+        WHERE tenantId = :tenantId
+          AND userId = :userId
+          AND clientTransactionId = :clientTransactionId
+        """,
+    )
+    suspend fun markReconciliationRequired(
+        tenantId: String,
+        userId: String,
+        clientTransactionId: String,
+        serverTransactionId: String,
+        error: String,
+    )
+
+    @Query(
+        """
+        UPDATE offline_transactions
+        SET status = 'RETRYABLE',
+            lastError = :error,
+            retryCount = retryCount + 1,
             updatedAt = CAST(strftime('%s', 'now') AS INTEGER) * 1000
         WHERE tenantId = :tenantId
           AND userId = :userId
           AND clientTransactionId IN (:clientTransactionIds)
-          AND status = 'PENDING'
+          AND status IN ('PENDING', 'RETRYABLE')
         """,
     )
-    suspend fun incrementRetry(
+    suspend fun markRetryable(
         tenantId: String,
         userId: String,
         clientTransactionIds: List<String>,
+        error: String,
     )
 
     @Query(

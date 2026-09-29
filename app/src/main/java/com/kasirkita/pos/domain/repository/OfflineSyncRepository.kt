@@ -23,6 +23,8 @@ interface OfflineSyncRepository {
 
     suspend fun getFailedTransactions(limit: Int = 100): Result<List<OfflineTransaction>>
 
+    suspend fun getActionRequiredTransactions(limit: Int = 100): Result<List<OfflineTransaction>>
+
     fun observeQueueSummary(): Flow<OfflineQueueSummary>
 
     fun observePendingCount(): Flow<Int>

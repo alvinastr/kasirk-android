@@ -19,6 +19,7 @@ import com.kasirkita.pos.data.model.TransactionDetailResponse
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
+import com.kasirkita.pos.domain.model.OfflineTransactionFailureType
 import com.kasirkita.pos.domain.model.OfflineTransactionStatus
 import com.kasirkita.pos.domain.model.SyncOutcome
 import com.kasirkita.pos.domain.model.SyncRetryableFailureReason
@@ -219,6 +220,13 @@ class OfflineSyncRepositoryImplTest {
         assertEquals("CASH", request.payment.method)
         assertEquals(10_000L, request.payment.amount)
         assertEquals(sampleFinancialSnapshot(), payload.financialSnapshot)
+        assertEquals(1, queued.summary?.itemCount)
+        assertEquals(10_000L, queued.summary?.subtotal)
+        assertEquals(0L, queued.summary?.discount)
+        assertEquals(0L, queued.summary?.tax)
+        assertEquals(10_000L, queued.summary?.total)
+        assertEquals("CASH", queued.summary?.paymentMethod)
+        assertEquals(10_000L, queued.summary?.paymentAmount)
     }
 
     @Test
@@ -290,6 +298,10 @@ class OfflineSyncRepositoryImplTest {
         assertEquals(OfflineTransactionStatus.FAILED, stored?.status)
         assertEquals(1, stored?.retryCount)
         assertTrue(stored?.lastError?.contains("INSUFFICIENT_STOCK") == true)
+        assertEquals(
+            OfflineTransactionFailureType.REJECTED,
+            (outcome as SyncOutcome.ActionRequired).failedTransactions.single().failureType,
+        )
     }
 
     @Test
@@ -303,9 +315,15 @@ class OfflineSyncRepositoryImplTest {
 
         val outcome = result.getOrThrow() as SyncOutcome.RetryableFailure
         assertEquals(SyncRetryableFailureReason.TRANSPORT, outcome.reason)
-        assertEquals(OfflineTransactionStatus.PENDING, stored?.status)
+        assertEquals(OfflineTransactionStatus.RETRYABLE, stored?.status)
         assertEquals(1, stored?.retryCount)
+        assertEquals("Unable to reach the sync service", stored?.lastError)
+        assertEquals(
+            OfflineTransactionFailureType.RETRYABLE,
+            repository.getTransaction(clientTransactionId).getOrThrow()?.failureType,
+        )
         assertEquals(1, dao.pendingCount())
+        assertEquals(1, repository.observeQueueSummary().first().pendingCount)
     }
 
     @Test
@@ -344,9 +362,19 @@ class OfflineSyncRepositoryImplTest {
         }
 
         val outcome = repository.syncPendingTransactions().getOrThrow()
+        val actionRequired = repository.getActionRequiredTransactions().getOrThrow().single()
 
         assertTrue(outcome is SyncOutcome.ActionRequired)
-        assertEquals(OfflineTransactionStatus.FAILED, dao.find(clientTransactionId)?.status)
+        assertEquals(
+            OfflineTransactionStatus.RECONCILIATION_REQUIRED,
+            dao.find(clientTransactionId)?.status,
+        )
+        assertNotNull(actionRequired.serverTransactionId)
+        assertEquals(
+            OfflineTransactionFailureType.RECONCILIATION_REQUIRED,
+            actionRequired.failureType,
+        )
+        assertEquals(10_000L, actionRequired.summary?.total)
         assertTrue(dao.find(clientTransactionId)?.lastError?.contains("financial snapshot") == true)
     }
 
@@ -360,8 +388,36 @@ class OfflineSyncRepositoryImplTest {
             as SyncOutcome.RetryableFailure
 
         assertEquals(SyncRetryableFailureReason.SERVER, outcome.reason)
-        assertEquals(OfflineTransactionStatus.PENDING, dao.find(clientTransactionId)?.status)
+        assertEquals(OfflineTransactionStatus.RETRYABLE, dao.find(clientTransactionId)?.status)
         assertEquals(1, dao.find(clientTransactionId)?.retryCount)
+    }
+
+    @Test
+    fun actionRequiredTransactions_distinguishRejectedAndReconciliationRecords() = runBlocking {
+        queueTransaction("rejected-client")
+        queueTransaction("reconciliation-client")
+        dao.markFailed(TENANT_ID, USER_ID, "rejected-client", "rejected")
+        dao.markReconciliationRequired(
+            TENANT_ID,
+            USER_ID,
+            "reconciliation-client",
+            "server-transaction-id",
+            "financial mismatch",
+        )
+
+        val records = repository.getActionRequiredTransactions().getOrThrow()
+            .associateBy { transaction -> transaction.clientTransactionId }
+
+        assertEquals(OfflineTransactionFailureType.REJECTED, records["rejected-client"]?.failureType)
+        assertEquals(
+            OfflineTransactionFailureType.RECONCILIATION_REQUIRED,
+            records["reconciliation-client"]?.failureType,
+        )
+        assertEquals(
+            "server-transaction-id",
+            records["reconciliation-client"]?.serverTransactionId,
+        )
+        assertEquals(2, repository.observeQueueSummary().first().failedCount)
     }
 
     @Test
@@ -585,7 +641,10 @@ class OfflineSyncRepositoryImplTest {
             .filter { entity ->
                 entity.tenantId == tenantId &&
                     entity.userId == userId &&
-                    entity.status == OfflineTransactionStatus.PENDING
+                    entity.status in setOf(
+                        OfflineTransactionStatus.PENDING,
+                        OfflineTransactionStatus.RETRYABLE,
+                    )
             }
             .sortedBy(OfflineTransactionEntity::createdAt)
             .take(limit)
@@ -606,12 +665,33 @@ class OfflineSyncRepositoryImplTest {
             .take(limit)
             .toList()
 
+        override suspend fun getActionRequiredTransactions(
+            tenantId: String,
+            userId: String,
+            limit: Int,
+        ): List<OfflineTransactionEntity> = records.values
+            .asSequence()
+            .filter { entity ->
+                entity.tenantId == tenantId &&
+                    entity.userId == userId &&
+                    entity.status in setOf(
+                        OfflineTransactionStatus.FAILED,
+                        OfflineTransactionStatus.RECONCILIATION_REQUIRED,
+                    )
+            }
+            .sortedBy(OfflineTransactionEntity::updatedAt)
+            .take(limit)
+            .toList()
+
         override fun observePendingCount(tenantId: String, userId: String): Flow<Int> =
             revision.map {
                 records.values.count { entity ->
                     entity.tenantId == tenantId &&
                         entity.userId == userId &&
-                        entity.status == OfflineTransactionStatus.PENDING
+                        entity.status in setOf(
+                            OfflineTransactionStatus.PENDING,
+                            OfflineTransactionStatus.RETRYABLE,
+                        )
                 }
             }
 
@@ -626,6 +706,18 @@ class OfflineSyncRepositoryImplTest {
                     entity.status == status
             }
         }
+
+        override fun observeActionRequiredCount(tenantId: String, userId: String): Flow<Int> =
+            revision.map {
+                records.values.count { entity ->
+                    entity.tenantId == tenantId &&
+                        entity.userId == userId &&
+                        entity.status in setOf(
+                            OfflineTransactionStatus.FAILED,
+                            OfflineTransactionStatus.RECONCILIATION_REQUIRED,
+                        )
+                }
+            }
 
         override suspend fun markSynced(
             tenantId: String,
@@ -657,15 +749,40 @@ class OfflineSyncRepositoryImplTest {
             }
         }
 
-        override suspend fun incrementRetry(
+        override suspend fun markReconciliationRequired(
+            tenantId: String,
+            userId: String,
+            clientTransactionId: String,
+            serverTransactionId: String,
+            error: String,
+        ) {
+            update(tenantId, userId, clientTransactionId) { entity ->
+                entity.copy(
+                    status = OfflineTransactionStatus.RECONCILIATION_REQUIRED,
+                    serverTransactionId = serverTransactionId,
+                    lastError = error,
+                    retryCount = entity.retryCount + 1,
+                )
+            }
+        }
+
+        override suspend fun markRetryable(
             tenantId: String,
             userId: String,
             clientTransactionIds: List<String>,
+            error: String,
         ) {
             clientTransactionIds.forEach { clientTransactionId ->
                 update(tenantId, userId, clientTransactionId) { entity ->
-                    if (entity.status == OfflineTransactionStatus.PENDING) {
-                        entity.copy(retryCount = entity.retryCount + 1)
+                    if (
+                        entity.status == OfflineTransactionStatus.PENDING ||
+                        entity.status == OfflineTransactionStatus.RETRYABLE
+                    ) {
+                        entity.copy(
+                            status = OfflineTransactionStatus.RETRYABLE,
+                            lastError = error,
+                            retryCount = entity.retryCount + 1,
+                        )
                     } else {
                         entity
                     }
@@ -723,7 +840,10 @@ class OfflineSyncRepositoryImplTest {
         fun pendingCount(): Int = records.values.count { entity ->
             entity.tenantId == TENANT_ID &&
                 entity.userId == USER_ID &&
-                entity.status == OfflineTransactionStatus.PENDING
+                entity.status in setOf(
+                    OfflineTransactionStatus.PENDING,
+                    OfflineTransactionStatus.RETRYABLE,
+                )
         }
 
         fun totalCount(): Int = records.size

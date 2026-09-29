@@ -17,6 +17,8 @@ import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.model.OfflineQueueSummary
 import com.kasirkita.pos.domain.model.OfflineTransaction
+import com.kasirkita.pos.domain.model.OfflineTransactionFailureType
+import com.kasirkita.pos.domain.model.OfflineTransactionSummary
 import com.kasirkita.pos.domain.model.OfflineTransactionStatus
 import com.kasirkita.pos.domain.model.SyncOutcome
 import com.kasirkita.pos.domain.model.SyncResult
@@ -144,6 +146,21 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         }
     }
 
+    override suspend fun getActionRequiredTransactions(
+        limit: Int,
+    ): Result<List<OfflineTransaction>> = runCatching {
+        val identity = requireIdentity()
+        if (limit <= 0) {
+            emptyList()
+        } else {
+            offlineTransactionDao.getActionRequiredTransactions(
+                tenantId = identity.tenantId,
+                userId = identity.userId,
+                limit = limit.coerceAtMost(MAX_BATCH_SIZE),
+            ).map { entity -> entity.toDomain() }
+        }
+    }
+
     @OptIn(ExperimentalCoroutinesApi::class)
     override fun observeQueueSummary(): Flow<OfflineQueueSummary> =
         authSessionDataStore.sessionFlow
@@ -154,15 +171,13 @@ class OfflineSyncRepositoryImpl @Inject constructor(
                     flowOf(OfflineQueueSummary(pendingCount = 0, failedCount = 0))
                 } else {
                     combine(
-                        offlineTransactionDao.observeCountByStatus(
+                        offlineTransactionDao.observePendingCount(
                             tenantId = identity.tenantId,
                             userId = identity.userId,
-                            status = OfflineTransactionStatus.PENDING,
                         ),
-                        offlineTransactionDao.observeCountByStatus(
+                        offlineTransactionDao.observeActionRequiredCount(
                             tenantId = identity.tenantId,
                             userId = identity.userId,
-                            status = OfflineTransactionStatus.FAILED,
                         ),
                     ) { pendingCount, failedCount ->
                         OfflineQueueSummary(pendingCount, failedCount)
@@ -270,7 +285,12 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         } catch (exception: CancellationException) {
             throw exception
         } catch (exception: IOException) {
-            offlineTransactionDao.incrementRetry(identity.tenantId, identity.userId, clientIds)
+            offlineTransactionDao.markRetryable(
+                identity.tenantId,
+                identity.userId,
+                clientIds,
+                TRANSPORT_FAILURE,
+            )
             return SyncOutcome.RetryableFailure(
                 SyncRetryableFailureReason.TRANSPORT,
                 syncResult(identity, pending.size, failed = actionRequired.size),
@@ -284,11 +304,17 @@ class OfflineSyncRepositoryImpl @Inject constructor(
 
         if (!response.isSuccessful) {
             if (response.code().isRetryableHttpStatus()) {
-                offlineTransactionDao.incrementRetry(identity.tenantId, identity.userId, clientIds)
+                val message = "$SERVER_FAILURE (${response.code()})"
+                offlineTransactionDao.markRetryable(
+                    identity.tenantId,
+                    identity.userId,
+                    clientIds,
+                    message,
+                )
                 return SyncOutcome.RetryableFailure(
                     SyncRetryableFailureReason.SERVER,
                     syncResult(identity, pending.size, failed = actionRequired.size),
-                    "$SERVER_FAILURE (${response.code()})",
+                    message,
                 )
             }
 
@@ -310,7 +336,12 @@ class OfflineSyncRepositoryImpl @Inject constructor(
 
         val responseBody = response.body()
         if (responseBody == null) {
-            offlineTransactionDao.incrementRetry(identity.tenantId, identity.userId, clientIds)
+            offlineTransactionDao.markRetryable(
+                identity.tenantId,
+                identity.userId,
+                clientIds,
+                EMPTY_RESPONSE,
+            )
             return SyncOutcome.RetryableFailure(
                 SyncRetryableFailureReason.SERVER,
                 syncResult(identity, pending.size, failed = actionRequired.size),
@@ -337,13 +368,17 @@ class OfflineSyncRepositoryImpl @Inject constructor(
                         )
                         syncedCount++
                     } else {
-                        offlineTransactionDao.markFailed(
+                        offlineTransactionDao.markReconciliationRequired(
                             identity.tenantId,
                             identity.userId,
                             entity.clientTransactionId,
+                            result.transaction.transactionId,
                             FINANCIAL_SNAPSHOT_MISMATCH,
                         )
-                        actionRequired += entity.asFailed(FINANCIAL_SNAPSHOT_MISMATCH)
+                        actionRequired += entity.asReconciliationRequired(
+                            result.transaction.transactionId,
+                            FINANCIAL_SNAPSHOT_MISMATCH,
+                        )
                     }
                 }
 
@@ -359,10 +394,11 @@ class OfflineSyncRepositoryImpl @Inject constructor(
                 }
 
                 else -> {
-                    offlineTransactionDao.incrementRetry(
+                    offlineTransactionDao.markRetryable(
                         identity.tenantId,
                         identity.userId,
                         listOf(entity.clientTransactionId),
+                        INCOMPLETE_RESPONSE,
                     )
                     hasMissingResults = true
                 }
@@ -394,10 +430,9 @@ class OfflineSyncRepositoryImpl @Inject constructor(
     ): SyncResult = SyncResult(total, synced, failed, pendingCount(identity))
 
     private suspend fun pendingCount(identity: SessionIdentity): Int =
-        offlineTransactionDao.observeCountByStatus(
+        offlineTransactionDao.observePendingCount(
             identity.tenantId,
             identity.userId,
-            OfflineTransactionStatus.PENDING,
         ).first()
 
     private suspend fun currentIdentity(): SessionIdentity? = authSessionDataStore
@@ -444,20 +479,52 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         retryCount = retryCount + 1,
     ).toDomain()
 
-    private fun OfflineTransactionEntity.toDomain(): OfflineTransaction = OfflineTransaction(
-        id,
-        tenantId,
-        userId,
-        clientTransactionId,
-        outletId,
-        payloadJson,
-        status,
-        serverTransactionId,
-        lastError,
-        retryCount,
-        createdAt,
-        updatedAt,
-    )
+    private fun OfflineTransactionEntity.asReconciliationRequired(
+        serverTransactionId: String,
+        error: String,
+    ): OfflineTransaction = copy(
+        status = OfflineTransactionStatus.RECONCILIATION_REQUIRED,
+        serverTransactionId = serverTransactionId,
+        lastError = error,
+        retryCount = retryCount + 1,
+    ).toDomain()
+
+    private fun OfflineTransactionEntity.toDomain(): OfflineTransaction {
+        val payload = decodePayload(this)
+        return OfflineTransaction(
+            id = id,
+            tenantId = tenantId,
+            userId = userId,
+            clientTransactionId = clientTransactionId,
+            outletId = outletId,
+            payloadJson = payloadJson,
+            status = status,
+            serverTransactionId = serverTransactionId,
+            lastError = lastError,
+            retryCount = retryCount,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            failureType = when (status) {
+                OfflineTransactionStatus.RETRYABLE -> OfflineTransactionFailureType.RETRYABLE
+                OfflineTransactionStatus.FAILED -> OfflineTransactionFailureType.REJECTED
+                OfflineTransactionStatus.RECONCILIATION_REQUIRED ->
+                    OfflineTransactionFailureType.RECONCILIATION_REQUIRED
+                else -> null
+            },
+            summary = payload?.toSummary(),
+        )
+    }
+
+    private fun OfflineTransactionPayload.toSummary(): OfflineTransactionSummary =
+        OfflineTransactionSummary(
+            itemCount = transaction.items.sumOf { item -> item.quantity },
+            subtotal = financialSnapshot.subtotal,
+            discount = financialSnapshot.discount,
+            tax = financialSnapshot.tax,
+            total = financialSnapshot.total,
+            paymentMethod = transaction.payment.method,
+            paymentAmount = financialSnapshot.paymentAmount,
+        )
 
     private fun SyncTransactionError?.toMessage(): String = when (this) {
         null -> "Transaction sync failed"

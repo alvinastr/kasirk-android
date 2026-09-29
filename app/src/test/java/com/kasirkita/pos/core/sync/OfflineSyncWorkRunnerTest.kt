@@ -167,6 +167,10 @@ class OfflineSyncWorkRunnerTest {
             limit: Int,
         ): Result<List<OfflineTransaction>> = error("Not used")
 
+        override suspend fun getActionRequiredTransactions(
+            limit: Int,
+        ): Result<List<OfflineTransaction>> = error("Not used")
+
         override suspend fun syncPendingTransactions(): Result<SyncOutcome> = error("Not used")
 
         override suspend fun retryFailedTransaction(
