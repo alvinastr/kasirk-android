@@ -9,13 +9,16 @@ import com.kasirkita.pos.core.database.entity.OfflineTransactionEntity
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.data.api.SyncApi
 import com.kasirkita.pos.data.model.CreateTransactionRequest
+import com.kasirkita.pos.data.model.OfflineTransactionPayload
+import com.kasirkita.pos.data.model.PaymentResponse
 import com.kasirkita.pos.data.model.SyncTransactionError
 import com.kasirkita.pos.data.model.SyncTransactionResult
 import com.kasirkita.pos.data.model.SyncTransactionsRequest
 import com.kasirkita.pos.data.model.SyncTransactionsResponse
 import com.kasirkita.pos.data.model.TransactionDetailResponse
-import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.AuthSession
+import com.kasirkita.pos.domain.model.CartItem
+import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.model.OfflineTransactionStatus
 import com.kasirkita.pos.domain.model.SyncOutcome
 import com.kasirkita.pos.domain.model.SyncRetryableFailureReason
@@ -91,6 +94,28 @@ class OfflineSyncRepositoryImplTest {
     }
 
     @Test
+    fun financialSnapshots_remainIsolatedByTenantAndUser() = runBlocking {
+        val current = queueTransaction("current-account-snapshot")
+        sessionStore.clearSession()
+        sessionStore.saveSession(
+            session().copy(tenantId = OTHER_TENANT_ID, userId = OTHER_USER_ID),
+        )
+        queueTransaction("other-account-snapshot")
+        sessionStore.clearSession()
+        sessionStore.saveSession(session())
+
+        val owned = repository.getTransaction(current.clientTransactionId).getOrThrow()
+        val other = repository.getTransaction("other-account-snapshot").getOrThrow()
+        val payload = gson.fromJson(
+            requireNotNull(owned).payloadJson,
+            OfflineTransactionPayload::class.java,
+        )
+
+        assertEquals(sampleFinancialSnapshot(), payload.financialSnapshot)
+        assertNull(other)
+    }
+
+    @Test
     fun queueSummaryAndFailedLookup_areIsolatedByTenantAndUser() = runBlocking {
         val failed = queueTransaction("failed-current")
         queueTransaction("pending-current")
@@ -142,6 +167,7 @@ class OfflineSyncRepositoryImplTest {
             customerId = null,
             items = listOf(sampleCartItem()),
             paymentAmount = 10_000L,
+            financialSnapshot = sampleFinancialSnapshot(),
         )
 
         assertTrue(result.isFailure)
@@ -173,23 +199,26 @@ class OfflineSyncRepositoryImplTest {
     }
 
     @Test
-    fun queueTransaction_persistsTheCompleteRequestWithTheSameClientId() = runBlocking {
+    fun queueTransaction_persistsFinancialSnapshotAndCompleteRequest() = runBlocking {
         val clientTransactionId = UUID.randomUUID().toString()
         val queued = queueTransaction(clientTransactionId)
         val payload = gson.fromJson(
             queued.payloadJson,
-            CreateTransactionRequest::class.java,
+            OfflineTransactionPayload::class.java,
         )
+        val request = payload.transaction
 
         assertEquals(clientTransactionId, queued.clientTransactionId)
-        assertEquals(clientTransactionId, payload.clientTransactionId)
-        assertEquals(OUTLET_ID, payload.outletId)
-        assertNull(payload.customerId)
-        assertEquals(1, payload.items.size)
-        assertEquals(PRODUCT_ID, payload.items.single().productId)
-        assertEquals(1, payload.items.single().quantity)
-        assertEquals("CASH", payload.payment.method)
-        assertEquals(10_000L, payload.payment.amount)
+        assertEquals(1, payload.version)
+        assertEquals(clientTransactionId, request.clientTransactionId)
+        assertEquals(OUTLET_ID, request.outletId)
+        assertNull(request.customerId)
+        assertEquals(1, request.items.size)
+        assertEquals(PRODUCT_ID, request.items.single().productId)
+        assertEquals(1, request.items.single().quantity)
+        assertEquals("CASH", request.payment.method)
+        assertEquals(10_000L, request.payment.amount)
+        assertEquals(sampleFinancialSnapshot(), payload.financialSnapshot)
     }
 
     @Test
@@ -202,6 +231,7 @@ class OfflineSyncRepositoryImplTest {
             customerId = null,
             items = listOf(sampleCartItem()),
             paymentAmount = 10_000L,
+            financialSnapshot = sampleFinancialSnapshot(),
         )
 
         assertTrue(result.isFailure)
@@ -276,6 +306,48 @@ class OfflineSyncRepositoryImplTest {
         assertEquals(OfflineTransactionStatus.PENDING, stored?.status)
         assertEquals(1, stored?.retryCount)
         assertEquals(1, dao.pendingCount())
+    }
+
+    @Test
+    fun retry_reusesTheSameClientTransactionIdAndSnapshot() = runBlocking {
+        val clientTransactionId = UUID.randomUUID().toString()
+        val queued = queueTransaction(clientTransactionId)
+        api.responder = { throw IOException("offline") }
+        repository.syncPendingTransactions().getOrThrow()
+        api.responder = { request -> Response.success(successResponse(request)) }
+
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+
+        assertTrue(outcome is SyncOutcome.Completed)
+        assertEquals(
+            listOf(clientTransactionId, clientTransactionId),
+            api.requests.map { it.transactions.single().clientTransactionId },
+        )
+        assertEquals(queued.payloadJson, dao.find(clientTransactionId)?.payloadJson)
+    }
+
+    @Test
+    fun changedServerFinancials_requireActionInsteadOfSilentlySyncing() = runBlocking {
+        val clientTransactionId = UUID.randomUUID().toString()
+        queueTransaction(clientTransactionId)
+        api.responder = { request ->
+            val response = successResponse(request)
+            val changed = requireNotNull(response.results.single().transaction).copy(
+                tax = 1_000L,
+                total = 11_000L,
+            )
+            Response.success(
+                response.copy(
+                    results = listOf(response.results.single().copy(transaction = changed)),
+                ),
+            )
+        }
+
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+
+        assertTrue(outcome is SyncOutcome.ActionRequired)
+        assertEquals(OfflineTransactionStatus.FAILED, dao.find(clientTransactionId)?.status)
+        assertTrue(dao.find(clientTransactionId)?.lastError?.contains("financial snapshot") == true)
     }
 
     @Test
@@ -395,6 +467,7 @@ class OfflineSyncRepositoryImplTest {
         customerId = null,
         items = listOf(sampleCartItem()),
         paymentAmount = 10_000L,
+        financialSnapshot = sampleFinancialSnapshot(),
     ).getOrThrow()
 
     private fun successResponse(
@@ -429,7 +502,15 @@ class OfflineSyncRepositoryImplTest {
             tax = 0L,
             total = 10_000L,
             items = emptyList(),
-            payments = emptyList(),
+            payments = listOf(
+                PaymentResponse(
+                    id = "payment-id",
+                    method = "CASH",
+                    status = "PAID",
+                    amount = 10_000L,
+                    paidAt = "2026-09-17T00:00:00.000Z",
+                ),
+            ),
             change = 0L,
             createdAt = "2026-09-17T00:00:00.000Z",
         ),
@@ -444,9 +525,18 @@ class OfflineSyncRepositoryImplTest {
         quantity = 1,
     )
 
+    private fun sampleFinancialSnapshot() = OfflineFinancialSnapshot(
+        subtotal = 10_000L,
+        discount = 0L,
+        tax = 0L,
+        total = 10_000L,
+        paymentAmount = 10_000L,
+    )
+
     private class FakeSyncApi : SyncApi {
         var callCount: Int = 0
         var lastRequest: SyncTransactionsRequest? = null
+        val requests = mutableListOf<SyncTransactionsRequest>()
         var responder: suspend (SyncTransactionsRequest) -> Response<SyncTransactionsResponse> = {
             error("Responder has not been configured")
         }
@@ -456,6 +546,7 @@ class OfflineSyncRepositoryImplTest {
         ): Response<SyncTransactionsResponse> {
             callCount++
             lastRequest = request
+            requests += request
             return responder(request)
         }
     }

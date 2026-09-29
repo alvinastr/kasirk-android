@@ -1,7 +1,9 @@
 package com.kasirkita.pos.presentation.checkout
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
@@ -27,11 +29,12 @@ class CheckoutViewModel @Inject constructor(
     private val cartRepository: CartRepository,
     outletRepository: OutletRepository,
     shiftRepository: ShiftRepository,
+    savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(CheckoutState())
     val state: StateFlow<CheckoutState> = _state.asStateFlow()
-    private var activeClientTransactionId: String? = null
+    private val transactionIdentity = CheckoutTransactionIdentity(savedStateHandle)
 
     init {
         viewModelScope.launch {
@@ -80,10 +83,7 @@ class CheckoutViewModel @Inject constructor(
             return
         }
         val outletId = outlet?.id ?: return
-        val clientTransactionId = activeClientTransactionId
-            ?: UUID.randomUUID().toString().also { generatedId ->
-                activeClientTransactionId = generatedId
-            }
+        val clientTransactionId = transactionIdentity.getOrCreate()
 
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, errorMessage = null) }
@@ -124,6 +124,13 @@ class CheckoutViewModel @Inject constructor(
                 customerId = null,
                 items = snapshot.cart.items,
                 paymentAmount = paymentAmount,
+                financialSnapshot = OfflineFinancialSnapshot(
+                    subtotal = snapshot.cart.totalAmount(),
+                    discount = 0L,
+                    tax = 0L,
+                    total = snapshot.cart.totalAmount(),
+                    paymentAmount = paymentAmount,
+                ),
             ).fold(
                 onSuccess = {
                     cartRepository.clearCart()
@@ -152,6 +159,18 @@ class CheckoutViewModel @Inject constructor(
 
     private companion object {
         const val OPEN_STATUS = "OPEN"
+    }
+}
+
+internal class CheckoutTransactionIdentity(
+    private val savedStateHandle: SavedStateHandle,
+    private val createId: () -> String = { UUID.randomUUID().toString() },
+) {
+    fun getOrCreate(): String = savedStateHandle[KEY]
+        ?: createId().also { generatedId -> savedStateHandle[KEY] = generatedId }
+
+    internal companion object {
+        const val KEY = "activeClientTransactionId"
     }
 }
 

@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.CartItem
+import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.model.OfflineQueueSummary
 import com.kasirkita.pos.domain.model.OfflineTransaction
 import com.kasirkita.pos.domain.model.SyncOutcome
@@ -151,6 +152,7 @@ class OfflineSyncWorkRunnerTest {
             customerId: String?,
             items: List<CartItem>,
             paymentAmount: Long,
+            financialSnapshot: OfflineFinancialSnapshot,
         ): Result<OfflineTransaction> = error("Not used")
 
         override suspend fun getPendingTransactions(

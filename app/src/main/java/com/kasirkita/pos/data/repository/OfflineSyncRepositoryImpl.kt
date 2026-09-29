@@ -8,10 +8,13 @@ import com.kasirkita.pos.core.datastore.SessionIdentity
 import com.kasirkita.pos.core.datastore.toSessionIdentity
 import com.kasirkita.pos.data.api.SyncApi
 import com.kasirkita.pos.data.model.CreateTransactionRequest
+import com.kasirkita.pos.data.model.OfflineTransactionPayload
 import com.kasirkita.pos.data.model.SyncTransactionError
 import com.kasirkita.pos.data.model.SyncTransactionsRequest
+import com.kasirkita.pos.data.model.TransactionDetailResponse
 import com.kasirkita.pos.data.model.createTransactionRequest
 import com.kasirkita.pos.domain.model.CartItem
+import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.model.OfflineQueueSummary
 import com.kasirkita.pos.domain.model.OfflineTransaction
 import com.kasirkita.pos.domain.model.OfflineTransactionStatus
@@ -50,6 +53,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         customerId: String?,
         items: List<CartItem>,
         paymentAmount: Long,
+        financialSnapshot: OfflineFinancialSnapshot,
     ): Result<OfflineTransaction> = runCatching {
         val identity = requireIdentity()
         val request = createTransactionRequest(
@@ -59,6 +63,14 @@ class OfflineSyncRepositoryImpl @Inject constructor(
             items = items,
             paymentAmount = paymentAmount,
         )
+        require(financialSnapshot.isValidFor(request)) {
+            "Offline financial snapshot does not match the checkout request"
+        }
+        val payload = OfflineTransactionPayload(
+            version = PAYLOAD_VERSION,
+            transaction = request,
+            financialSnapshot = financialSnapshot,
+        )
         val now = System.currentTimeMillis()
         val entity = OfflineTransactionEntity(
             id = clientTransactionId,
@@ -66,7 +78,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
             userId = identity.userId,
             clientTransactionId = clientTransactionId,
             outletId = outletId,
-            payloadJson = gson.toJson(request),
+            payloadJson = gson.toJson(payload),
             status = OfflineTransactionStatus.PENDING,
             serverTransactionId = null,
             lastError = null,
@@ -224,15 +236,13 @@ class OfflineSyncRepositoryImpl @Inject constructor(
             return SyncOutcome.Completed(syncResult(identity))
         }
 
-        val validPayloads = mutableListOf<Pair<OfflineTransactionEntity, CreateTransactionRequest>>()
+        val validPayloads = mutableListOf<Pair<OfflineTransactionEntity, OfflineTransactionPayload>>()
         val actionRequired = mutableListOf<OfflineTransaction>()
 
         pending.forEach { entity ->
-            val request = runCatching {
-                gson.fromJson(entity.payloadJson, CreateTransactionRequest::class.java)
-            }.getOrNull()
+            val payload = decodePayload(entity)
 
-            if (request == null || request.clientTransactionId != entity.clientTransactionId) {
+            if (payload == null) {
                 offlineTransactionDao.markFailed(
                     identity.tenantId,
                     identity.userId,
@@ -241,7 +251,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
                 )
                 actionRequired += entity.asFailed(INVALID_LOCAL_PAYLOAD)
             } else {
-                validPayloads += entity to request
+                validPayloads += entity to payload
             }
         }
 
@@ -255,7 +265,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         val clientIds = validPayloads.map { (entity) -> entity.clientTransactionId }
         val response = try {
             syncApi.syncTransactions(
-                SyncTransactionsRequest(validPayloads.map { (_, request) -> request }),
+                SyncTransactionsRequest(validPayloads.map { (_, payload) -> payload.transaction }),
             )
         } catch (exception: CancellationException) {
             throw exception
@@ -314,17 +324,27 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         var syncedCount = 0
         var hasMissingResults = false
 
-        validPayloads.forEach { (entity) ->
+        validPayloads.forEach { (entity, payload) ->
             val result = resultsByClientId[entity.clientTransactionId]
             when {
                 result?.status == STATUS_SYNCED && result.transaction != null -> {
-                    offlineTransactionDao.markSynced(
-                        identity.tenantId,
-                        identity.userId,
-                        entity.clientTransactionId,
-                        result.transaction.transactionId,
-                    )
-                    syncedCount++
+                    if (payload.financialSnapshot.matches(result.transaction)) {
+                        offlineTransactionDao.markSynced(
+                            identity.tenantId,
+                            identity.userId,
+                            entity.clientTransactionId,
+                            result.transaction.transactionId,
+                        )
+                        syncedCount++
+                    } else {
+                        offlineTransactionDao.markFailed(
+                            identity.tenantId,
+                            identity.userId,
+                            entity.clientTransactionId,
+                            FINANCIAL_SNAPSHOT_MISMATCH,
+                        )
+                        actionRequired += entity.asFailed(FINANCIAL_SNAPSHOT_MISMATCH)
+                    }
                 }
 
                 result?.status == STATUS_FAILED -> {
@@ -384,6 +404,37 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         .getSession()
         ?.toSessionIdentity()
 
+    private fun decodePayload(entity: OfflineTransactionEntity): OfflineTransactionPayload? =
+        runCatching {
+            gson.fromJson(entity.payloadJson, OfflineTransactionPayload::class.java)
+                ?.takeIf { payload ->
+                    payload.version == PAYLOAD_VERSION &&
+                        payload.transaction.clientTransactionId == entity.clientTransactionId &&
+                        payload.transaction.outletId == entity.outletId &&
+                        payload.financialSnapshot.isValidFor(payload.transaction)
+                }
+        }.getOrNull()
+
+    private fun OfflineFinancialSnapshot.isValidFor(request: CreateTransactionRequest): Boolean {
+        if (
+            subtotal < 0L || discount < 0L || tax < 0L || total < 0L ||
+            paymentAmount < 0L || paymentAmount != request.payment.amount
+        ) {
+            return false
+        }
+        val calculatedTotal = runCatching {
+            Math.addExact(Math.subtractExact(subtotal, discount), tax)
+        }.getOrNull()
+        return discount <= subtotal && calculatedTotal == total && paymentAmount >= total
+    }
+
+    private fun OfflineFinancialSnapshot.matches(transaction: TransactionDetailResponse): Boolean =
+        subtotal == transaction.subtotal &&
+            discount == transaction.discount &&
+            tax == transaction.tax &&
+            total == transaction.total &&
+            transaction.payments.singleOrNull()?.amount == paymentAmount
+
     private suspend fun requireIdentity(): SessionIdentity = currentIdentity()
         ?: error("Authenticated session is required")
 
@@ -417,12 +468,15 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         this == 408 || this == 425 || this == 429 || this in 500..599
 
     private companion object {
+        const val PAYLOAD_VERSION = 1
         const val MAX_BATCH_SIZE = 100
         const val INSERT_IGNORED = -1L
         const val HTTP_UNAUTHORIZED = 401
         const val STATUS_SYNCED = "SYNCED"
         const val STATUS_FAILED = "FAILED"
         const val INVALID_LOCAL_PAYLOAD = "Invalid local transaction payload"
+        const val FINANCIAL_SNAPSHOT_MISMATCH =
+            "Synced transaction does not match its checkout financial snapshot"
         const val TRANSPORT_FAILURE = "Unable to reach the sync service"
         const val SERVER_FAILURE = "Sync service is temporarily unavailable"
         const val BUSINESS_FAILURE = "Transaction sync requires action"
