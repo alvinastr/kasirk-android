@@ -146,7 +146,7 @@ class ProductCatalogViewModelTest {
 
         override suspend fun selectOutlet(outlet: Outlet) = Unit
 
-        override suspend fun clearSelectedOutlet() = Unit
+        override suspend fun clearSelectedOutlet(tenantId: String?, userId: String?) = Unit
 
         override suspend fun restoreSelectedOutlet() = Unit
     }

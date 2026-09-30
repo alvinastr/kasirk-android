@@ -12,7 +12,7 @@ class SessionBoundaryCleaner @Inject constructor(
     private val outletRepository: OutletRepository,
     private val shiftRepository: ShiftRepository,
 ) {
-    suspend fun clear(): Throwable? {
+    suspend fun clear(tenantId: String? = null, userId: String? = null): Throwable? {
         var firstFailure: Throwable? = null
 
         suspend fun attempt(block: suspend () -> Unit) {
@@ -24,8 +24,8 @@ class SessionBoundaryCleaner @Inject constructor(
         }
 
         attempt { cartRepository.clearCart() }
-        attempt { outletRepository.clearSelectedOutlet() }
-        attempt { shiftRepository.clearCurrentShift() }
+        attempt { outletRepository.clearSelectedOutlet(tenantId, userId) }
+        attempt { shiftRepository.clearCurrentShift(tenantId, userId) }
 
         return firstFailure
     }

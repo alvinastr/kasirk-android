@@ -6,9 +6,12 @@ import com.kasirkita.pos.data.api.OutletApi
 import com.kasirkita.pos.data.model.toDomain
 import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.repository.OutletRepository
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -28,23 +31,34 @@ class OutletRepositoryImpl @Inject constructor(
 
     override suspend fun selectOutlet(outlet: Outlet) {
         _selectedOutlet.value = outlet
-        val session = authSessionDataStore.getSession()
-        if (session != null) {
-            operationalContextDataStore.saveOutlet(session.tenantId, session.userId, outlet)
+        withContext(NonCancellable) {
+            val session = authSessionDataStore.getSession()
+            if (session != null) {
+                operationalContextDataStore.saveOutlet(session.tenantId, session.userId, outlet)
+            }
         }
     }
 
-    override suspend fun clearSelectedOutlet() {
+    override suspend fun clearSelectedOutlet(tenantId: String?, userId: String?) {
         _selectedOutlet.value = null
-        val session = authSessionDataStore.getSession()
-        if (session != null) {
-            operationalContextDataStore.clearOutlet(session.tenantId, session.userId)
+        withContext(NonCancellable) {
+            val resolvedTenantId = tenantId ?: authSessionDataStore.getSession()?.tenantId
+            val resolvedUserId = userId ?: authSessionDataStore.getSession()?.userId
+            if (resolvedTenantId != null && resolvedUserId != null) {
+                operationalContextDataStore.clearOutlet(resolvedTenantId, resolvedUserId)
+            }
         }
     }
 
     override suspend fun restoreSelectedOutlet() {
         val session = authSessionDataStore.getSession() ?: return
-        val restored = operationalContextDataStore.getOutlet(session.tenantId, session.userId)
+        val restored = try {
+            operationalContextDataStore.getOutlet(session.tenantId, session.userId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
         if (restored != null && restored.tenantId == session.tenantId) {
             _selectedOutlet.value = restored
         }

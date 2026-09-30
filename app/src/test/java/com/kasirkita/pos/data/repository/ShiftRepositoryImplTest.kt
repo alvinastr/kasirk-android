@@ -149,13 +149,82 @@ class ShiftRepositoryImplTest {
             authDataStore,
             opDataStore,
         )
-        second.restoreCurrentShift()
+        second.restoreCurrentShift(expectedOutletId = OUTLET_ID)
 
         val restored = second.currentShift.value
         assertEquals(SHIFT_ID, restored?.id)
         assertEquals(OUTLET_ID, restored?.outletId)
         assertEquals("OPEN", restored?.status)
         assertEquals(50_000L, restored?.openingCash)
+    }
+
+    @Test
+    fun restoreCurrentShift_whenOutletIdMismatches_doesNotExposeShiftAndClearsCachedShift() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+
+        authDataStore.saveSession(session())
+        val api = FakeShiftApi(currentResponse = Response.success(openShiftResponse()))
+        val first = ShiftRepositoryImpl(api, authDataStore, opDataStore)
+        first.getCurrentShift().getOrThrow()
+
+        val second = ShiftRepositoryImpl(
+            FakeShiftApi(currentFailure = IOException("offline")),
+            authDataStore,
+            opDataStore,
+        )
+        second.restoreCurrentShift(expectedOutletId = "different-outlet-id")
+
+        assertNull(second.currentShift.value)
+        assertNull(opDataStore.getShift("tenant-id", "user-id"))
+    }
+
+    @Test
+    fun restoreCurrentShift_whenNoOutletSelected_doesNotExposeShiftAndClearsCachedShift() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+
+        authDataStore.saveSession(session())
+        val api = FakeShiftApi(currentResponse = Response.success(openShiftResponse()))
+        val first = ShiftRepositoryImpl(api, authDataStore, opDataStore)
+        first.getCurrentShift().getOrThrow()
+
+        val second = ShiftRepositoryImpl(
+            FakeShiftApi(currentFailure = IOException("offline")),
+            authDataStore,
+            opDataStore,
+        )
+        second.restoreCurrentShift(expectedOutletId = null)
+
+        assertNull(second.currentShift.value)
+        assertNull(opDataStore.getShift("tenant-id", "user-id"))
+    }
+
+    @Test
+    fun clearCurrentShift_withExplicitIdentity_clearsStoreEvenWhenAuthSessionNull() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+
+        authDataStore.saveSession(session())
+        val repository = ShiftRepositoryImpl(
+            FakeShiftApi(currentResponse = Response.success(openShiftResponse())),
+            authDataStore,
+            opDataStore,
+        )
+        repository.getCurrentShift().getOrThrow()
+
+        authDataStore.clearSession()
+        assertNull(authDataStore.getSession())
+
+        repository.clearCurrentShift(tenantId = "tenant-id", userId = "user-id")
+
+        assertNull(opDataStore.getShift("tenant-id", "user-id"))
     }
 
     @Test

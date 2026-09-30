@@ -527,6 +527,10 @@ class AppNavigationViewModel @Inject constructor(
 
     private suspend fun resolveAuthV2Session(session: AuthSession): SessionState {
         if (session.expiresAt <= System.currentTimeMillis()) {
+            sessionBoundaryCleaner.clear(
+                tenantId = session.tenantId,
+                userId = session.userId,
+            )
             clearAuthV2Session(session)
             return SessionState.Unauthenticated
         }
@@ -534,8 +538,15 @@ class AppNavigationViewModel @Inject constructor(
     }
 
     private suspend fun restoreOperationalContextLocally() {
-        outletRepository.restoreSelectedOutlet()
-        shiftRepository.restoreCurrentShift()
+        try {
+            outletRepository.restoreSelectedOutlet()
+            val restoredOutletId = outletRepository.selectedOutlet.value?.id
+            shiftRepository.restoreCurrentShift(expectedOutletId = restoredOutletId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            // Startup restoration must never crash or block Home
+        }
     }
 
     private fun refreshSessionInBackground(session: AuthSession) {
@@ -563,7 +574,7 @@ class AppNavigationViewModel @Inject constructor(
             shiftRepository.getCurrentShift()
             val currentIdentity = readAuthV2Session()?.toSessionIdentity()
             if (currentIdentity != session.toSessionIdentity()) {
-                shiftRepository.clearCurrentShift()
+                shiftRepository.clearCurrentShift(session.tenantId, session.userId)
             }
         }
     }
@@ -603,7 +614,10 @@ class AppNavigationViewModel @Inject constructor(
                 .collect { identity ->
                     val crossedBoundary = hasPreviousIdentity && identity != previousIdentity
                     if (identity == null || crossedBoundary) {
-                        sessionBoundaryCleaner.clear()
+                        sessionBoundaryCleaner.clear(
+                            tenantId = previousIdentity?.tenantId,
+                            userId = previousIdentity?.userId,
+                        )
                     }
                     if (identity == null) {
                         _sessionState.value = SessionState.Unauthenticated

@@ -70,7 +70,17 @@ class LogoutViewModel @Inject constructor(
     }
 
     private suspend fun clearLocalState(): Throwable? {
-        var firstFailure = sessionBoundaryCleaner.clear()
+        val currentIdentity = try {
+            authSessionDataStore.getSession()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
+        var firstFailure = sessionBoundaryCleaner.clear(
+            tenantId = currentIdentity?.tenantId,
+            userId = currentIdentity?.userId,
+        )
 
         suspend fun attempt(block: suspend () -> Unit) {
             try {

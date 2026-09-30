@@ -233,6 +233,24 @@ class AppNavigationViewModelTest {
     }
 
     @Test
+    fun startupOperationalContextRestoreFailure_doesNotBlockHomeOrCrash() = runBlocking {
+        val fixture = fixture(
+            session = authSession(expiresAt = Long.MAX_VALUE),
+            refreshFailure = IOException("network unavailable"),
+            outletFailure = IOException("network unavailable"),
+            shiftFailure = IOException("network unavailable"),
+        )
+        fixture.outletRepository.restoreFailure = IOException("Corrupt disk read")
+
+        val viewModel = fixture.viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        val state = fixture.state() as SessionState.Authenticated
+        assertEquals(Screen.Home.route, startupRouteFor(state))
+        assertEquals("user-id", (state.session as NavigationSession.AuthV2).value.userId)
+    }
+
+    @Test
     fun onLoggedOut_clearsCurrentUserState() {
         val fixture = fixture(
             session = authSession(expiresAt = Long.MAX_VALUE),
@@ -331,12 +349,14 @@ class AppNavigationViewModelTest {
             outletState.value = outlet
         }
 
-        override suspend fun clearSelectedOutlet() {
+        override suspend fun clearSelectedOutlet(tenantId: String?, userId: String?) {
             outletState.value = null
         }
 
         var restoreCalls = 0
+        var restoreFailure: Throwable? = null
         override suspend fun restoreSelectedOutlet() {
+            restoreFailure?.let { throw it }
             restoreCalls += 1
         }
     }
@@ -364,12 +384,14 @@ class AppNavigationViewModelTest {
             closingCash: Long,
         ): Result<Shift> = error("Not used")
 
-        override suspend fun clearCurrentShift() {
+        override suspend fun clearCurrentShift(tenantId: String?, userId: String?) {
             currentShift.value = null
         }
 
         var restoreCalls = 0
-        override suspend fun restoreCurrentShift() {
+        var lastExpectedOutletId: String? = null
+        override suspend fun restoreCurrentShift(expectedOutletId: String?) {
+            lastExpectedOutletId = expectedOutletId
             restoreCalls += 1
         }
     }

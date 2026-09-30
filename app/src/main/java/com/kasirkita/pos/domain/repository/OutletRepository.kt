@@ -10,7 +10,7 @@ interface OutletRepository {
 
     suspend fun selectOutlet(outlet: Outlet)
 
-    suspend fun clearSelectedOutlet()
+    suspend fun clearSelectedOutlet(tenantId: String? = null, userId: String? = null)
 
     suspend fun restoreSelectedOutlet()
 }

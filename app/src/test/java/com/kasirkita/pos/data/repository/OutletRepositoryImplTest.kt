@@ -64,6 +64,25 @@ class OutletRepositoryImplTest {
     }
 
     @Test
+    fun clearSelectedOutlet_withExplicitIdentity_clearsStoreEvenWhenAuthSessionNull() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+
+        authDataStore.saveSession(session())
+        val repository = OutletRepositoryImpl(FakeOutletApi(), authDataStore, opDataStore)
+
+        repository.selectOutlet(outlet())
+        authDataStore.clearSession()
+        assertNull(authDataStore.getSession())
+
+        repository.clearSelectedOutlet(tenantId = "tenant-id", userId = "user-id")
+
+        assertNull(opDataStore.getOutlet("tenant-id", "user-id"))
+    }
+
+    @Test
     fun restoreSelectedOutlet_doesNotRestoreForDifferentTenant() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()

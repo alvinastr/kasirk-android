@@ -116,6 +116,47 @@ class SessionBoundaryCleanerTest {
         assertNull("Old session shift data should be cleared", persistedShiftOld)
     }
 
+    @Test
+    fun clear_withExplicitIdentity_clearsOperationalContextEvenWhenAuthSessionAlreadyEmpty() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+
+        val session = session("tenant-1", "user-1")
+        authDataStore.saveSession(session)
+
+        val outletRepo = OutletRepositoryImpl(
+            outletApi = FakeOutletApi(),
+            authSessionDataStore = authDataStore,
+            operationalContextDataStore = opDataStore,
+        )
+        val shiftRepo = ShiftRepositoryImpl(
+            shiftApi = FakeShiftApi(),
+            authSessionDataStore = authDataStore,
+            operationalContextDataStore = opDataStore,
+        )
+
+        outletRepo.selectOutlet(outlet("outlet-1", "tenant-1"))
+        opDataStore.saveShift("tenant-1", "user-1", shift("shift-1", "outlet-1", "user-1"))
+
+        // Simulate session cleared first (e.g. 401 token expiry)
+        authDataStore.clearSession()
+        assertNull(authDataStore.getSession())
+
+        val cartRepo = FakeCartRepository()
+        val cleaner = SessionBoundaryCleaner(cartRepo, outletRepo, shiftRepo)
+
+        // Clear using previous identity
+        cleaner.clear(tenantId = "tenant-1", userId = "user-1")
+
+        val persistedOutlet = opDataStore.getOutlet("tenant-1", "user-1")
+        val persistedShift = opDataStore.getShift("tenant-1", "user-1")
+
+        assertNull("Persisted outlet must be cleared using previous identity", persistedOutlet)
+        assertNull("Persisted shift must be cleared using previous identity", persistedShift)
+    }
+
     private class FakeOutletApi : OutletApi {
         override suspend fun getOutlets(): List<com.kasirkita.pos.data.model.OutletResponse> = error("Not used")
     }

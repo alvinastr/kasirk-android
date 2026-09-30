@@ -9,9 +9,12 @@ import com.kasirkita.pos.data.model.ShiftResponse
 import com.kasirkita.pos.data.model.toDomain
 import com.kasirkita.pos.domain.model.Shift
 import com.kasirkita.pos.domain.repository.ShiftRepository
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.withContext
+import kotlin.coroutines.cancellation.CancellationException
 import retrofit2.HttpException
 import retrofit2.Response
 import javax.inject.Inject
@@ -86,25 +89,51 @@ class ShiftRepositoryImpl @Inject constructor(
         return result
     }
 
-    override suspend fun clearCurrentShift() {
+    override suspend fun clearCurrentShift(tenantId: String?, userId: String?) {
         _currentShift.value = null
-        persistShiftState(null)
+        withContext(NonCancellable) {
+            val resolvedTenantId = tenantId ?: authSessionDataStore.getSession()?.tenantId
+            val resolvedUserId = userId ?: authSessionDataStore.getSession()?.userId
+            if (resolvedTenantId != null && resolvedUserId != null) {
+                operationalContextDataStore.clearShift(resolvedTenantId, resolvedUserId)
+            }
+        }
     }
 
-    override suspend fun restoreCurrentShift() {
+    override suspend fun restoreCurrentShift(expectedOutletId: String?) {
         val session = authSessionDataStore.getSession() ?: return
-        val restored = operationalContextDataStore.getShift(session.tenantId, session.userId)
-        if (restored != null && restored.status.equals("OPEN", ignoreCase = true)) {
+        val restored = try {
+            operationalContextDataStore.getShift(session.tenantId, session.userId)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (_: Throwable) {
+            null
+        }
+        if (
+            restored != null &&
+            restored.status.equals("OPEN", ignoreCase = true) &&
+            expectedOutletId != null &&
+            restored.outletId == expectedOutletId
+        ) {
             _currentShift.value = restored
+        } else {
+            _currentShift.value = null
+            if (restored != null && (expectedOutletId == null || restored.outletId != expectedOutletId)) {
+                withContext(NonCancellable) {
+                    operationalContextDataStore.clearShift(session.tenantId, session.userId)
+                }
+            }
         }
     }
 
     private suspend fun persistShiftState(shift: Shift?) {
-        val session = authSessionDataStore.getSession() ?: return
-        if (shift != null) {
-            operationalContextDataStore.saveShift(session.tenantId, session.userId, shift)
-        } else {
-            operationalContextDataStore.clearShift(session.tenantId, session.userId)
+        withContext(NonCancellable) {
+            val session = authSessionDataStore.getSession() ?: return@withContext
+            if (shift != null) {
+                operationalContextDataStore.saveShift(session.tenantId, session.userId, shift)
+            } else {
+                operationalContextDataStore.clearShift(session.tenantId, session.userId)
+            }
         }
     }
 

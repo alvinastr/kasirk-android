@@ -18,7 +18,7 @@ interface ShiftRepository {
         closingCash: Long,
     ): Result<Shift>
 
-    suspend fun clearCurrentShift()
+    suspend fun clearCurrentShift(tenantId: String? = null, userId: String? = null)
 
-    suspend fun restoreCurrentShift()
+    suspend fun restoreCurrentShift(expectedOutletId: String? = null)
 }

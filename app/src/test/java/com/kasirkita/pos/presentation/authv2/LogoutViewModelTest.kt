@@ -190,7 +190,7 @@ class LogoutViewModelTest {
             this.outlet.value = outlet
         }
 
-        override suspend fun clearSelectedOutlet() {
+        override suspend fun clearSelectedOutlet(tenantId: String?, userId: String?) {
             clearFailure?.let { throwable -> throw throwable }
             outlet.value = null
         }
@@ -213,11 +213,11 @@ class LogoutViewModelTest {
             closingCash: Long,
         ): Result<Shift> = error("Not used")
 
-        override suspend fun clearCurrentShift() {
+        override suspend fun clearCurrentShift(tenantId: String?, userId: String?) {
             currentShift.value = null
         }
 
-        override suspend fun restoreCurrentShift() = Unit
+        override suspend fun restoreCurrentShift(expectedOutletId: String?) = Unit
     }
 
     private class InMemoryPreferencesDataStore(
