@@ -53,6 +53,25 @@ class CartRepositoryImplTest {
     }
 
     @Test
+    fun trackedProduct_withUnavailableStock_canBeSoldOffline() {
+        val repository = CartRepositoryImpl()
+        val product = product(trackStock = true)
+
+        assertEquals(
+            CartUpdateResult.UPDATED,
+            repository.addProduct(product, availableStock = null),
+        )
+        assertEquals(
+            CartUpdateResult.UPDATED,
+            repository.updateQuantity(product.id, 2),
+        )
+
+        val item = repository.getCart().value.items.single()
+        assertEquals(2, item.quantity)
+        assertEquals(null, item.availableStock)
+    }
+
+    @Test
     fun trackedProduct_quantityCannotIncreaseBeyondAvailableStock() {
         val repository = CartRepositoryImpl()
         val product = product(trackStock = true)

@@ -12,5 +12,5 @@ data class CartItem(
     fun subtotal(): Long = price * quantity.toLong()
 
     fun canIncreaseQuantity(): Boolean =
-        !trackStock || quantity < (availableStock ?: 0)
+        !trackStock || availableStock == null || quantity < availableStock
 }

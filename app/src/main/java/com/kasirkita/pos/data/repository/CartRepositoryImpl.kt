@@ -27,7 +27,11 @@ class CartRepositoryImpl @Inject constructor() : CartRepository {
         }
         val stockLimit = availableStock?.coerceAtLeast(0)
 
-        if (product.trackStock && (stockLimit == null || (existingItem?.quantity ?: 0) >= stockLimit)) {
+        if (
+            product.trackStock &&
+            stockLimit != null &&
+            (existingItem?.quantity ?: 0) >= stockLimit
+        ) {
             if (existingItem != null) {
                 cart.value = currentCart.copy(
                     items = currentCart.items.map { item ->
@@ -96,7 +100,8 @@ class CartRepositoryImpl @Inject constructor() : CartRepository {
 
         if (
             existingItem.trackStock &&
-            quantity > (existingItem.availableStock ?: 0)
+            existingItem.availableStock != null &&
+            quantity > existingItem.availableStock
         ) {
             return CartUpdateResult.STOCK_LIMIT_REACHED
         }

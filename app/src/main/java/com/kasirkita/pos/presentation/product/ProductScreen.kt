@@ -123,6 +123,14 @@ private fun ProductList(
             )
         }
 
+        if (items.any { item -> item.product.trackStock && item.stockQuantity == null }) {
+            Text(
+                text = "Stok belum tersedia. Produk tetap dapat dijual offline.",
+                modifier = Modifier.padding(top = 8.dp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         if (items.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -153,10 +161,10 @@ private fun ProductList(
                         Text("Harga: Rp${numberFormat.format(product.price)}")
                         Text(
                             if (product.trackStock) {
-                                if (item.stockQuantity == 0) {
-                                    "Stok: 0 (Stok habis)"
-                                } else {
-                                    "Stok: ${item.stockQuantity}"
+                                when (item.stockQuantity) {
+                                    null -> "Stok: Tidak tersedia"
+                                    0 -> "Stok: 0 (Stok habis)"
+                                    else -> "Stok: ${item.stockQuantity}"
                                 }
                             } else {
                                 "Stok tidak dikelola"

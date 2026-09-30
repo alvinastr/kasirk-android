@@ -3,6 +3,7 @@ package com.kasirkita.pos.presentation.product
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.domain.model.Product
+import com.kasirkita.pos.domain.model.Stock
 import com.kasirkita.pos.domain.repository.CartUpdateResult
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.ProductRepository
@@ -29,17 +30,41 @@ class ProductCatalogViewModel @Inject constructor(
 
     private val _state = MutableStateFlow<ProductCatalogState>(ProductCatalogState.Loading)
     val state: StateFlow<ProductCatalogState> = _state.asStateFlow()
+    private var products: List<Product> = emptyList()
+    private var stocks: List<Stock>? = null
+    private var hasLoadedProducts = false
 
     init {
         loadProducts()
     }
 
     fun loadProducts() {
-        load { getProductsUseCase() }
+        viewModelScope.launch {
+            _state.value = ProductCatalogState.Loading
+            getProductsUseCase().fold(
+                onSuccess = { cachedProducts ->
+                    products = cachedProducts
+                    stocks = null
+                    hasLoadedProducts = true
+                    publishCatalog()
+                    refreshRemoteCatalog()
+                },
+                onFailure = {
+                    _state.value = ProductCatalogState.Error(
+                        "Produk tidak dapat dimuat. Coba lagi.",
+                    )
+                },
+            )
+        }
     }
 
     fun refresh() {
-        load { productRepository.refreshProducts() }
+        viewModelScope.launch {
+            if (!hasLoadedProducts) {
+                _state.value = ProductCatalogState.Loading
+            }
+            refreshRemoteCatalog()
+        }
     }
 
     fun addToCart(item: ProductCatalogItem) {
@@ -57,39 +82,33 @@ class ProductCatalogViewModel @Inject constructor(
         )
     }
 
-    private fun load(productRequest: suspend () -> Result<List<Product>>) {
-        viewModelScope.launch {
-            _state.value = ProductCatalogState.Loading
-            val outlet = outletRepository.selectedOutlet.value
-            if (outlet == null) {
-                _state.value = ProductCatalogState.Error(
-                    "Outlet belum dipilih. Pilih outlet lalu coba lagi.",
-                )
-                return@launch
-            }
-
-            val catalogResult = coroutineScope {
-                val products = async { productRequest() }
-                val stocks = async { getStocksUseCase(outlet.id) }
-
-                runCatching {
-                    mapProductsWithStock(
-                        products = products.await().getOrThrow(),
-                        stocks = stocks.await().getOrThrow(),
-                    )
-                }
-            }
-
-            catalogResult.fold(
-                onSuccess = { items ->
-                    _state.value = ProductCatalogState.Success(items)
-                },
-                onFailure = {
-                    _state.value = ProductCatalogState.Error(
-                        "Produk dan stok tidak dapat dimuat. Coba lagi.",
-                    )
-                },
-            )
+    private suspend fun refreshRemoteCatalog() = coroutineScope {
+        val productRefresh = async { productRepository.refreshProducts() }
+        val stockRefresh = outletRepository.selectedOutlet.value?.let { outlet ->
+            async { getStocksUseCase(outlet.id) }
         }
+
+        val productResult = productRefresh.await()
+        val stockResult = stockRefresh?.await()
+
+        productResult.onSuccess { refreshedProducts ->
+            products = refreshedProducts
+            hasLoadedProducts = true
+        }
+        stocks = stockResult?.getOrNull()
+
+        if (productResult.isFailure && !hasLoadedProducts) {
+            _state.value = ProductCatalogState.Error(
+                "Produk tidak dapat dimuat. Coba lagi.",
+            )
+        } else {
+            publishCatalog()
+        }
+    }
+
+    private fun publishCatalog() {
+        _state.value = ProductCatalogState.Success(
+            items = mapProductsWithStock(products, stocks),
+        )
     }
 }

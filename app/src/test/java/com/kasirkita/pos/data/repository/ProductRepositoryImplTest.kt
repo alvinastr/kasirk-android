@@ -124,6 +124,18 @@ class ProductRepositoryImplTest {
     }
 
     @Test
+    fun getProducts_whenOffline_returnsCurrentTenantsCachedProducts() = runBlocking {
+        dao.products += sampleResponse(trackStock = true).toEntity()
+        api.getProductsFailure = IOException("network unavailable")
+
+        val products = repository.getProducts().getOrThrow()
+
+        assertEquals(listOf(PRODUCT_ID), products.map { product -> product.id })
+        assertEquals(listOf(TENANT_ID), products.map { product -> product.tenantId })
+        assertEquals(0, api.getProductsCallCount)
+    }
+
+    @Test
     fun getProducts_doesNotExposeAnotherTenantsCache() = runBlocking {
         dao.products += sampleResponse(
             trackStock = true,
@@ -198,6 +210,7 @@ class ProductRepositoryImplTest {
 
     private class FakeProductApi : ProductApi {
         var getProductsCallCount = 0
+        var getProductsFailure: Throwable? = null
         var productsResponse: List<ProductResponse> = emptyList()
         var createResponse: ProductResponse? = null
         var updateResponse: ProductResponse? = null
@@ -208,6 +221,7 @@ class ProductRepositoryImplTest {
 
         override suspend fun getProducts(): List<ProductResponse> {
             getProductsCallCount++
+            getProductsFailure?.let { throwable -> throw throwable }
             return productsResponse
         }
 

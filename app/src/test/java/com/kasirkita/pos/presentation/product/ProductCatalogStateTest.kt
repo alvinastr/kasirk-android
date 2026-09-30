@@ -44,6 +44,17 @@ class ProductCatalogStateTest {
     }
 
     @Test
+    fun trackedProduct_whenStockIsUnavailable_canBeAddedOffline() {
+        val item = mapProductsWithStock(
+            products = listOf(product(trackStock = true)),
+            stocks = null,
+        ).single()
+
+        assertNull(item.stockQuantity)
+        assertTrue(item.canAddToCart)
+    }
+
+    @Test
     fun untrackedProduct_doesNotExposeQuantityAndCanBeAdded() {
         val item = mapProductsWithStock(
             products = listOf(product(trackStock = false)),

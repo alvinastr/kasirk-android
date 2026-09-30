@@ -80,7 +80,11 @@ fun CartScreen(
                         Text("Harga: Rp${numberFormat.format(item.price)}")
                         Text("Subtotal: Rp${numberFormat.format(item.subtotal())}")
                         if (item.trackStock) {
-                            Text("Stok tersedia: ${item.availableStock ?: 0}")
+                            Text(
+                                item.availableStock?.let { stock ->
+                                    "Stok tersedia: $stock"
+                                } ?: "Stok: Tidak tersedia",
+                            )
                         } else {
                             Text("Stok tidak dikelola")
                         }
