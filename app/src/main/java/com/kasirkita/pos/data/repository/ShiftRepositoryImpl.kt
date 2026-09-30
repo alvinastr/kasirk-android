@@ -1,5 +1,7 @@
 package com.kasirkita.pos.data.repository
 
+import com.kasirkita.pos.core.datastore.AuthSessionDataStore
+import com.kasirkita.pos.core.datastore.OperationalContextDataStore
 import com.kasirkita.pos.data.api.ShiftApi
 import com.kasirkita.pos.data.model.CloseShiftRequest
 import com.kasirkita.pos.data.model.OpenShiftRequest
@@ -18,6 +20,8 @@ import javax.inject.Singleton
 @Singleton
 class ShiftRepositoryImpl @Inject constructor(
     private val shiftApi: ShiftApi,
+    private val authSessionDataStore: AuthSessionDataStore,
+    private val operationalContextDataStore: OperationalContextDataStore,
 ) : ShiftRepository {
 
     private val _currentShift = MutableStateFlow<Shift?>(null)
@@ -35,6 +39,7 @@ class ShiftRepositoryImpl @Inject constructor(
 
         result.onSuccess { shift ->
             _currentShift.value = shift
+            persistShiftState(shift)
         }
         return result
     }
@@ -56,6 +61,7 @@ class ShiftRepositoryImpl @Inject constructor(
 
         result.onSuccess { shift ->
             _currentShift.value = shift
+            persistShiftState(shift)
         }
         return result
     }
@@ -75,12 +81,31 @@ class ShiftRepositoryImpl @Inject constructor(
 
         result.onSuccess {
             _currentShift.value = null
+            persistShiftState(null)
         }
         return result
     }
 
-    override fun clearCurrentShift() {
+    override suspend fun clearCurrentShift() {
         _currentShift.value = null
+        persistShiftState(null)
+    }
+
+    override suspend fun restoreCurrentShift() {
+        val session = authSessionDataStore.getSession() ?: return
+        val restored = operationalContextDataStore.getShift(session.tenantId, session.userId)
+        if (restored != null && restored.status.equals("OPEN", ignoreCase = true)) {
+            _currentShift.value = restored
+        }
+    }
+
+    private suspend fun persistShiftState(shift: Shift?) {
+        val session = authSessionDataStore.getSession() ?: return
+        if (shift != null) {
+            operationalContextDataStore.saveShift(session.tenantId, session.userId, shift)
+        } else {
+            operationalContextDataStore.clearShift(session.tenantId, session.userId)
+        }
     }
 
     private fun Response<ShiftResponse>.requireBody(): ShiftResponse =

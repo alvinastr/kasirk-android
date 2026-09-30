@@ -144,9 +144,11 @@ class ProductCatalogViewModelTest {
 
         override suspend fun getOutlets(): Result<List<Outlet>> = error("Not used")
 
-        override fun selectOutlet(outlet: Outlet) = Unit
+        override suspend fun selectOutlet(outlet: Outlet) = Unit
 
-        override fun clearSelectedOutlet() = Unit
+        override suspend fun clearSelectedOutlet() = Unit
+
+        override suspend fun restoreSelectedOutlet() = Unit
     }
 
     private companion object {

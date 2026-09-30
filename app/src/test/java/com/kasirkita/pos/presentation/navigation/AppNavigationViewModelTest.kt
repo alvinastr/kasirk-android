@@ -217,6 +217,22 @@ class AppNavigationViewModelTest {
     }
 
     @Test
+    fun offlineStartup_restoresOperationalContextLocally() = runBlocking {
+        val fixture = fixture(
+            session = authSession(expiresAt = Long.MAX_VALUE),
+            refreshFailure = IOException("network unavailable"),
+            outletFailure = IOException("network unavailable"),
+            shiftFailure = IOException("network unavailable"),
+        )
+
+        fixture.viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, fixture.outletRepository.restoreCalls)
+        assertEquals(1, fixture.shiftRepository.restoreCalls)
+    }
+
+    @Test
     fun onLoggedOut_clearsCurrentUserState() {
         val fixture = fixture(
             session = authSession(expiresAt = Long.MAX_VALUE),
@@ -311,12 +327,17 @@ class AppNavigationViewModelTest {
                 ?: Result.success(listOf(restoredOutlet))
         }
 
-        override fun selectOutlet(outlet: Outlet) {
+        override suspend fun selectOutlet(outlet: Outlet) {
             outletState.value = outlet
         }
 
-        override fun clearSelectedOutlet() {
+        override suspend fun clearSelectedOutlet() {
             outletState.value = null
+        }
+
+        var restoreCalls = 0
+        override suspend fun restoreSelectedOutlet() {
+            restoreCalls += 1
         }
     }
 
@@ -343,8 +364,13 @@ class AppNavigationViewModelTest {
             closingCash: Long,
         ): Result<Shift> = error("Not used")
 
-        override fun clearCurrentShift() {
+        override suspend fun clearCurrentShift() {
             currentShift.value = null
+        }
+
+        var restoreCalls = 0
+        override suspend fun restoreCurrentShift() {
+            restoreCalls += 1
         }
     }
 

@@ -43,6 +43,8 @@ class OutletViewModel @Inject constructor(
     }
 
     fun selectOutlet(outlet: Outlet) {
-        outletRepository.selectOutlet(outlet)
+        viewModelScope.launch {
+            outletRepository.selectOutlet(outlet)
+        }
     }
 }

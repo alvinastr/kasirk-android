@@ -510,6 +510,7 @@ class AppNavigationViewModel @Inject constructor(
                 (resolvedState as? SessionState.Authenticated)
                     ?.session as? NavigationSession.AuthV2
                 )?.value ?: return@launch
+            restoreOperationalContextLocally()
             refreshSessionInBackground(session)
             refreshSelectedOutletInBackground(session)
             refreshCurrentShiftInBackground(session)
@@ -530,6 +531,11 @@ class AppNavigationViewModel @Inject constructor(
             return SessionState.Unauthenticated
         }
         return SessionState.Authenticated(NavigationSession.AuthV2(session))
+    }
+
+    private suspend fun restoreOperationalContextLocally() {
+        outletRepository.restoreSelectedOutlet()
+        shiftRepository.restoreCurrentShift()
     }
 
     private fun refreshSessionInBackground(session: AuthSession) {

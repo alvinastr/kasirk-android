@@ -186,14 +186,16 @@ class LogoutViewModelTest {
         override suspend fun getOutlets(): Result<List<Outlet>> =
             Result.success(listOfNotNull(outlet.value))
 
-        override fun selectOutlet(outlet: Outlet) {
+        override suspend fun selectOutlet(outlet: Outlet) {
             this.outlet.value = outlet
         }
 
-        override fun clearSelectedOutlet() {
+        override suspend fun clearSelectedOutlet() {
             clearFailure?.let { throwable -> throw throwable }
             outlet.value = null
         }
+
+        override suspend fun restoreSelectedOutlet() = Unit
     }
 
     private class FakeShiftRepository : ShiftRepository {
@@ -211,9 +213,11 @@ class LogoutViewModelTest {
             closingCash: Long,
         ): Result<Shift> = error("Not used")
 
-        override fun clearCurrentShift() {
+        override suspend fun clearCurrentShift() {
             currentShift.value = null
         }
+
+        override suspend fun restoreCurrentShift() = Unit
     }
 
     private class InMemoryPreferencesDataStore(
