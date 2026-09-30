@@ -14,6 +14,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -28,7 +29,14 @@ fun OutletScreen(
     viewModel: OutletViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
-    val isPersisting by viewModel.isPersisting.collectAsState()
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is OutletEvent.OutletPersisted -> onOutletSelected(event.outlet)
+            }
+        }
+    }
 
     when (val currentState = state) {
         OutletState.Loading -> LoadingContent()
@@ -38,12 +46,7 @@ fun OutletScreen(
         )
         is OutletState.Success -> OutletList(
             outlets = currentState.outlets,
-            onOutletSelected = { outlet ->
-                viewModel.selectOutlet(outlet)
-                if (!isPersisting) {
-                    onOutletSelected(outlet)
-                }
-            },
+            onOutletSelected = viewModel::selectOutlet,
         )
     }
 }

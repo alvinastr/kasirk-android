@@ -8,6 +8,8 @@ import com.kasirkita.pos.domain.usecase.CloseShiftUseCase
 import com.kasirkita.pos.domain.usecase.GetCurrentShiftUseCase
 import com.kasirkita.pos.domain.usecase.OpenShiftUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -27,8 +29,8 @@ class ShiftViewModel @Inject constructor(
     private val _state = MutableStateFlow<ShiftState>(ShiftState.Loading)
     val state: StateFlow<ShiftState> = _state.asStateFlow()
 
-    private val _isPersisting = MutableStateFlow(false)
-    val isPersisting: StateFlow<Boolean> = _isPersisting.asStateFlow()
+    private val _shiftOpened = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val shiftOpened: Flow<Unit> = _shiftOpened
 
     init {
         loadCurrentShift()
@@ -65,16 +67,14 @@ class ShiftViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.value = ShiftState.Opening
-            _isPersisting.value = true
-            try {
-                _state.value = shiftStateAfterOpen(
-                    openShiftUseCase(
-                        outletId = outletId,
-                        openingCash = openingCash,
-                    ),
-                )
-            } finally {
-                _isPersisting.value = false
+            shiftStateAfterOpen(
+                openShiftUseCase(
+                    outletId = outletId,
+                    openingCash = openingCash,
+                ),
+            ).let { _state.value = it }
+            if (_state.value is ShiftState.ShiftLoaded) {
+                _shiftOpened.tryEmit(Unit)
             }
         }
     }
@@ -96,17 +96,12 @@ class ShiftViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.value = ShiftState.Closing(activeShift)
-            _isPersisting.value = true
-            try {
-                _state.value = shiftStateAfterClose(
-                    closeShiftUseCase(
-                        shiftId = activeShift.id,
-                        closingCash = closingCash,
-                    ),
-                )
-            } finally {
-                _isPersisting.value = false
-            }
+            shiftStateAfterClose(
+                closeShiftUseCase(
+                    shiftId = activeShift.id,
+                    closingCash = closingCash,
+                ),
+            ).let { _state.value = it }
         }
     }
 

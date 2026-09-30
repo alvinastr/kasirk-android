@@ -6,11 +6,18 @@ import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.usecase.GetOutletsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+sealed interface OutletEvent {
+    data class OutletPersisted(val outlet: Outlet) : OutletEvent
+}
 
 @HiltViewModel
 class OutletViewModel @Inject constructor(
@@ -22,8 +29,8 @@ class OutletViewModel @Inject constructor(
     val state: StateFlow<OutletState> = _state.asStateFlow()
     val selectedOutlet: StateFlow<Outlet?> = outletRepository.selectedOutlet
 
-    private val _isPersisting = MutableStateFlow(false)
-    val isPersisting: StateFlow<Boolean> = _isPersisting.asStateFlow()
+    private val _events = MutableSharedFlow<OutletEvent>(extraBufferCapacity = 1)
+    val events: SharedFlow<OutletEvent> = _events.asSharedFlow()
 
     init {
         loadOutlets()
@@ -47,12 +54,8 @@ class OutletViewModel @Inject constructor(
 
     fun selectOutlet(outlet: Outlet) {
         viewModelScope.launch {
-            _isPersisting.value = true
-            try {
-                outletRepository.selectOutlet(outlet)
-            } finally {
-                _isPersisting.value = false
-            }
+            outletRepository.selectOutlet(outlet)
+            _events.emit(OutletEvent.OutletPersisted(outlet))
         }
     }
 }
