@@ -510,7 +510,7 @@ class AppNavigationViewModel @Inject constructor(
                 (resolvedState as? SessionState.Authenticated)
                     ?.session as? NavigationSession.AuthV2
                 )?.value ?: return@launch
-            restoreOperationalContextLocally()
+            restoreOperationalContextLocally(session)
             refreshSessionInBackground(session)
             refreshSelectedOutletInBackground(session)
             refreshCurrentShiftInBackground(session)
@@ -537,10 +537,11 @@ class AppNavigationViewModel @Inject constructor(
         return SessionState.Authenticated(NavigationSession.AuthV2(session))
     }
 
-    private suspend fun restoreOperationalContextLocally() {
+    private suspend fun restoreOperationalContextLocally(session: AuthSession) {
         try {
             outletRepository.restoreSelectedOutlet()
             val restoredOutletId = outletRepository.selectedOutlet.value?.id
+                ?: session.outletId?.takeIf(String::isNotBlank)
             shiftRepository.restoreCurrentShift(expectedOutletId = restoredOutletId)
         } catch (error: CancellationException) {
             throw error

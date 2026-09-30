@@ -230,6 +230,7 @@ class AppNavigationViewModelTest {
 
         assertEquals(1, fixture.outletRepository.restoreCalls)
         assertEquals(1, fixture.shiftRepository.restoreCalls)
+        assertEquals("outlet-id", fixture.shiftRepository.lastExpectedOutletId)
     }
 
     @Test

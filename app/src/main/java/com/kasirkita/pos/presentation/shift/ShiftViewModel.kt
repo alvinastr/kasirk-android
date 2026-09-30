@@ -3,6 +3,7 @@ package com.kasirkita.pos.presentation.shift
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.domain.model.Shift
+import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.domain.usecase.CloseShiftUseCase
 import com.kasirkita.pos.domain.usecase.GetCurrentShiftUseCase
 import com.kasirkita.pos.domain.usecase.OpenShiftUseCase
@@ -20,6 +21,7 @@ class ShiftViewModel @Inject constructor(
     private val getCurrentShiftUseCase: GetCurrentShiftUseCase,
     private val openShiftUseCase: OpenShiftUseCase,
     private val closeShiftUseCase: CloseShiftUseCase,
+    private val shiftRepository: ShiftRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<ShiftState>(ShiftState.Loading)
@@ -31,8 +33,17 @@ class ShiftViewModel @Inject constructor(
 
     fun loadCurrentShift() {
         viewModelScope.launch {
-            _state.value = ShiftState.Loading
-            _state.value = shiftStateAfterLoad(getCurrentShiftUseCase())
+            val cachedShift = shiftRepository.currentShift.value
+                ?.takeIf { it.status.equals("OPEN", ignoreCase = true) }
+            if (cachedShift != null) {
+                _state.value = ShiftState.ShiftLoaded(cachedShift)
+            } else {
+                _state.value = ShiftState.Loading
+            }
+
+            val result = getCurrentShiftUseCase()
+            if (result.isFailure && cachedShift != null) return@launch
+            _state.value = shiftStateAfterLoad(result)
         }
     }
 
