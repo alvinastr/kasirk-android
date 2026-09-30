@@ -22,6 +22,7 @@ import com.kasirkita.pos.domain.model.Shift
 import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -31,11 +32,14 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
+import retrofit2.HttpException
+import retrofit2.Response
 import java.io.IOException
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -68,7 +72,7 @@ class AppNavigationViewModelTest {
     }
 
     @Test
-    fun validAuthV2Session_entersAuthenticatedStateWithoutRefresh() = runBlocking {
+    fun validLocalSession_startsAtHomeAndRefreshesContextAsynchronously() = runBlocking {
         val fixture = fixture(
             session = authSession(expiresAt = Long.MAX_VALUE),
         )
@@ -79,15 +83,16 @@ class AppNavigationViewModelTest {
         val state = fixture.state() as SessionState.Authenticated
         val navigationSession = state.session as NavigationSession.AuthV2
         assertEquals("user-id", navigationSession.value.userId)
-        assertEquals(Screen.Outlet.route, startupRouteFor(state))
-        assertEquals(0, fixture.api.refreshCalls)
+        assertEquals(Screen.Home.route, startupRouteFor(state))
+        assertEquals(1, fixture.api.refreshCalls)
+        assertEquals(1, fixture.shiftRepository.getCurrentShiftCalls)
         assertEquals("outlet-id", fixture.outletRepository.selectedOutlet.value?.id)
         assertEquals(1, fixture.cartRepository.getCart().value.totalItems())
         assertEquals("shift-id", fixture.shiftRepository.currentShift.value?.id)
     }
 
     @Test
-    fun expiredSession_refreshSuccess_updatesSessionAndAuthenticates() = runBlocking {
+    fun expiredLocalSession_requiresLoginWithoutNetworkRefresh() = runBlocking {
         val fixture = fixture(
             session = authSession(expiresAt = 0L),
         )
@@ -95,21 +100,52 @@ class AppNavigationViewModelTest {
         fixture.viewModel()
         dispatcher.scheduler.advanceUntilIdle()
 
-        val state = fixture.state() as SessionState.Authenticated
-        val navigationSession = state.session as NavigationSession.AuthV2
-        val storedSession = requireNotNull(fixture.authSessionDataStore.getSession())
-        assertEquals(1, fixture.api.refreshCalls)
-        assertEquals("old-refresh-token", fixture.api.lastRefreshToken)
-        assertEquals("new-access-token", navigationSession.value.accessToken)
-        assertEquals("new-access-token", storedSession.accessToken)
-        assertEquals("new-refresh-token", storedSession.refreshToken)
+        assertEquals(SessionState.Unauthenticated, fixture.state())
+        assertNull(fixture.authSessionDataStore.getSession())
+        assertEquals(0, fixture.api.refreshCalls)
+        assertNull(fixture.outletRepository.selectedOutlet.value)
+        assertEquals(0, fixture.cartRepository.getCart().value.totalItems())
+        assertNull(fixture.shiftRepository.currentShift.value)
+        assertEquals(AuthV2Screen.Graph.route, startupRouteFor(fixture.state()))
     }
 
     @Test
-    fun expiredSession_refreshFailure_clearsSessionAndBecomesUnauthenticated() = runBlocking {
+    fun networkValidationFailure_doesNotBlockHomeOrClearLocalSession() = runBlocking {
+        val releaseNetworkValidation = CompletableDeferred<Unit>()
         val fixture = fixture(
-            session = authSession(expiresAt = 0L),
+            session = authSession(expiresAt = Long.MAX_VALUE),
             refreshFailure = IOException("network unavailable"),
+            refreshGate = releaseNetworkValidation,
+            outletFailure = IOException("network unavailable"),
+            shiftFailure = IOException("network unavailable"),
+        )
+
+        fixture.viewModel()
+        dispatcher.scheduler.runCurrent()
+
+        val startupState = fixture.state() as SessionState.Authenticated
+        assertEquals(Screen.Home.route, startupRouteFor(startupState))
+        assertEquals("user-id", fixture.authSessionDataStore.getSession()?.userId)
+
+        releaseNetworkValidation.complete(Unit)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        val state = fixture.state() as SessionState.Authenticated
+        assertEquals(Screen.Home.route, startupRouteFor(state))
+        assertEquals("user-id", fixture.authSessionDataStore.getSession()?.userId)
+        assertEquals(1, fixture.api.refreshCalls)
+        assertEquals(1, fixture.shiftRepository.getCurrentShiftCalls)
+        assertNull(fixture.outletRepository.selectedOutlet.value)
+        assertEquals(1, fixture.cartRepository.getCart().value.totalItems())
+    }
+
+    @Test
+    fun authenticationRejection_invalidatesSessionAndClearsBoundaryState() = runBlocking {
+        val fixture = fixture(
+            session = authSession(expiresAt = Long.MAX_VALUE),
+            refreshFailure = HttpException(
+                Response.error<AuthTokenResponse>(401, "".toResponseBody()),
+            ),
         )
 
         fixture.viewModel()
@@ -120,7 +156,42 @@ class AppNavigationViewModelTest {
         assertNull(fixture.outletRepository.selectedOutlet.value)
         assertEquals(0, fixture.cartRepository.getCart().value.totalItems())
         assertNull(fixture.shiftRepository.currentShift.value)
-        assertEquals(AuthV2Screen.Graph.route, startupRouteFor(fixture.state()))
+    }
+
+    @Test
+    fun outletRestoration_ignoresOutletFromAnotherTenant() = runBlocking {
+        val fixture = fixture(
+            session = authSession(expiresAt = Long.MAX_VALUE),
+            restoredOutlet = outlet().copy(tenantId = "other-tenant"),
+        )
+
+        fixture.viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(fixture.outletRepository.selectedOutlet.value)
+    }
+
+    @Test
+    fun delayedOutletRestoration_doesNotCrossAccountBoundary() = runBlocking {
+        val releaseOutletRestoration = CompletableDeferred<Unit>()
+        val fixture = fixture(
+            session = authSession(expiresAt = Long.MAX_VALUE),
+            outletGate = releaseOutletRestoration,
+        )
+
+        fixture.viewModel()
+        dispatcher.scheduler.runCurrent()
+        fixture.authSessionDataStore.clearSession()
+        fixture.authSessionDataStore.saveSession(
+            authSession(expiresAt = Long.MAX_VALUE).copy(
+                tenantId = "other-tenant",
+                userId = "other-user",
+            ),
+        )
+        releaseOutletRestoration.complete(Unit)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertNull(fixture.outletRepository.selectedOutlet.value)
     }
 
     @Test
@@ -162,22 +233,34 @@ class AppNavigationViewModelTest {
     private fun fixture(
         session: AuthSession? = null,
         refreshFailure: Throwable? = null,
+        refreshGate: CompletableDeferred<Unit>? = null,
+        outletFailure: Throwable? = null,
+        outletGate: CompletableDeferred<Unit>? = null,
+        restoredOutlet: Outlet = outlet(),
+        shiftFailure: Throwable? = null,
     ): Fixture {
         val authSessionDataStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
         session?.let { storedSession ->
             runBlocking { authSessionDataStore.saveSession(storedSession) }
         }
-        val api = FakeAuthV2Api(refreshFailure)
+        val api = FakeAuthV2Api(
+            refreshFailure = refreshFailure,
+            refreshGate = refreshGate,
+        )
         val coordinator = RefreshTokenCoordinator(
             authV2Api = api,
             authSessionDataStore = authSessionDataStore,
             currentTimeMillis = { NOW_MILLIS },
         )
-        val outletRepository = FakeOutletRepository()
+        val outletRepository = FakeOutletRepository(
+            getOutletsFailure = outletFailure,
+            getOutletsGate = outletGate,
+            restoredOutlet = restoredOutlet,
+        )
         val cartRepository = CartRepositoryImpl().apply {
             addProduct(product())
         }
-        val shiftRepository = FakeShiftRepository()
+        val shiftRepository = FakeShiftRepository(shiftFailure)
         return Fixture(
             authSessionDataStore = authSessionDataStore,
             refreshTokenCoordinator = coordinator,
@@ -202,6 +285,7 @@ class AppNavigationViewModelTest {
             authSessionDataStore = authSessionDataStore,
             refreshTokenCoordinator = refreshTokenCoordinator,
             outletRepository = outletRepository,
+            shiftRepository = shiftRepository,
             sessionBoundaryCleaner = SessionBoundaryCleaner(
                 cartRepository = cartRepository,
                 outletRepository = outletRepository,
@@ -212,11 +296,20 @@ class AppNavigationViewModelTest {
         fun state(): SessionState = viewModel.sessionState.value
     }
 
-    private class FakeOutletRepository : OutletRepository {
-        private val outletState = MutableStateFlow<Outlet?>(outlet())
+    private class FakeOutletRepository(
+        private val getOutletsFailure: Throwable? = null,
+        private val getOutletsGate: CompletableDeferred<Unit>? = null,
+        private val restoredOutlet: Outlet = outlet(),
+    ) : OutletRepository {
+        private val outletState = MutableStateFlow<Outlet?>(null)
         override val selectedOutlet: StateFlow<Outlet?> = outletState
 
-        override suspend fun getOutlets(): Result<List<Outlet>> = Result.success(emptyList())
+        override suspend fun getOutlets(): Result<List<Outlet>> {
+            getOutletsGate?.await()
+            return getOutletsFailure
+                ?.let(Result.Companion::failure)
+                ?: Result.success(listOf(restoredOutlet))
+        }
 
         override fun selectOutlet(outlet: Outlet) {
             outletState.value = outlet
@@ -227,10 +320,18 @@ class AppNavigationViewModelTest {
         }
     }
 
-    private class FakeShiftRepository : ShiftRepository {
+    private class FakeShiftRepository(
+        private val getCurrentShiftFailure: Throwable? = null,
+    ) : ShiftRepository {
         override val currentShift = MutableStateFlow<Shift?>(shift())
+        var getCurrentShiftCalls = 0
 
-        override suspend fun getCurrentShift(): Result<Shift?> = error("Not used")
+        override suspend fun getCurrentShift(): Result<Shift?> {
+            getCurrentShiftCalls += 1
+            return getCurrentShiftFailure
+                ?.let(Result.Companion::failure)
+                ?: Result.success(currentShift.value)
+        }
 
         override suspend fun openShift(
             outletId: String,
@@ -249,6 +350,7 @@ class AppNavigationViewModelTest {
 
     private class FakeAuthV2Api(
         private val refreshFailure: Throwable?,
+        private val refreshGate: CompletableDeferred<Unit>?,
     ) : AuthV2Api {
         var refreshCalls = 0
         var lastRefreshToken: String? = null
@@ -262,6 +364,7 @@ class AppNavigationViewModelTest {
         override suspend fun refreshToken(request: RefreshTokenRequest): AuthTokenResponse {
             refreshCalls += 1
             lastRefreshToken = request.refreshToken
+            refreshGate?.await()
             refreshFailure?.let { throwable -> throw throwable }
             return AuthTokenResponse(
                 accessToken = "new-access-token",

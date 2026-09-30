@@ -7,6 +7,7 @@ import com.kasirkita.pos.data.model.RefreshTokenRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import retrofit2.HttpException
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -68,16 +69,27 @@ class RefreshTokenCoordinator internal constructor(
                 response.accessToken.takeIf { updated }
             } catch (error: CancellationException) {
                 throw error
-            } catch (_: Throwable) {
-                authSessionDataStore.clearSessionIfMatches(
-                    expectedIdentity = identity,
-                    expectedRefreshToken = session.refreshToken,
-                )
+            } catch (error: Throwable) {
+                if (error.invalidatesSession()) {
+                    authSessionDataStore.clearSessionIfMatches(
+                        expectedIdentity = identity,
+                        expectedRefreshToken = session.refreshToken,
+                    )
+                }
                 null
             }
         }
 
+    private fun Throwable.invalidatesSession(): Boolean =
+        this is HttpException &&
+            code() in HTTP_CLIENT_ERROR_RANGE &&
+            code() != HTTP_REQUEST_TIMEOUT &&
+            code() != HTTP_TOO_MANY_REQUESTS
+
     private companion object {
         const val MILLIS_PER_SECOND = 1_000L
+        const val HTTP_REQUEST_TIMEOUT = 408
+        const val HTTP_TOO_MANY_REQUESTS = 429
+        val HTTP_CLIENT_ERROR_RANGE = 400..499
     }
 }

@@ -23,10 +23,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import retrofit2.HttpException
+import retrofit2.Response
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -46,10 +49,30 @@ class RefreshTokenCoordinatorTest {
     }
 
     @Test
-    fun refreshFailure_clearsSessionButKeepsDeviceId() = runBlocking {
+    fun retryableNetworkFailure_keepsSessionForOfflineUse() = runBlocking {
         val store = sessionStore()
+        val original = requireNotNull(store.getSession())
         val api = FakeAuthV2Api(
             refresh = { throw IOException("network unavailable") },
+        )
+        val coordinator = coordinator(api, store)
+
+        val result = coordinator.refreshAccessToken(OLD_ACCESS_TOKEN)
+
+        assertNull(result)
+        assertEquals(original, store.getSession())
+        assertEquals(DEVICE_ID, DeviceIdProvider(store).getDeviceId())
+    }
+
+    @Test
+    fun authenticationRejection_clearsSessionButKeepsDeviceId() = runBlocking {
+        val store = sessionStore()
+        val api = FakeAuthV2Api(
+            refresh = {
+                throw HttpException(
+                    Response.error<AuthTokenResponse>(401, "".toResponseBody()),
+                )
+            },
         )
         val coordinator = coordinator(api, store)
 

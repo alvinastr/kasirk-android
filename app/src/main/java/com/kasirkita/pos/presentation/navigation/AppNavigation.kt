@@ -23,6 +23,7 @@ import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.domain.repository.OutletRepository
+import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.presentation.cart.CartScreen
 import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
@@ -467,7 +468,7 @@ sealed interface NavigationSession {
 }
 
 internal fun startupRouteFor(state: SessionState): String = when (state) {
-    is SessionState.Authenticated -> Screen.Outlet.route
+    is SessionState.Authenticated -> Screen.Home.route
     SessionState.Checking,
     SessionState.Unauthenticated,
     -> AuthV2Screen.Graph.route
@@ -477,7 +478,8 @@ internal fun startupRouteFor(state: SessionState): String = when (state) {
 class AppNavigationViewModel @Inject constructor(
     private val authSessionDataStore: AuthSessionDataStore,
     private val refreshTokenCoordinator: RefreshTokenCoordinator,
-    outletRepository: OutletRepository,
+    private val outletRepository: OutletRepository,
+    private val shiftRepository: ShiftRepository,
     private val sessionBoundaryCleaner: SessionBoundaryCleaner,
 ) : ViewModel() {
 
@@ -502,7 +504,15 @@ class AppNavigationViewModel @Inject constructor(
 
     private fun checkSession() {
         viewModelScope.launch {
-            _sessionState.value = resolveStartupSession()
+            val resolvedState = resolveStartupSession()
+            _sessionState.value = resolvedState
+            val session = (
+                (resolvedState as? SessionState.Authenticated)
+                    ?.session as? NavigationSession.AuthV2
+                )?.value ?: return@launch
+            refreshSessionInBackground(session)
+            refreshSelectedOutletInBackground(session)
+            refreshCurrentShiftInBackground(session)
         }
     }
 
@@ -515,40 +525,56 @@ class AppNavigationViewModel @Inject constructor(
     }
 
     private suspend fun resolveAuthV2Session(session: AuthSession): SessionState {
-        if (session.expiresAt > System.currentTimeMillis()) {
-            return SessionState.Authenticated(NavigationSession.AuthV2(session))
-        }
-
-        val refreshedAccessToken = try {
-            refreshTokenCoordinator.refreshAccessToken(session.accessToken)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (_: Throwable) {
-            null
-        }
-
-        if (refreshedAccessToken == null) {
-            val currentSession = readAuthV2Session()
-            if (
-                currentSession != null &&
-                (
-                    currentSession.toSessionIdentity() != session.toSessionIdentity() ||
-                        currentSession.refreshToken != session.refreshToken
-                )
-            ) {
-                return SessionState.Authenticated(NavigationSession.AuthV2(currentSession))
-            }
-
+        if (session.expiresAt <= System.currentTimeMillis()) {
             clearAuthV2Session(session)
             return SessionState.Unauthenticated
         }
+        return SessionState.Authenticated(NavigationSession.AuthV2(session))
+    }
 
-        val refreshedSession = readAuthV2Session()
+    private fun refreshSessionInBackground(session: AuthSession) {
+        viewModelScope.launch {
+            val refreshedAccessToken = try {
+                refreshTokenCoordinator.refreshAccessToken(session.accessToken)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                null
+            }
+            if (refreshedAccessToken == null) return@launch
 
-        return if (refreshedSession != null) {
-            SessionState.Authenticated(NavigationSession.AuthV2(refreshedSession))
-        } else {
-            SessionState.Unauthenticated
+            val refreshedSession = readAuthV2Session() ?: return@launch
+            if (refreshedSession.toSessionIdentity() == session.toSessionIdentity()) {
+                _sessionState.value = SessionState.Authenticated(
+                    NavigationSession.AuthV2(refreshedSession),
+                )
+            }
+        }
+    }
+
+    private fun refreshCurrentShiftInBackground(session: AuthSession) {
+        viewModelScope.launch {
+            shiftRepository.getCurrentShift()
+            val currentIdentity = readAuthV2Session()?.toSessionIdentity()
+            if (currentIdentity != session.toSessionIdentity()) {
+                shiftRepository.clearCurrentShift()
+            }
+        }
+    }
+
+    private fun refreshSelectedOutletInBackground(session: AuthSession) {
+        val outletId = session.outletId ?: return
+        viewModelScope.launch {
+            val outlet = outletRepository.getOutlets()
+                .getOrNull()
+                ?.firstOrNull { candidate ->
+                    candidate.id == outletId && candidate.tenantId == session.tenantId
+                }
+                ?: return@launch
+            val currentIdentity = readAuthV2Session()?.toSessionIdentity()
+            if (currentIdentity == session.toSessionIdentity()) {
+                outletRepository.selectOutlet(outlet)
+            }
         }
     }
 
