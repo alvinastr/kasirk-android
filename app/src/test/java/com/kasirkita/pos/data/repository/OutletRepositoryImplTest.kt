@@ -118,6 +118,31 @@ class OutletRepositoryImplTest {
         assertEquals("outlet-id", result.getOrThrow().first().id)
     }
 
+    @Test
+    fun selectOutlet_persistsCompletelyBeforeReturning_simulatesProcessDeath() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+
+        authDataStore.saveSession(session())
+        val repository = OutletRepositoryImpl(FakeOutletApi(), authDataStore, opDataStore)
+
+        val selected = outlet()
+        repository.selectOutlet(selected)
+        // selectOutlet completes after DataStore write (NonCancellable ensures it)
+
+        // Simulate process death by creating new instances
+        val newAuthDataStore = AuthSessionDataStore(authPreferences)
+        val newOpDataStore = OperationalContextDataStore(opPreferences)
+        val secondRepository = OutletRepositoryImpl(FakeOutletApi(), newAuthDataStore, newOpDataStore)
+
+        secondRepository.restoreSelectedOutlet()
+
+        // Verify outlet was persisted and can be restored
+        assertEquals(selected, secondRepository.selectedOutlet.value)
+    }
+
     private class FakeOutletApi(
         private val outlets: List<OutletResponse> = emptyList(),
     ) : OutletApi {

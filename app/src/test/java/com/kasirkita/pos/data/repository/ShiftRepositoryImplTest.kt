@@ -281,6 +281,38 @@ class ShiftRepositoryImplTest {
         assertNull(second.currentShift.value)
     }
 
+    @Test
+    fun openShift_persistsCompletelyBeforeReturning_simulatesProcessDeath() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+
+        authDataStore.saveSession(session())
+        val api = FakeShiftApi(openResponse = Response.success(openShiftResponse()))
+        val repository = ShiftRepositoryImpl(api, authDataStore, opDataStore)
+
+        repository.openShift(OUTLET_ID, 50_000L).getOrThrow()
+        // openShift completes after DataStore write (NonCancellable ensures it)
+
+        // Simulate process death by creating new instances
+        val newAuthDataStore = AuthSessionDataStore(authPreferences)
+        val newOpDataStore = OperationalContextDataStore(opPreferences)
+        val secondRepository = ShiftRepositoryImpl(
+            FakeShiftApi(currentFailure = IOException("offline")),
+            newAuthDataStore,
+            newOpDataStore,
+        )
+
+        secondRepository.restoreCurrentShift(expectedOutletId = OUTLET_ID)
+
+        // Verify shift was persisted and can be restored
+        val restored = secondRepository.currentShift.value
+        assertEquals(SHIFT_ID, restored?.id)
+        assertEquals(OUTLET_ID, restored?.outletId)
+        assertEquals("OPEN", restored?.status)
+    }
+
     private class FakeShiftApi(
         private val currentResponse: Response<ShiftResponse> = Response.success(openShiftResponse()),
         private val openResponse: Response<ShiftResponse> = Response.success(openShiftResponse()),

@@ -28,6 +28,7 @@ fun OutletScreen(
     viewModel: OutletViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val isPersisting by viewModel.isPersisting.collectAsState()
 
     when (val currentState = state) {
         OutletState.Loading -> LoadingContent()
@@ -39,7 +40,9 @@ fun OutletScreen(
             outlets = currentState.outlets,
             onOutletSelected = { outlet ->
                 viewModel.selectOutlet(outlet)
-                onOutletSelected(outlet)
+                if (!isPersisting) {
+                    onOutletSelected(outlet)
+                }
             },
         )
     }

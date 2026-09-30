@@ -48,13 +48,14 @@ fun ShiftScreen(
     viewModel: ShiftViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val isPersisting by viewModel.isPersisting.collectAsState()
 
     val loadedShift = (state as? ShiftState.ShiftLoaded)?.shift
     val shouldNavigateToHome = shouldNavigateToHomeFromShift(
         autoNavigateToHome = autoNavigateToHome,
         selectedOutletId = outletId,
         shift = loadedShift,
-    )
+    ) && !isPersisting
     LaunchedEffect(shouldNavigateToHome) {
         if (shouldNavigateToHome) {
             onShiftOpen()

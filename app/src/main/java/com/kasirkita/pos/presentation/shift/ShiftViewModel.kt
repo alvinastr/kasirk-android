@@ -27,6 +27,9 @@ class ShiftViewModel @Inject constructor(
     private val _state = MutableStateFlow<ShiftState>(ShiftState.Loading)
     val state: StateFlow<ShiftState> = _state.asStateFlow()
 
+    private val _isPersisting = MutableStateFlow(false)
+    val isPersisting: StateFlow<Boolean> = _isPersisting.asStateFlow()
+
     init {
         loadCurrentShift()
     }
@@ -62,12 +65,17 @@ class ShiftViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.value = ShiftState.Opening
-            _state.value = shiftStateAfterOpen(
-                openShiftUseCase(
-                    outletId = outletId,
-                    openingCash = openingCash,
-                ),
-            )
+            _isPersisting.value = true
+            try {
+                _state.value = shiftStateAfterOpen(
+                    openShiftUseCase(
+                        outletId = outletId,
+                        openingCash = openingCash,
+                    ),
+                )
+            } finally {
+                _isPersisting.value = false
+            }
         }
     }
 
@@ -88,12 +96,17 @@ class ShiftViewModel @Inject constructor(
 
         viewModelScope.launch {
             _state.value = ShiftState.Closing(activeShift)
-            _state.value = shiftStateAfterClose(
-                closeShiftUseCase(
-                    shiftId = activeShift.id,
-                    closingCash = closingCash,
-                ),
-            )
+            _isPersisting.value = true
+            try {
+                _state.value = shiftStateAfterClose(
+                    closeShiftUseCase(
+                        shiftId = activeShift.id,
+                        closingCash = closingCash,
+                    ),
+                )
+            } finally {
+                _isPersisting.value = false
+            }
         }
     }
 

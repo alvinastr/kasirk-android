@@ -22,6 +22,9 @@ class OutletViewModel @Inject constructor(
     val state: StateFlow<OutletState> = _state.asStateFlow()
     val selectedOutlet: StateFlow<Outlet?> = outletRepository.selectedOutlet
 
+    private val _isPersisting = MutableStateFlow(false)
+    val isPersisting: StateFlow<Boolean> = _isPersisting.asStateFlow()
+
     init {
         loadOutlets()
     }
@@ -44,7 +47,12 @@ class OutletViewModel @Inject constructor(
 
     fun selectOutlet(outlet: Outlet) {
         viewModelScope.launch {
-            outletRepository.selectOutlet(outlet)
+            _isPersisting.value = true
+            try {
+                outletRepository.selectOutlet(outlet)
+            } finally {
+                _isPersisting.value = false
+            }
         }
     }
 }
