@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-09-28
+Last verified: 2026-10-01 (Phase 3 completed)
 
 ## Project Overview
 
@@ -51,6 +51,13 @@ Project masih berupa satu Android application module. Folder di atas adalah pack
 - Startup navigation memulihkan session Auth V2, memeriksa expiry access token, mencoba refresh bila diperlukan, dan kembali ke Store Login jika session tidak ada atau refresh gagal.
 - Logout merevoke current device session bila backend dapat dijangkau, lalu selalu membersihkan session lokal, selected outlet, dan cart tanpa menghapus offline transaction queue.
 
+#### Phase 3: Fresh Auth NavHost Race Fix (commit 5fdd394)
+
+- `SessionState.Authenticated` menambahkan flag `requiresOperationalSetup: Boolean`.
+- Fresh Auth V2 login: `onAuthV2Authenticated(session)` → `Authenticated(session, requiresOperationalSetup = true)` → `startupRouteFor` → Outlet.
+- Cold-start/restored session: `checkSession()` → `Authenticated(session, requiresOperationalSetup = false)` → `startupRouteFor` → Home.
+- Parent NavHost startDestination recomposition race dihilangkan; fresh login tidak lagi melewati Outlet selection.
+
 ### Outlet
 
 - `GET /outlets` melalui Retrofit.
@@ -98,6 +105,7 @@ Catatan: cart masih in-memory dan akan hilang jika process aplikasi mati.
 - Checkout tidak melakukan validasi stok lokal; backend tetap menjadi source of truth untuk enforcement berdasarkan `track_stock`.
 - `client_transaction_id` UUID dibuat sekali di `CheckoutViewModel` dan dipakai kembali apabila terjadi transport failure.
 - Cart dibersihkan setelah transaksi server berhasil.
+
 - Checkout online yang berhasil membuka route receipt menggunakan server transaction ID.
 
 ### Receipt
@@ -111,12 +119,13 @@ Catatan: cart masih in-memory dan akan hilang jika process aplikasi mati.
 ### Offline Transaction Queue
 
 - Transaksi offline dipersist dalam Room table `offline_transactions`.
-- Tersedia status lokal `PENDING`, `SYNCED`, dan `FAILED`.
+- Tersedia status lokal `PENDING`, `SYNCED`, `FAILED`, dan recovery/action-required untuk business rejection.
 - `clientTransactionId` memiliki unique index dan juga digunakan sebagai local record ID.
 - Request transaksi disimpan sebagai immutable `payloadJson`.
 - Payload offline tetap memakai kontrak transaksi yang sama dan sengaja tidak menyertakan `track_stock`.
 - Record menyimpan server transaction ID, last error, retry count, serta created/updated timestamp.
 - DAO menyediakan insert, pending query, pending count flow, mark synced, mark failed, increment retry, retry failed, dan delete synced.
+- Backend business rejection saat sync, misalnya stok tidak cukup, tidak dibuang diam-diam; transaksi masuk flow Offline Recovery.
 
 ### Manual Transaction Sync
 
@@ -140,21 +149,57 @@ Catatan: cart masih in-memory dan akan hilang jika process aplikasi mati.
 - Jika insert Room gagal, cart dipertahankan dan error ditampilkan.
 - Setelah queue berhasil, Checkout menampilkan bahwa transaksi tersimpan untuk sinkronisasi.
 
+### Phase 3 Offline Reliability Closure
+
+Phase 3 dinyatakan selesai pada 2026-10-01 berdasarkan unit/build verification dan manual device regression pada Android emulator.
+
+Important Phase 3 commits/milestones:
+
+- `fff89ee feat: enable offline product catalog` — Room-backed product cache untuk penggunaan offline.
+- `326a237 feat: persist offline operational context` — outlet/shift operational context dipersist lokal.
+- `3a22de0 fix: harden operational context persistence boundaries` — persistence boundaries diperketat.
+- `344fd19 fix: restore offline operational context from session state` — cold-start restore dari session state.
+- `aebe874 fix: await operational context persistence writes` — write persistence outlet/shift ditunggu sebelum navigation.
+- `2d9fbdd fix: await operational context persistence completion` — completion-event semantics untuk persistence sebelum route lanjut.
+- `75387be fix: recover operational setup navigation` — Shift null-outlet recovery dan operational setup navigation diperbaiki.
+- `5fdd394 fix: distinguish fresh auth operational setup` — fresh Auth V2 dibedakan dari restored session untuk mencegah NavHost race ke Home.
+
+Manual device regression evidence:
+
+1. Fresh Auth V2 login berhasil menampilkan Outlet selection, lalu Outlet Utama → Shift → Home.
+2. Setelah outlet/shift dikonfirmasi, DataStore berisi `auth_v2_session.preferences_pb` dan non-empty `operational_context.preferences_pb`.
+3. Process death via `adb shell am force-stop com.kasirkita.pos` memulihkan session, Outlet Utama, dan shift `OPEN` tanpa `pm clear`.
+4. Offline cold start setelah persistence memulihkan session, outlet, active shift, opening cash `Rp500.000`, dan status `OPEN`.
+5. Product catalog tersedia offline setelah Products pernah berhasil dibuka online dan cache Room terisi.
+6. Offline checkout menyimpan transaksi lokal, menampilkan "Transaksi tersimpan untuk sinkronisasi", membuat stable client transaction ID, mengosongkan cart setelah persistence aman, dan Home menampilkan pending sync count.
+7. WorkManager automatic sync sukses tanpa tombol manual setelah internet kembali; transaction history menampilkan server transaction ID, status `COMPLETED`, cash payment, dan totals benar.
+8. Business failure path saat stock backend tidak cukup menghasilkan Offline Recovery: "Transaksi ditolak" dan "Stok tidak mencukupi saat transaksi disinkronkan." Retry/delete tersedia. Record tidak dibuang diam-diam.
+
+Intentional behavior / limitations retained:
+
+- Product cache membutuhkan minimal satu successful online product load sebelum offline pertama pada fresh installation/data state.
+- Offline tracked products dengan unknown stock boleh dijual lokal; backend tetap authoritative dan dapat reject saat sync.
+- Backend business rejection saat sync harus tetap terlihat di Offline Recovery, bukan dihapus diam-diam.
+- Receipt/struk UX setelah offline checkout bukan blocker Phase 3. Server-backed transaction detail tersedia setelah successful sync; receipt UX dapat ditinjau terpisah.
+- Cart tetap in-memory dan bukan bagian Phase 3 persistence guarantee.
+- Offline PIN verification belum tersedia.
+
 ## Database
 
-Room database saat ini menggunakan version **3** dengan `exportSchema = false`.
+Room database saat ini menggunakan version **4** dengan `exportSchema = false`.
 
 Tables:
 
-- `products`: cache data produk.
-- `offline_transactions`: persistence queue transaksi offline.
+- `products`: cache data produk, keyed per tenant.
+- `offline_transactions`: persistence queue transaksi offline, scoped per tenant/user/client transaction.
 
 Migration yang tersedia:
 
 - `MIGRATION_1_2`: membuat table `offline_transactions` beserta unique index `index_offline_transactions_clientTransactionId`.
 - `MIGRATION_2_3`: menambahkan kolom `products.trackStock` (`INTEGER NOT NULL DEFAULT 1`) agar cache lama tetap diperlakukan sebagai tracked.
+- `MIGRATION_3_4`: memindahkan `products` ke primary key `(tenantId, id)` dan memindahkan `offline_transactions` ke primary key `(tenantId, userId, clientTransactionId)` dengan index status/createdAt per account.
 
-Database builder mendaftarkan `MIGRATION_1_2` dan `MIGRATION_2_3` secara eksplisit. Tidak ada destructive migration.
+Database builder mendaftarkan `MIGRATION_1_2`, `MIGRATION_2_3`, dan `MIGRATION_3_4` secara eksplisit. Tidak ada destructive migration.
 
 ## Backend API Used
 
@@ -208,15 +253,19 @@ Semua endpoint bisnis terautentikasi menerima Bearer access token melalui `AuthI
 Startup flow:
 
 ```text
-Session Auth V2 tidak tersedia       -> Store Login
-Session Auth V2 valid                -> Outlet Selection
+Session Auth V2 tidak tersedia       -> Auth V2 Graph (Store Login)
+Session Auth V2 valid                -> Outlet Selection (cold-start returning user)
 Access token expired                 -> Refresh token
 Refresh berhasil                     -> Outlet Selection
-Refresh gagal                        -> Clear session -> Store Login
+Refresh gagal                        -> Clear session -> Auth V2 Graph
 
 Store Login -> User Selection -> PIN Login -> Outlet Selection -> Shift
                                                        |-- tidak ada shift OPEN -> tetap di Shift
                                                        `-- shift OPEN -> Home
+
+Fresh Auth V2 login (new in Phase 3):
+Auth V2 Graph -> User Selection -> PIN Login -> Outlet Selection (requiresOperationalSetup=true)
+                                                  `-- Outlet Selection -> Shift -> Home
 ```
 
 Main flow:
@@ -326,40 +375,32 @@ Audit code-level terakhir dilakukan pada 2026-09-17 sebelum implementasi WorkMan
 - Shift/outlet: Checkout menolak shift yang tidak `OPEN` atau memiliki outlet berbeda dari selected outlet.
 - Navigation guard: OPEN shift hanya mengarahkan initial Shift gate ke Home; membuka Shift dari Home tidak menjalankan redirect tersebut kembali.
 - Receipt: online success tetap membuka Receipt; hasil manual sync hanya menyimpan server transaction ID dan tidak melakukan navigation otomatis.
-- Status readiness: seluruh jalur telah tersambung pada level code dan unit test. Pengujian dengan emulator serta backend/database nyata masih diperlukan sebelum background sync.
-- WorkManager/automatic sync tetap **belum diimplementasikan**.
+- Status readiness: seluruh jalur telah tersambung pada level code, unit test, dan manual device regression.
+- WorkManager/automatic sync telah diimplementasikan dan diverifikasi pada success path serta backend business-rejection path.
 
 ## Known Limitations / Technical Debt
 
-- Belum ada WorkManager atau background automatic sync.
-- Belum ada network connectivity observer.
+- Network connectivity observer khusus belum ada; WorkManager memakai `NetworkType.CONNECTED` dan app lifecycle/session observer untuk enqueue automatic sync.
 - Cart masih in-memory dan tidak bertahan setelah process death.
-- Selected outlet masih in-memory dan harus dipilih kembali setelah process recreation.
-- Belum ada Transaction History pada Android.
-- Belum ada Customer module pada Android.
-- Belum ada Reports dashboard/UI pada Android.
-- Belum ada printer atau receipt printing integration.
+- Selected outlet runtime state masih `StateFlow`; operational context persistence memulihkan outlet/shift melalui DataStore pada cold start.
 - Offline PIN verification belum tersedia.
 - Logout hanya merevoke current device session; session user pada perangkat lain tidak ikut direvoke.
 - Checkout menampilkan HTTP business error melalui `HttpException.message`; parsing error body backend menjadi pesan yang lebih spesifik belum tersedia.
-- Retry untuk record `FAILED` tersedia pada repository, tetapi belum dihubungkan ke tombol atau queue-management UI.
 - `deleteSynced()` tersedia pada DAO, tetapi belum ada retention/cleanup policy atau UI untuk record synced.
 - Offline transaction yang selesai disinkronkan tidak otomatis membuka atau menyimpan receipt lokal.
-- Room schema export masih dinonaktifkan; migration 2->3 sudah memiliki instrumentation test khusus.
-- Product cache tidak difilter per tenant ketika dibaca; pergantian akun/tenant dapat membaca cache lama sebelum refresh.
-- Offline queue tidak menyimpan tenant/user owner secara eksplisit; account switching perlu di-hardening sebelum digunakan pada perangkat bersama.
+- Room schema export masih dinonaktifkan; migration 3->4 dan account scoping perlu dipertahankan dalam regression coverage.
 - Role guard sudah membatasi route manajemen dan reports untuk OWNER/ADMIN, sedangkan backend tetap menjadi authority final. Audit manual per role masih diperlukan untuk seluruh variasi UX bisnis.
 - Jika current shift `OPEN` berasal dari outlet berbeda dengan outlet yang baru dipilih, ShiftScreen masih dapat meneruskan ke Home. Checkout tetap memblokir transaksi karena outlet mismatch, tetapi UX pemilihan outlet/shift perlu di-hardening.
+- Receipt/struk UX pasca offline checkout belum menjadi UI terpisah; server-backed transaction detail tersedia setelah sync sukses.
 
 ## Next Milestones
 
-1. End-to-end online/offline transaction testing.
-2. WorkManager automatic sync.
-3. Transaction History.
-4. Customer Module.
-5. Reports Dashboard.
-6. Auth V2 follow-up hardening dan strategi offline PIN.
-7. Printer/receipt printing.
+1. Phase 4: Security Hardening.
+2. Transaction History follow-up UX and receipt review.
+3. Auth V2 follow-up hardening dan strategi offline PIN.
+4. Printer/receipt printing.
+5. Customer Module.
+6. Reports Dashboard.
 
 ## Rules For Future Development
 
