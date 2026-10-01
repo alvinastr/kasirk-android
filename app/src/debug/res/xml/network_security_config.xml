@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Debug Network Security Configuration
+
+  DEBUG ONLY: Allows cleartext HTTP for local development.
+  Android network security config cannot reference the Gradle-selected host,
+  so this exception is broad and limited to the debug source set.
+
+  Production/release builds use app/src/release/res/xml/network_security_config.xml,
+  which disables cleartext entirely.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

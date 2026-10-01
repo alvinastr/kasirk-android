@@ -1,3 +1,5 @@
+import java.net.URI
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -8,12 +10,46 @@ plugins {
 
 val debugApiBaseUrl = providers
     .gradleProperty("kasirkita.debugApiBaseUrl")
-    .orElse("http://127.0.0.1:3000/")
+    .orElse("http://10.0.2.2:3000/")
     .get()
 val releaseApiBaseUrl = providers
     .gradleProperty("kasirkita.releaseApiBaseUrl")
     .orElse("https://api.kasirkita.invalid/")
     .get()
+
+// Validation: ensure debug URL is valid
+val debugUrlUri: URI = try {
+    URI(debugApiBaseUrl)
+} catch (e: Exception) {
+    throw GradleException("Invalid debug API URL '$debugApiBaseUrl': ${e.message}")
+}
+if (!debugApiBaseUrl.endsWith("/")) {
+    throw GradleException("Debug API URL must end with '/': $debugApiBaseUrl")
+}
+if (debugUrlUri.host == null) {
+    throw GradleException("Debug API URL must have a host: $debugApiBaseUrl")
+}
+val debugScheme = debugUrlUri.scheme?.lowercase()
+if (debugScheme !in listOf("http", "https")) {
+    throw GradleException("Debug API URL must use http or https: $debugApiBaseUrl")
+}
+
+// Validation: ensure release URL is HTTPS and valid
+val releaseUrlUri: URI = try {
+    URI(releaseApiBaseUrl)
+} catch (e: Exception) {
+    throw GradleException("Invalid release API URL '$releaseApiBaseUrl': ${e.message}")
+}
+if (!releaseApiBaseUrl.endsWith("/")) {
+    throw GradleException("Release API URL must end with '/': $releaseApiBaseUrl")
+}
+if (releaseUrlUri.host == null) {
+    throw GradleException("Release API URL must have a host: $releaseApiBaseUrl")
+}
+val releaseScheme = releaseUrlUri.scheme?.lowercase()
+if (releaseScheme != "https") {
+    throw GradleException("Release API URL must use HTTPS, not $releaseScheme: $releaseApiBaseUrl")
+}
 
 android {
     namespace = "com.kasirkita.pos"
@@ -34,12 +70,11 @@ android {
 
     buildTypes {
         debug {
-//            buildConfigField("String", "API_BASE_URL", "\"$debugApiBaseUrl\"", )
-              buildConfigField("String", "API_BASE_URL", "\"http://192.168.1.10:3000/\"")
+            buildConfigField("String", "API_BASE_URL", "\"" + debugApiBaseUrl + "\"")
         }
 
         release {
-            buildConfigField("String", "API_BASE_URL", "\"$releaseApiBaseUrl\"")
+            buildConfigField("String", "API_BASE_URL", "\"" + releaseApiBaseUrl + "\"")
 
             optimization {
                 enable = false

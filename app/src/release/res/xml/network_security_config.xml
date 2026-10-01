@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Release Network Security Configuration
+
+  Phase 4A: Network + Release Configuration
+
+  RELEASE ONLY: Disables cleartext HTTP entirely.
+  All network traffic must use HTTPS for production builds.
+
+  This protects production/release builds from accidental cleartext traffic.
+-->
+<network-security-config>
+    <!-- Base configuration: no cleartext allowed -->
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>
