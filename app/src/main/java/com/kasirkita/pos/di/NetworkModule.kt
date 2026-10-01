@@ -55,7 +55,7 @@ object NetworkModule {
     ): HttpLoggingInterceptor = HttpLoggingInterceptor().apply {
         redactHeader("Authorization")
         level = if (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE != 0) {
-            HttpLoggingInterceptor.Level.BODY
+            HttpLoggingInterceptor.Level.BASIC
         } else {
             HttpLoggingInterceptor.Level.NONE
         }
