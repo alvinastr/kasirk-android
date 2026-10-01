@@ -463,7 +463,10 @@ private fun SessionLoadingContent() {
 
 sealed interface SessionState {
     data object Checking : SessionState
-    data class Authenticated(val session: NavigationSession) : SessionState
+    data class Authenticated(
+        val session: NavigationSession,
+        val requiresOperationalSetup: Boolean,
+    ) : SessionState
     data object Unauthenticated : SessionState
 }
 
@@ -476,7 +479,10 @@ sealed interface NavigationSession {
 }
 
 internal fun startupRouteFor(state: SessionState): String = when (state) {
-    is SessionState.Authenticated -> Screen.Home.route
+    is SessionState.Authenticated -> {
+        if (state.requiresOperationalSetup) Screen.Outlet.route
+        else Screen.Home.route
+    }
     SessionState.Checking,
     SessionState.Unauthenticated,
     -> AuthV2Screen.Graph.route
@@ -507,6 +513,7 @@ class AppNavigationViewModel @Inject constructor(
     fun onAuthV2Authenticated(session: AuthSession) {
         _sessionState.value = SessionState.Authenticated(
             NavigationSession.AuthV2(session),
+            requiresOperationalSetup = true,
         )
     }
 
@@ -551,7 +558,10 @@ class AppNavigationViewModel @Inject constructor(
             clearAuthV2Session(session)
             return SessionState.Unauthenticated
         }
-        return SessionState.Authenticated(NavigationSession.AuthV2(session))
+        return SessionState.Authenticated(
+            NavigationSession.AuthV2(session),
+            requiresOperationalSetup = false,
+        )
     }
 
     private suspend fun restoreOperationalContextLocally(session: AuthSession) {
@@ -580,8 +590,10 @@ class AppNavigationViewModel @Inject constructor(
 
             val refreshedSession = readAuthV2Session() ?: return@launch
             if (refreshedSession.toSessionIdentity() == session.toSessionIdentity()) {
+                val currentState = _sessionState.value as? SessionState.Authenticated
                 _sessionState.value = SessionState.Authenticated(
                     NavigationSession.AuthV2(refreshedSession),
+                    requiresOperationalSetup = currentState?.requiresOperationalSetup ?: false,
                 )
             }
         }

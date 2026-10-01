@@ -70,6 +70,19 @@ class AppNavigationViewModelTest {
     }
 
     @Test
+    fun freshAuth_requiresOperationalSetupAndStartsAtOutletAfterRecomposition() {
+        val fixture = fixture()
+        val viewModel = fixture.viewModel()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.onAuthV2Authenticated(authSession(expiresAt = Long.MAX_VALUE))
+
+        val state = fixture.state() as SessionState.Authenticated
+        assertEquals(Screen.Outlet.route, startupRouteFor(state))
+        assertEquals(Screen.Outlet.route, startupRouteFor(fixture.state()))
+    }
+
+    @Test
     fun validLocalSession_startsAtHomeAndRefreshesContextAsynchronously() = runBlocking {
         val fixture = fixture(
             session = authSession(expiresAt = Long.MAX_VALUE),
