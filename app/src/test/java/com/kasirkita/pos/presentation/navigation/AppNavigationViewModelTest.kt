@@ -1,4 +1,5 @@
 package com.kasirkita.pos.presentation.navigation
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -290,7 +291,7 @@ class AppNavigationViewModelTest {
         restoredOutlet: Outlet? = null,
         shiftFailure: Throwable? = null,
     ): Fixture {
-        val authSessionDataStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
+        val authSessionDataStore = AuthSessionDataStoreTestHelper.createTestStore()
         session?.let { storedSession ->
             runBlocking { authSessionDataStore.saveSession(storedSession) }
         }

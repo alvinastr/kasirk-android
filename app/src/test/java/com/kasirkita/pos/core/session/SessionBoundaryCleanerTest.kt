@@ -1,5 +1,7 @@
 package com.kasirkita.pos.core.session
 
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
+
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
@@ -31,7 +33,7 @@ class SessionBoundaryCleanerTest {
     fun clear_removesPersistedDataForCurrentSessionBeforeAuthCleared() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         val session = session("tenant-1", "user-1")
@@ -80,7 +82,7 @@ class SessionBoundaryCleanerTest {
     fun clear_removesOldSessionDataAfterReloginWithCaptureBeforeClear() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         val session1 = session("tenant-1", "user-1")
@@ -120,7 +122,7 @@ class SessionBoundaryCleanerTest {
     fun clear_withExplicitIdentity_clearsOperationalContextEvenWhenAuthSessionAlreadyEmpty() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         val session = session("tenant-1", "user-1")

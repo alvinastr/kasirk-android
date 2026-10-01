@@ -1,4 +1,5 @@
 package com.kasirkita.pos.presentation.authv2
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -112,7 +113,7 @@ class LogoutViewModelTest {
         logoutResult: Result<Unit> = Result.success(Unit),
         outletClearFailure: Throwable? = null,
     ): Fixture {
-        val authSessionDataStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
+        val authSessionDataStore = AuthSessionDataStoreTestHelper.createTestStore()
         runBlocking {
             authSessionDataStore.saveSession(authSession())
         }

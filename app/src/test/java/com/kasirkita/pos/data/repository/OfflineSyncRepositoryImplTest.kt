@@ -1,4 +1,5 @@
 package com.kasirkita.pos.data.repository
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -56,7 +57,7 @@ class OfflineSyncRepositoryImplTest {
     fun setUp() {
         dao = FakeOfflineTransactionDao()
         api = FakeSyncApi()
-        sessionStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
+        sessionStore = AuthSessionDataStoreTestHelper.createTestStore()
         runBlocking { sessionStore.saveSession(session()) }
         repository = OfflineSyncRepositoryImpl(
             offlineTransactionDao = dao,

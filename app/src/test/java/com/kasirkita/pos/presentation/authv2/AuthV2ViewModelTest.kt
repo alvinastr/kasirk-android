@@ -1,4 +1,5 @@
 package com.kasirkita.pos.presentation.authv2
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -87,7 +88,7 @@ class AuthV2ViewModelTest {
     @Test
     fun pinLogin_success_savesSessionAndTransitionsToAuthenticated() = runBlocking {
         val repository = FakeAuthV2Repository()
-        val dataStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
+        val dataStore = AuthSessionDataStoreTestHelper.createTestStore()
         val viewModel = viewModel(repository, dataStore)
 
         viewModel.resolveStore("TOKO-01")
@@ -132,7 +133,7 @@ class AuthV2ViewModelTest {
 
     private fun viewModel(
         repository: AuthV2Repository,
-        dataStore: AuthSessionDataStore = AuthSessionDataStore(
+        dataStore: AuthSessionDataStore = AuthSessionDataStoreTestHelper.createTestStore(
             InMemoryPreferencesDataStore(),
         ),
     ) = AuthV2ViewModel(

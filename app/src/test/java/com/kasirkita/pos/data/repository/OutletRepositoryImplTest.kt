@@ -1,5 +1,7 @@
 package com.kasirkita.pos.data.repository
 
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
+
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
@@ -25,7 +27,7 @@ class OutletRepositoryImplTest {
     fun selectOutlet_publishesAndPersistsLocally() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -46,7 +48,7 @@ class OutletRepositoryImplTest {
     fun clearSelectedOutlet_clearsMemoryAndLocalStore() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -67,7 +69,7 @@ class OutletRepositoryImplTest {
     fun clearSelectedOutlet_withExplicitIdentity_clearsStoreEvenWhenAuthSessionNull() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -86,7 +88,7 @@ class OutletRepositoryImplTest {
     fun restoreSelectedOutlet_doesNotRestoreForDifferentTenant() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -107,7 +109,7 @@ class OutletRepositoryImplTest {
         val api = FakeOutletApi(listOf(outletResponse()))
         val repository = OutletRepositoryImpl(
             api,
-            AuthSessionDataStore(InMemoryPreferencesDataStore()),
+            AuthSessionDataStoreTestHelper.createTestStore(),
             OperationalContextDataStore(InMemoryPreferencesDataStore()),
         )
 
@@ -122,7 +124,7 @@ class OutletRepositoryImplTest {
     fun selectOutlet_persistsCompletelyBeforeReturning_simulatesProcessDeath() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -133,7 +135,7 @@ class OutletRepositoryImplTest {
         // selectOutlet completes after DataStore write (NonCancellable ensures it)
 
         // Simulate process death by creating new instances
-        val newAuthDataStore = AuthSessionDataStore(authPreferences)
+        val newAuthDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val newOpDataStore = OperationalContextDataStore(opPreferences)
         val secondRepository = OutletRepositoryImpl(FakeOutletApi(), newAuthDataStore, newOpDataStore)
 

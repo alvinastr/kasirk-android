@@ -1,4 +1,5 @@
 package com.kasirkita.pos.core.network
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -56,7 +57,7 @@ class AuthAuthenticatorTest {
     }
 
     private suspend fun authenticator(api: AuthV2Api): AuthAuthenticator {
-        val store = AuthSessionDataStore(InMemoryPreferencesDataStore())
+        val store = AuthSessionDataStoreTestHelper.createTestStore()
         store.saveSession(
             AuthSession(
                 userId = "user-id",

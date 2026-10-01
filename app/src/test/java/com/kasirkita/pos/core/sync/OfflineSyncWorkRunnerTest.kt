@@ -1,4 +1,5 @@
 package com.kasirkita.pos.core.sync
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -31,7 +32,7 @@ class OfflineSyncWorkRunnerTest {
 
     @Before
     fun setUp() {
-        sessionStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
+        sessionStore = AuthSessionDataStoreTestHelper.createTestStore()
         repository = FakeOfflineSyncRepository()
         runner = OfflineSyncWorkRunner(sessionStore, repository)
     }

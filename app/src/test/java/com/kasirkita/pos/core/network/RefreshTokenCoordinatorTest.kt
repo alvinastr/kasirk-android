@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
 import com.kasirkita.pos.core.datastore.DeviceIdProvider
 import com.kasirkita.pos.data.api.AuthV2Api
 import com.kasirkita.pos.data.model.AuthTokenResponse
@@ -161,7 +162,7 @@ class RefreshTokenCoordinatorTest {
         assertEquals(replacement, store.getSession())
     }
 
-    private suspend fun sessionStore(): AuthSessionDataStore = AuthSessionDataStore(
+    private suspend fun sessionStore(): AuthSessionDataStore = AuthSessionDataStoreTestHelper.createTestStore(
         InMemoryPreferencesDataStore(),
     ).also { store ->
         store.saveSession(

@@ -1,5 +1,7 @@
 package com.kasirkita.pos.data.repository
 
+import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
+
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
@@ -31,7 +33,7 @@ class ShiftRepositoryImplTest {
         authPreferences: DataStore<Preferences> = InMemoryPreferencesDataStore(),
         session: AuthSession? = null,
     ): ShiftRepositoryImpl {
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         session?.let { runBlocking { authDataStore.saveSession(it) } }
         val opDataStore = OperationalContextDataStore(InMemoryPreferencesDataStore())
         return ShiftRepositoryImpl(api, authDataStore, opDataStore)
@@ -136,7 +138,7 @@ class ShiftRepositoryImplTest {
     fun restoreCurrentShift_restoresOpenShiftFromLocalStore() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -162,7 +164,7 @@ class ShiftRepositoryImplTest {
     fun restoreCurrentShift_whenOutletIdMismatches_doesNotExposeShiftAndClearsCachedShift() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -185,7 +187,7 @@ class ShiftRepositoryImplTest {
     fun restoreCurrentShift_whenNoOutletSelected_doesNotExposeShiftAndClearsCachedShift() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -208,7 +210,7 @@ class ShiftRepositoryImplTest {
     fun clearCurrentShift_withExplicitIdentity_clearsStoreEvenWhenAuthSessionNull() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -231,7 +233,7 @@ class ShiftRepositoryImplTest {
     fun restoreCurrentShift_doesNotRestoreClosedShift() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -256,7 +258,7 @@ class ShiftRepositoryImplTest {
     @Test
     fun restoreCurrentShift_doesNotRestoreForDifferentTenant() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
 
         val api = FakeShiftApi(currentResponse = Response.success(openShiftResponse()))
         val first = ShiftRepositoryImpl(
@@ -285,7 +287,7 @@ class ShiftRepositoryImplTest {
     fun openShift_persistsCompletelyBeforeReturning_simulatesProcessDeath() = runBlocking {
         val authPreferences = InMemoryPreferencesDataStore()
         val opPreferences = InMemoryPreferencesDataStore()
-        val authDataStore = AuthSessionDataStore(authPreferences)
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val opDataStore = OperationalContextDataStore(opPreferences)
 
         authDataStore.saveSession(session())
@@ -296,7 +298,7 @@ class ShiftRepositoryImplTest {
         // openShift completes after DataStore write (NonCancellable ensures it)
 
         // Simulate process death by creating new instances
-        val newAuthDataStore = AuthSessionDataStore(authPreferences)
+        val newAuthDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val newOpDataStore = OperationalContextDataStore(opPreferences)
         val secondRepository = ShiftRepositoryImpl(
             FakeShiftApi(currentFailure = IOException("offline")),
