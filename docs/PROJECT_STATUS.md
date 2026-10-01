@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-10-02 (Phase 4 automated security hardening complete; manual device regression pending)
+Last verified: 2026-10-02 (Phase 4 security hardening closed after automated and manual emulator regression)
 
 ## Project Overview
 
@@ -380,7 +380,7 @@ Audit code-level terakhir dilakukan pada 2026-09-17 sebelum implementasi WorkMan
 
 ## Phase 4 — Security Hardening
 
-Status: **Automated security hardening complete; final device regression pending.**
+Status: **CLOSED — automated security hardening and manual Android emulator regression complete.**
 
 ### Automated Regression: PASS
 
@@ -404,9 +404,11 @@ Expected negative release-config tests:
 # rejected: Release API URL must end with '/'
 ```
 
-### Manual Device Regression: PENDING
+### Manual Device Regression: PASS
 
-Manual device regression has not been executed in this closure pass. Do not mark Phase 4 fully closed for production until checklist below passes on device/emulator with preserved app data.
+Android emulator regression completed successfully with existing app data preserved. Online cashier authentication succeeded; Outlet Utama, open shift, and opening cash Rp500.000 restored after force-stop. Products loaded online and cached products remained usable offline. Offline cash transaction queued with UI message "Transaksi tersimpan untuk sinkronisasi"; pending sync changed 0 → 1. After connectivity returned, WorkManager synchronized automatically without manual sync; pending sync changed 1 → 0 and synchronized Rp5.000 transaction appeared in history. Logout returned to authentication/store-entry flow; force-stop and relaunch remained logged out.
+
+An existing unrelated "Perlu tindakan: 1" recovery item predated testing and remained separate from this regression. No `pm clear`, app-data clear, database clear, or uninstall was used; force-stop only. Destructive cloud-backup/device-transfer restore testing was **not** performed and remains post-MVP validation.
 
 ### 4A Network Security
 
@@ -479,9 +481,9 @@ Do not use `pm clear`, uninstall, clear cache, clear database, or destructive ba
 
 ## Known Limitations / Technical Debt
 
-- Phase 4 manual device regression is pending.
-- Minification/resource shrinking remains disabled for MVP; enable post-MVP after integration testing and explicit R8 keep-rule review.
-- Production signing configuration is required before Play Store distribution.
+- Destructive cloud-backup/device-transfer restore testing was not performed; backup rule exclusion logic verified in code/merged manifest but not with actual Google account backup/transfer on device.
+- Minification/resource shrinking remains disabled for MVP; enable post-MVP after integration testing and explicit R8 keep-rule review for Gson `@SerializedName`, Room, Hilt, Retrofit, WorkManager, and Compose.
+- Production signing configuration is required before Play Store distribution; current builds use debug keystore.
 - Network connectivity observer khusus belum ada; WorkManager memakai `NetworkType.CONNECTED` dan app lifecycle/session observer untuk enqueue automatic sync.
 - Cart masih in-memory dan tidak bertahan setelah process death.
 - Selected outlet runtime state masih `StateFlow`; operational context persistence memulihkan outlet/shift melalui DataStore pada cold start.
@@ -497,12 +499,11 @@ Do not use `pm clear`, uninstall, clear cache, clear database, or destructive ba
 
 ## Next Milestones
 
-1. Phase 4 manual device regression, then production closure.
-2. Transaction History follow-up UX and receipt review.
-3. Auth V2 follow-up hardening dan strategi offline PIN.
-4. Printer/receipt printing.
-5. Customer Module.
-6. Reports Dashboard.
+1. Transaction History follow-up UX and receipt review.
+2. Auth V2 follow-up hardening dan strategi offline PIN.
+3. Printer/receipt printing.
+4. Customer Module.
+5. Reports Dashboard.
 
 ## Rules For Future Development
 
