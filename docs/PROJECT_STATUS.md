@@ -497,13 +497,115 @@ Do not use `pm clear`, uninstall, clear cache, clear database, or destructive ba
 - Jika current shift `OPEN` berasal dari outlet berbeda dengan outlet yang baru dipilih, ShiftScreen masih dapat meneruskan ke Home. Checkout tetap memblokir transaksi karena outlet mismatch, tetapi UX pemilihan outlet/shift perlu di-hardening.
 - Receipt/struk UX pasca offline checkout belum menjadi UI terpisah; server-backed transaction detail tersedia setelah sync sukses.
 
+## Phase 5B — UI Foundation / Design System
+
+Status: **CLOSED — POS design foundation complete, manual visual smoke test passed.**
+
+### Implementation Summary
+
+Established KasirKita POS visual foundation with consistent color roles, typography hierarchy, spacing tokens, and reusable Compose components. Implementation completed 2026-10-02.
+
+#### Color System
+
+- **Semantic color roles** for light and dark modes
+- Primary action green (#006C4C light, #77D9A7 dark)
+- Surface, background, outline variants for hierarchy
+- Error, success, warning containers with accessible contrast
+- Dynamic color disabled by default to preserve KasirKita semantic palette
+
+#### Typography Hierarchy
+
+- **Material 3 complete scale** (headline, title, body, label)
+- **POS semantic extensions**: screenTitle, sectionTitle, body, supporting, label, price
+- Bold price emphasis for monetary hierarchy
+- Consistent line heights and letter spacing
+
+#### Spacing Tokens
+
+- `KasirSpacing` object with 7 size steps (4dp–32dp)
+- Screen padding (24dp), item gap (8dp), section gap (16dp)
+- Large touch targets: 48dp button minimum height
+- 12dp corner radius for modern soft UI
+
+#### Reusable Components
+
+Created in `ui/components/KasirComponents.kt`:
+
+- **KasirPrimaryButton / KasirSecondaryButton** — action buttons with loading state
+- **KasirTextField** — consistent input styling with prefix, error, supporting text
+- **KasirCard** — surface container with border, padding, gap-spaced content
+- **KasirTopBar** — centered title bar with optional nav/actions
+- **PriceText / PriceDisplay** — monetary emphasis (bold titleLarge)
+- **StatusBadge** — compact status indicator (4 tones: Neutral, Success, Warning, Error)
+- **KasirLoadingState / KasirEmptyState / KasirErrorState** — shared presentation states
+
+All components use Material 3 primitives without new dependencies.
+
+#### Files Created
+
+```
+app/src/main/java/com/kasirkita/pos/ui/components/KasirComponents.kt    268 lines
+app/src/main/java/com/kasirkita/pos/ui/theme/Spacing.kt                  23 lines
+```
+
+#### Files Modified
+
+```
+app/src/main/java/com/kasirkita/pos/ui/theme/Color.kt      43 additions, 11 deletions
+app/src/main/java/com/kasirkita/pos/ui/theme/Theme.kt      55 additions, 41 deletions
+app/src/main/java/com/kasirkita/pos/ui/theme/Type.kt       98 additions, 41 deletions
+```
+
+Total: 154 insertions, 52 deletions (net +102 lines).
+
+#### Scope Verification
+
+No business logic, navigation, ViewModel, repository, domain, data, or core changes. All modifications confined to `ui/theme` and new `ui/components` package. Existing screens (Auth, Home, Product, Cart, Checkout, Receipt, Outlet, Shift) continue using Material 3 primitives directly; new components available for adoption in Phase 5C.
+
+Theme changes visible app-wide via MaterialTheme colors/typography:
+- Primary action color changed purple → green
+- Surface/background colors shifted to Kasir semantic palette
+- Typography now uses complete Material 3 scale with POS semantic extensions
+
+#### Verification
+
+```text
+./gradlew testDebugUnitTest
+BUILD SUCCESSFUL in 34s
+33 actionable tasks: 16 executed, 17 up-to-date
+
+./gradlew assembleDebug
+BUILD SUCCESSFUL in 7s
+42 actionable tasks: 5 executed, 37 up-to-date
+
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=https://example.com/
+BUILD SUCCESSFUL in 34s
+53 actionable tasks: 15 executed, 38 up-to-date
+
+Manual visual smoke test: PASS
+```
+
+No Mobile MCP required for this milestone. Device validation performed manually.
+
+#### Visual Direction
+
+- Modern Indonesian POS aesthetic
+- Clean, professional, cashier-first
+- High readability, large touch targets
+- Strong price/action hierarchy
+- Restrained color use
+- Majoo-inspired UX (not 1:1 copy)
+
+Design system intentionally simple and Compose-native. No over-engineered abstractions.
+
 ## Next Milestones
 
-1. Transaction History follow-up UX and receipt review.
-2. Auth V2 follow-up hardening dan strategi offline PIN.
-3. Printer/receipt printing.
-4. Customer Module.
-5. Reports Dashboard.
+1. Phase 5C — Screen Polish and Component Adoption.
+2. Transaction History follow-up UX and receipt review.
+3. Auth V2 follow-up hardening dan strategi offline PIN.
+4. Printer/receipt printing.
+5. Customer Module.
+6. Reports Dashboard.
 
 ## Rules For Future Development
 
