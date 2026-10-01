@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-10-01 (Phase 3 completed)
+Last verified: 2026-10-02 (Phase 4 automated security hardening complete; manual device regression pending)
 
 ## Project Overview
 
@@ -378,8 +378,110 @@ Audit code-level terakhir dilakukan pada 2026-09-17 sebelum implementasi WorkMan
 - Status readiness: seluruh jalur telah tersambung pada level code, unit test, dan manual device regression.
 - WorkManager/automatic sync telah diimplementasikan dan diverifikasi pada success path serta backend business-rejection path.
 
+## Phase 4 — Security Hardening
+
+Status: **Automated security hardening complete; final device regression pending.**
+
+### Automated Regression: PASS
+
+Executed verification:
+
+```text
+./gradlew testDebugUnitTest
+./gradlew testDebugUnitTest --tests '*Auth*' --tests '*Session*' --tests '*Token*' --tests '*Refresh*' --tests '*Operational*' --tests '*Offline*' --tests '*Work*' --tests '*Product*'
+./gradlew assembleDebug assembleRelease -Pkasirkita.releaseApiBaseUrl=https://example.com/
+./gradlew build -Pkasirkita.releaseApiBaseUrl=https://example.com/
+git diff --check
+```
+
+Expected negative release-config tests:
+
+```text
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=http://example.com/
+# rejected: Release API URL must use HTTPS
+
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=malformed://bad
+# rejected: Release API URL must end with '/'
+```
+
+### Manual Device Regression: PENDING
+
+Manual device regression has not been executed in this closure pass. Do not mark Phase 4 fully closed for production until checklist below passes on device/emulator with preserved app data.
+
+### 4A Network Security
+
+- Debug builds keep development HTTP support for emulator/local endpoints through debug source-set network security config.
+- Release builds require HTTPS-only API base URL.
+- Release build-time URL validation rejects HTTP and malformed base URLs.
+- Release merged manifest references `@xml/network_security_config` and does not enable cleartext traffic.
+
+### 4B Secure Token Storage
+
+- `access_token` and `refresh_token` persist encrypted via Android Keystore.
+- Encryption uses AES-256-GCM with fresh IV per encrypted value.
+- Stored encrypted format remains versioned: `v1:<base64-iv>:<base64-ciphertext>`.
+- Legacy plaintext token pairs migrate to encrypted storage, then legacy keys are removed.
+- Partial/mixed/corrupt/unsupported token states fail closed.
+- `clearSession` removes encrypted and legacy tokens while preserving stable plaintext `device_id`.
+- Stale refresh-token and account replacement protections remain intact.
+- `CancellationException` is rethrown, and `sessionFlow` cannot enter repeated decrypt-crash loop.
+
+### 4C Backup Protection
+
+- `backup_rules.xml` protects legacy full-backup behavior.
+- `data_extraction_rules.xml` protects Android 12+ cloud backup and device transfer.
+- DataStore directory `files/datastore/` is excluded, covering `auth_v2_session`, `operational_context`, and `device_id` stored through DataStore.
+- Room database files are excluded: `kasirkita.db`, `kasirkita.db-wal`, and `kasirkita.db-shm`.
+- Merged debug and release manifests reference both backup rule resources.
+
+### 4D Logging & Privacy
+
+- Debug network logging is `HttpLoggingInterceptor.Level.BASIC`.
+- Release network logging is `HttpLoggingInterceptor.Level.NONE`.
+- `Authorization` header remains redacted.
+- No `Level.BODY`, `Level.HEADERS`, `Log.*`, `println`, or `printStackTrace` remain in `app/src/main`.
+- No intentional logging of tokens, PIN/passwords, request/response payloads, or crypto material found.
+
+### 4E Release Security Audit
+
+- Release build is non-debuggable.
+- Release cleartext traffic remains disabled.
+- Backup/data extraction rules remain active.
+- Exported components reviewed and justified:
+  - `MainActivity`: launcher activity.
+  - `SystemJobService`: WorkManager, protected by `android.permission.BIND_JOB_SERVICE`.
+  - `DiagnosticsReceiver`: AndroidX diagnostic receiver, protected by `android.permission.DUMP`.
+  - `ProfileInstallReceiver`: AndroidX profile installer receiver, protected by `android.permission.DUMP`.
+- Permissions reviewed and justified: `INTERNET`, `WAKE_LOCK`, `ACCESS_NETWORK_STATE`, `RECEIVE_BOOT_COMPLETED`, `FOREGROUND_SERVICE`, and app signature dynamic-receiver permission.
+- No unnecessary dangerous permissions found.
+- No signing secrets committed.
+- Minification/resource shrinking intentionally deferred post-MVP to avoid R8/Gson/Retrofit/Hilt/Room release risk before full integration coverage.
+
+### Manual Phase 4 Device Regression Checklist
+
+Do not use `pm clear`, uninstall, clear cache, clear database, or destructive backup/restore commands. Force-stop is allowed.
+
+1. Existing/fresh authentication succeeds.
+2. Outlet selection succeeds.
+3. Shift restores after force-stop.
+4. Products load online.
+5. Online API call succeeds.
+6. Token/session continuity survives app relaunch and normal navigation.
+7. Cached products remain available offline.
+8. Offline cash transaction can be created.
+9. Pending sync visibility appears for offline transaction.
+10. Connectivity restoration detected after returning online.
+11. WorkManager automatic sync runs.
+12. Synced transaction appears in history.
+13. Logout returns to login screen.
+14. Relaunch after logout remains logged out.
+15. Phase 4B check: normal restore/refresh/logout works without printing token values or token decryption errors in Logcat.
+
 ## Known Limitations / Technical Debt
 
+- Phase 4 manual device regression is pending.
+- Minification/resource shrinking remains disabled for MVP; enable post-MVP after integration testing and explicit R8 keep-rule review.
+- Production signing configuration is required before Play Store distribution.
 - Network connectivity observer khusus belum ada; WorkManager memakai `NetworkType.CONNECTED` dan app lifecycle/session observer untuk enqueue automatic sync.
 - Cart masih in-memory dan tidak bertahan setelah process death.
 - Selected outlet runtime state masih `StateFlow`; operational context persistence memulihkan outlet/shift melalui DataStore pada cold start.
@@ -395,7 +497,7 @@ Audit code-level terakhir dilakukan pada 2026-09-17 sebelum implementasi WorkMan
 
 ## Next Milestones
 
-1. Phase 4: Security Hardening.
+1. Phase 4 manual device regression, then production closure.
 2. Transaction History follow-up UX and receipt review.
 3. Auth V2 follow-up hardening dan strategi offline PIN.
 4. Printer/receipt printing.
