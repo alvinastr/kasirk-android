@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -97,7 +98,7 @@ fun AppNavigation(
                     AuthV2Navigation(
                         onAuthenticated = { session ->
                             viewModel.onAuthV2Authenticated(session)
-                            navController.navigate(Screen.Outlet.route) {
+                            navController.navigate(postAuthenticationRoute()) {
                                 popUpTo(AuthV2Screen.Graph.route) { inclusive = true }
                                 launchSingleTop = true
                             }
@@ -118,9 +119,16 @@ fun AppNavigation(
 
                 composable(Screen.Shift.route) { backStackEntry ->
                     val outlet = selectedOutlet
-                    if (outlet == null) {
+                    if (shouldRecoverShiftToOutlet(outlet)) {
+                        LaunchedEffect(Unit) {
+                            navController.navigate(Screen.Outlet.route) {
+                                popUpTo(Screen.Shift.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        }
                         SessionLoadingContent()
                     } else {
+                        val outletForShift = checkNotNull(outlet)
                         val isGateEntry = remember(backStackEntry) {
                             isShiftGateEntry(
                                 previousRoute = navController
@@ -130,8 +138,8 @@ fun AppNavigation(
                             )
                         }
                         ShiftScreen(
-                            outletId = outlet.id,
-                            outletName = outlet.name,
+                            outletId = outletForShift.id,
+                            outletName = outletForShift.name,
                             autoNavigateToHome = isGateEntry,
                             onShiftOpen = {
                                 navController.navigate(Screen.Home.route) {
@@ -474,6 +482,10 @@ internal fun startupRouteFor(state: SessionState): String = when (state) {
     -> AuthV2Screen.Graph.route
 }
 
+internal fun postAuthenticationRoute(): String = Screen.Outlet.route
+
+internal fun shouldRecoverShiftToOutlet(selectedOutlet: Outlet?): Boolean = selectedOutlet == null
+
 @HiltViewModel
 class AppNavigationViewModel @Inject constructor(
     private val authSessionDataStore: AuthSessionDataStore,
@@ -505,12 +517,17 @@ class AppNavigationViewModel @Inject constructor(
     private fun checkSession() {
         viewModelScope.launch {
             val resolvedState = resolveStartupSession()
-            _sessionState.value = resolvedState
             val session = (
                 (resolvedState as? SessionState.Authenticated)
                     ?.session as? NavigationSession.AuthV2
-                )?.value ?: return@launch
+                )?.value
+            if (session == null) {
+                _sessionState.value = resolvedState
+                return@launch
+            }
+
             restoreOperationalContextLocally(session)
+            _sessionState.value = resolvedState
             refreshSessionInBackground(session)
             refreshSelectedOutletInBackground(session)
             refreshCurrentShiftInBackground(session)

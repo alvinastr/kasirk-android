@@ -1,5 +1,6 @@
 package com.kasirkita.pos.presentation.navigation
 
+import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.model.Shift
 import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.presentation.shift.shouldNavigateToHomeFromShift
@@ -9,6 +10,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShiftNavigationGuardTest {
+
+    private fun outlet(
+        id: String = "outlet-id",
+        tenantId: String = "tenant-id",
+        name: String = "Test Outlet",
+    ) = Outlet(
+        id = id,
+        tenantId = tenantId,
+        name = name,
+        address = null,
+        isActive = true,
+        createdAt = "2026-09-27T00:00:00Z",
+    )
+
+    @Test
+    fun shiftWithoutOutlet_shouldRecoverToOutlet() {
+        assertTrue(shouldRecoverShiftToOutlet(selectedOutlet = null))
+    }
+
+    @Test
+    fun shiftWithOutlet_shouldNotRecover() {
+        assertFalse(
+            shouldRecoverShiftToOutlet(
+                selectedOutlet = outlet(id = "outlet-1", name = "Test Outlet"),
+            ),
+        )
+    }
 
     @Test
     fun everyAuthenticatedRole_canAccessShiftRoute() {

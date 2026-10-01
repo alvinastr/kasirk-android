@@ -60,10 +60,8 @@ class AppNavigationViewModelTest {
     @Test
     fun noSession_opensAuthV2Flow() {
         val fixture = fixture()
-
         fixture.viewModel()
         dispatcher.scheduler.advanceUntilIdle()
-
         assertEquals(SessionState.Unauthenticated, fixture.state())
         assertEquals(
             AuthV2Screen.Graph.route,
@@ -75,6 +73,7 @@ class AppNavigationViewModelTest {
     fun validLocalSession_startsAtHomeAndRefreshesContextAsynchronously() = runBlocking {
         val fixture = fixture(
             session = authSession(expiresAt = Long.MAX_VALUE),
+            restoredOutlet = outlet(),
         )
 
         fixture.viewModel()
@@ -177,6 +176,7 @@ class AppNavigationViewModelTest {
         val fixture = fixture(
             session = authSession(expiresAt = Long.MAX_VALUE),
             outletGate = releaseOutletRestoration,
+            restoredOutlet = outlet(),
         )
 
         fixture.viewModel()
@@ -198,6 +198,7 @@ class AppNavigationViewModelTest {
     fun accountIdentityChange_clearsVolatileBusinessState() = runBlocking {
         val fixture = fixture(
             session = authSession(expiresAt = Long.MAX_VALUE),
+            restoredOutlet = outlet(),
         )
         fixture.viewModel()
         dispatcher.scheduler.advanceUntilIdle()
@@ -223,6 +224,7 @@ class AppNavigationViewModelTest {
             refreshFailure = IOException("network unavailable"),
             outletFailure = IOException("network unavailable"),
             shiftFailure = IOException("network unavailable"),
+            restoredOutlet = outlet(),
         )
 
         fixture.viewModel()
@@ -265,13 +267,14 @@ class AppNavigationViewModelTest {
         assertEquals(AuthV2Screen.Graph.route, startupRouteFor(fixture.state()))
     }
 
+
     private fun fixture(
         session: AuthSession? = null,
         refreshFailure: Throwable? = null,
         refreshGate: CompletableDeferred<Unit>? = null,
         outletFailure: Throwable? = null,
         outletGate: CompletableDeferred<Unit>? = null,
-        restoredOutlet: Outlet = outlet(),
+        restoredOutlet: Outlet? = null,
         shiftFailure: Throwable? = null,
     ): Fixture {
         val authSessionDataStore = AuthSessionDataStore(InMemoryPreferencesDataStore())
@@ -334,7 +337,7 @@ class AppNavigationViewModelTest {
     private class FakeOutletRepository(
         private val getOutletsFailure: Throwable? = null,
         private val getOutletsGate: CompletableDeferred<Unit>? = null,
-        private val restoredOutlet: Outlet = outlet(),
+        private val restoredOutlet: Outlet? = outlet(),
     ) : OutletRepository {
         private val outletState = MutableStateFlow<Outlet?>(null)
         override val selectedOutlet: StateFlow<Outlet?> = outletState
@@ -343,7 +346,7 @@ class AppNavigationViewModelTest {
             getOutletsGate?.await()
             return getOutletsFailure
                 ?.let(Result.Companion::failure)
-                ?: Result.success(listOf(restoredOutlet))
+                ?: Result.success(listOfNotNull(restoredOutlet))
         }
 
         override suspend fun selectOutlet(outlet: Outlet) {
@@ -359,6 +362,9 @@ class AppNavigationViewModelTest {
         override suspend fun restoreSelectedOutlet() {
             restoreFailure?.let { throw it }
             restoreCalls += 1
+            restoredOutlet
+                ?.takeIf { outlet -> outlet.tenantId == "tenant-id" }
+                ?.let { outlet -> outletState.value = outlet }
         }
     }
 
