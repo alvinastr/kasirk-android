@@ -1,13 +1,16 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample backup rules file; uncomment and customize as necessary.
-   See https://developer.android.com/guide/topics/data/autobackup
-   for details.
-   Note: This file is ignored for devices older than API 31
-   See https://developer.android.com/about/versions/12/backup-restore
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Backup rules for Android 6.0 (API 23) to Android 11 (API 30).
+  DataStore Preferences files are stored under app files/datastore/.
+  Exclude all DataStore files because current stores contain auth/session,
+  device identity, and account-scoped operational context.
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <!-- Exclude all DataStore preference files -->
+    <exclude domain="file" path="datastore/" />
+
+    <!-- Exclude Room database and associated WAL/SHM files -->
+    <exclude domain="database" path="kasirkita.db" />
+    <exclude domain="database" path="kasirkita.db-wal" />
+    <exclude domain="database" path="kasirkita.db-shm" />
 </full-backup-content>
