@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-10-02 (Phase 5G Auth + Outlet + Shift Polish CLOSED after automated and manual Small_Phone emulator validation)
+Last verified: 2026-10-02 (KasirKita MVP Release Candidate READY after Phase 5I final RC closure, automated verification, and complete manual Small_Phone RC regression)
 
 ## Project Overview
 
@@ -486,7 +486,7 @@ Do not use `pm clear`, uninstall, clear cache, clear database, or destructive ba
 - Production signing configuration is required before Play Store distribution; current builds use debug keystore.
 - Network connectivity observer khusus belum ada; WorkManager memakai `NetworkType.CONNECTED` dan app lifecycle/session observer untuk enqueue automatic sync.
 - Cart masih in-memory dan tidak bertahan setelah process death.
-- Selected outlet runtime state masih `StateFlow`; operational context persistence memulihkan outlet/shift melalui DataStore pada cold start.
+- Selected outlet runtime state masih `StateFlow`; operational context persistence memulihkan outlet/shift melalui DataStore pada cold start, dan Phase 5I.1 memastikan outlet hanya aktif/persisted bila `outlet.tenantId == current authenticated session.tenantId`.
 - Offline PIN verification belum tersedia.
 - Logout hanya merevoke current device session; session user pada perangkat lain tidak ikut direvoke.
 - Checkout menampilkan HTTP business error melalui `HttpException.message`; parsing error body backend menjadi pesan yang lebih spesifik belum tersedia.
@@ -898,6 +898,60 @@ Phase 5H changes are presentation-only and confined to:
 - `docs/PROJECT_STATUS.md`
 
 No ViewModel, state model, navigation, repository, domain, data, transaction/payment/offline behavior, business logic, API, or database/schema changes were made.
+
+## Phase 5I — Final Release Candidate Audit
+
+Status: **CLOSED — KasirKita MVP Release Candidate READY after automated verification and complete manual Small_Phone RC regression.**
+
+### Release Candidate Declaration
+
+Current Android build is declared as the **KasirKita MVP Release Candidate** after Phase 5I final RC audit and manual Small_Phone regression passed.
+
+Important Phase 5I.1 security fix:
+
+- `bad0978e714a7ead13dbbd4a95918f67b7cb08fb` (`fix: enforce outlet tenant isolation`) — `OutletRepositoryImpl.selectOutlet()` now fails closed unless `outlet.tenantId == current authenticated session.tenantId` before operational context persistence, selected-outlet update, or navigation success.
+
+### Automated Verification: PASS
+
+```text
+./gradlew testDebugUnitTest
+PASS
+
+./gradlew assembleDebug
+PASS
+
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=https://example.com/
+PASS
+
+git diff --check
+clean
+```
+
+### Manual Small_Phone RC Regression: PASS
+
+Manual emulator validation completed without Mobile MCP.
+
+- Core online transaction flow: PASS — Cashier authenticated successfully, Outlet Utama selected/restored, active shift available, product catalog loaded, product search worked, cart quantity/add/remove worked, CASH checkout worked, receipt/success screen worked, transaction history and detail showed correct transaction/payment data, and no clipping/overflow/broken CTA/navigation blocker was observed.
+- Operational persistence after force-stop: PASS — `adb shell am force-stop com.kasirkita.pos` preserved authenticated session, Outlet Utama, active shift, and operational context.
+- Offline checkout: PASS — cached product catalog remained usable offline, checkout succeeded, UI displayed "Transaksi tersimpan untuk sinkronisasi", and pending synchronization became 1.
+- Automatic synchronization: PASS — internet restore triggered automatic sync, pending synchronization returned 1 -> 0, synced transaction appeared in Transaction History, and no action-required item remained.
+- Transaction history/detail: PASS — synced transaction visible, history remained readable/scannable, and detail/payment presentation remained correct.
+- Logout persistence: PASS — logout completed, force-stop + relaunch remained logged out, and store-code login screen was shown.
+- Cashier role-boundary: PASS — Cashier can access Produk, Cart, Shift, Masalah Sync, and Riwayat Transaksi; Laporan is disabled; no admin-only Product Management or Stock Adjustment access exposed. RBAC was not changed for testing.
+
+Safety constraints respected: no `pm clear`, no uninstall, no app data clear, no cache clear, no database clear. Force-stop only.
+
+### Phase 5 — UI/UX Polish
+
+Status: **CLOSED — MVP cashier UI polish complete through final RC regression.**
+
+Phase 5 delivered POS design foundation and cashier-first polish across Home, Product/Kasir, Cart, Checkout, Receipt, Auth, Outlet, Shift, Transaction History, Transaction Detail, Reports, and Offline Recovery. Phase 5I final audit closed the MVP RC after automated verification and complete manual Small_Phone regression passed.
+
+### Post-MVP Notes Preserved
+
+- Destructive backup/device-transfer validation remains post-MVP.
+- Minification/resource shrinking remains deferred post-MVP pending R8/Gson/Retrofit/Hilt/Room/WorkManager/Compose keep-rule review and integration coverage.
+- Production signing / Play Store distribution readiness remains required before store distribution.
 
 ## Next Milestones
 
