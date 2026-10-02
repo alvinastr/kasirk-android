@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-10-02 (Phase 5F Checkout + Receipt Screen Polish CLOSED after automated and manual Small_Phone emulator validation)
+Last verified: 2026-10-02 (Phase 5G Auth + Outlet + Shift Polish CLOSED after automated and manual Small_Phone emulator validation)
 
 ## Project Overview
 
@@ -776,6 +776,69 @@ Phase 5F changes are presentation-only and confined to:
 - `docs/PROJECT_STATUS.md`
 
 No ViewModel, repository, domain, data, transaction calculation, payment calculation, offline queue/sync, idempotency, stock behavior, authentication/session, API, or database/schema changes were made.
+
+## Phase 5G — Auth + Outlet + Shift Polish
+
+Status: **CLOSED — cashier-first auth/outlet/shift entry flow verified manually on Small_Phone emulator.**
+
+### Implementation Summary
+
+- Store Login, User Selection, PIN Login, Outlet Selection, and Shift Setup presentation polished with Phase 5B design system.
+- Store Login now uses KasirKita POS identity, clear store-code explanation card, persistent field label, helpful guidance, and no API/tenant/device exposure.
+- User Selection now uses tappable user cards with name emphasis, role secondary, empty state support, and back-to-store fallback.
+- PIN Login now uses clear user identity context card, 6-digit masked input with IME submission, and strong "Masuk" CTA.
+- Outlet Selection now uses tappable outlet cards with name emphasis, address secondary, and consistent loading/error/empty states.
+- Shift Setup now uses clear shift status (StatusBadge), emphasized opening cash (PriceText), "Shift belum dibuka" no-shift state, "Buka Shift" CTA, and active-shift context.
+- windowInsetsPadding(safeDrawing) applied to auth/outlet screens for notch/gesture area compatibility.
+- All 5 screens use KasirCard, KasirPrimaryButton, KasirTextField/OutlinedTextField with KeyboardActions, KasirLoadingState, KasirEmptyState, KasirErrorState for consistency.
+- Indonesian cashier-facing labels preserved: "Kode toko", "Masuk", "Pilih outlet", "PIN 6 digit", "Shift belum dibuka", "Buka Shift".
+
+### Verification
+
+```text
+./gradlew testDebugUnitTest
+PASS
+
+./gradlew assembleDebug
+PASS
+
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=https://example.com/
+PASS
+
+git diff --check
+clean
+
+Manual Small_Phone emulator validation
+PASS
+```
+
+Mobile MCP not used. Device validation performed manually.
+
+### Manual Small_Phone Validation Summary
+
+- Store Login renders correctly with clear KasirKita POS identity, store-code explanation, and guidance.
+- User Selection renders correctly with tappable user cards and clear hierarchy.
+- PIN Login renders correctly with user context and masked 6-digit input.
+- Outlet Selection renders correctly with tappable outlet cards.
+- Existing authenticated Home state restores correctly after force-stop.
+- Outlet Utama remains restored.
+- Active shift remains restored with opening cash Rp500.000.
+- No visible overflow, clipping, broken CTA, or navigation blocker found.
+
+### Scope Verification
+
+Phase 5G changes are presentation-only and confined to:
+
+- `presentation/authv2/StoreLoginScreen.kt`
+- `presentation/authv2/UserSelectionScreen.kt`
+- `presentation/authv2/PinLoginScreen.kt`
+- `presentation/outlet/OutletScreen.kt`
+- `presentation/shift/ShiftScreen.kt`
+- `docs/PROJECT_STATUS.md`
+
+Total: 398 insertions, 340 deletions.
+
+No ViewModel, state model, repository, domain, data, AuthV2Navigation, authentication/session logic, tenant isolation, encrypted token storage, outlet/shift persistence logic, transaction/payment/stock logic, offline queue/sync, API, or database/schema changes were made.
 
 ## Next Milestones
 

@@ -7,18 +7,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,6 +28,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Shift
+import com.kasirkita.pos.ui.components.StatusBadge
+import com.kasirkita.pos.ui.components.StatusBadgeTone
+import com.kasirkita.pos.ui.components.PriceText
+import com.kasirkita.pos.ui.components.KasirCard
+import com.kasirkita.pos.ui.components.KasirErrorState
+import com.kasirkita.pos.ui.components.KasirLoadingState
+import com.kasirkita.pos.ui.components.KasirPrimaryButton
+import com.kasirkita.pos.ui.components.KasirTextField
+import com.kasirkita.pos.ui.theme.KasirSpacing
 import java.text.NumberFormat
 import java.time.OffsetDateTime
 import java.time.ZoneId
@@ -88,65 +92,55 @@ internal fun ShiftManagementContent(
     onRetry: () -> Unit,
     onStartNewShift: () -> Unit,
 ) {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-    ) {
-        when (state) {
-            ShiftState.Loading -> LoadingShiftContent()
-            ShiftState.NoShift -> OpenShiftContent(
-                outletId = outletId,
-                outletName = outletName,
-                isSubmitting = false,
-                onOpen = onOpen,
-            )
+    when (state) {
+        ShiftState.Loading -> LoadingShiftContent()
+        ShiftState.NoShift -> OpenShiftContent(
+            outletId = outletId,
+            outletName = outletName,
+            isSubmitting = false,
+            onOpen = onOpen,
+        )
 
-            ShiftState.Opening -> OpenShiftContent(
-                outletId = outletId,
-                outletName = outletName,
-                isSubmitting = true,
-                onOpen = onOpen,
-            )
+        ShiftState.Opening -> OpenShiftContent(
+            outletId = outletId,
+            outletName = outletName,
+            isSubmitting = true,
+            onOpen = onOpen,
+        )
 
-            is ShiftState.ShiftLoaded -> ActiveShiftContent(
-                shift = state.shift,
-                outletName = outletName,
-                isSubmitting = false,
-                onClose = onClose,
-            )
+        is ShiftState.ShiftLoaded -> ActiveShiftContent(
+            shift = state.shift,
+            outletName = outletName,
+            isSubmitting = false,
+            onClose = onClose,
+        )
 
-            is ShiftState.Closing -> ActiveShiftContent(
-                shift = state.shift,
-                outletName = outletName,
-                isSubmitting = true,
-                onClose = onClose,
-            )
+        is ShiftState.Closing -> ActiveShiftContent(
+            shift = state.shift,
+            outletName = outletName,
+            isSubmitting = true,
+            onClose = onClose,
+        )
 
-            is ShiftState.ShiftClosed -> ClosedShiftContent(
-                shift = state.shift,
-                outletName = outletName,
-                onStartNewShift = onStartNewShift,
-            )
+        is ShiftState.ShiftClosed -> ClosedShiftContent(
+            shift = state.shift,
+            outletName = outletName,
+            onStartNewShift = onStartNewShift,
+        )
 
-            is ShiftState.Error -> ShiftErrorContent(
-                message = state.message,
-                onRetry = onRetry,
-            )
-        }
+        is ShiftState.Error -> ShiftErrorContent(
+            message = state.message,
+            onRetry = onRetry,
+        )
     }
 }
 
 @Composable
 private fun LoadingShiftContent() {
-    ShiftContentColumn(horizontalAlignment = Alignment.CenterHorizontally) {
-        Spacer(Modifier.height(32.dp))
-        CircularProgressIndicator()
-        Text(
-            text = "Memuat shift...",
-            style = MaterialTheme.typography.bodyLarge,
-        )
-    }
+    KasirLoadingState(
+        message = "Memuat shift...",
+        modifier = Modifier.fillMaxSize(),
+    )
 }
 
 @Composable
@@ -160,12 +154,24 @@ private fun OpenShiftContent(
     var inputError by rememberSaveable { mutableStateOf<String?>(null) }
 
     ShiftContentColumn {
-        ShiftHeading(
-            title = "Buka Shift",
-            supportingText = "Masukkan kas awal sebelum mulai menerima transaksi.",
-        )
+        KasirCard(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Shift belum dibuka",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Masukkan kas awal sebelum mulai menerima transaksi.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(KasirSpacing.ItemGap))
+
         ShiftValue(label = "Outlet", value = outletName)
-        OutlinedTextField(
+
+        KasirTextField(
             value = openingCashInput,
             onValueChange = { value ->
                 if (value.all(Char::isDigit)) {
@@ -173,31 +179,30 @@ private fun OpenShiftContent(
                     inputError = null
                 }
             },
+            label = "Kas Awal",
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Kas Awal") },
-            prefix = { Text("Rp") },
+            prefix = "Rp",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
             isError = inputError != null,
-            supportingText = inputError?.let { error ->
-                { Text(error) }
-            },
+            supportingText = inputError,
             enabled = !isSubmitting,
         )
-        Button(
+
+        Spacer(modifier = Modifier.height(KasirSpacing.ItemGap))
+
+        KasirPrimaryButton(
+            text = "Buka Shift",
             onClick = {
                 when (val result = validateShiftCash(openingCashInput, "Kas awal")) {
                     is ShiftCashValidationResult.Valid -> onOpen(outletId, result.amount)
                     is ShiftCashValidationResult.Invalid -> inputError = result.message
                 }
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp),
+            modifier = Modifier.fillMaxWidth(),
             enabled = !isSubmitting,
-        ) {
-            Text(if (isSubmitting) "Membuka Shift..." else "Mulai Shift")
-        }
+            isLoading = isSubmitting,
+        )
     }
 }
 
@@ -212,16 +217,41 @@ private fun ActiveShiftContent(
     var inputError by rememberSaveable(shift.id) { mutableStateOf<String?>(null) }
 
     ShiftContentColumn {
-        ShiftHeading(
-            title = "Shift Aktif",
-            supportingText = "Periksa shift yang sedang berjalan sebelum menutupnya.",
-        )
-        ShiftValue(label = "Outlet", value = outletName)
-        ShiftValue(label = "Kas awal", value = formatShiftMoney(shift.openingCash))
-        ShiftValue(label = "Dibuka", value = formatShiftTime(shift.openedAt))
-        ShiftValue(label = "Status", value = shift.status)
+        KasirCard(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Shift Aktif",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Periksa shift yang sedang berjalan sebelum menutupnya.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
-        HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+        Spacer(modifier = Modifier.height(KasirSpacing.ItemGap))
+
+        ShiftValue(label = "Outlet", value = outletName)
+        KasirCard(modifier = Modifier.fillMaxWidth()) {
+            Text("Kas awal", style = MaterialTheme.typography.labelMedium)
+            PriceText(text = formatShiftMoney(shift.openingCash))
+        }
+        ShiftValue(label = "Dibuka", value = formatShiftTime(shift.openedAt))
+        StatusBadge(
+            text = when {
+                shift.status.equals("OPEN", ignoreCase = true) -> "Shift aktif"
+                shift.status.equals("CLOSED", ignoreCase = true) -> "Shift ditutup"
+                else -> shift.status
+            },
+            tone = if (shift.status.equals("OPEN", ignoreCase = true)) StatusBadgeTone.Success else StatusBadgeTone.Neutral,
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        HorizontalDivider()
+
+        Spacer(modifier = Modifier.height(12.dp))
 
         Text(
             text = "Tutup Shift",
@@ -232,7 +262,10 @@ private fun ActiveShiftContent(
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedTextField(
+
+        Spacer(modifier = Modifier.height(KasirSpacing.ItemGap))
+
+        KasirTextField(
             value = closingCashInput,
             onValueChange = { value ->
                 if (value.all(Char::isDigit)) {
@@ -240,31 +273,30 @@ private fun ActiveShiftContent(
                     inputError = null
                 }
             },
+            label = "Kas Akhir",
             modifier = Modifier.fillMaxWidth(),
-            label = { Text("Kas Akhir") },
-            prefix = { Text("Rp") },
+            prefix = "Rp",
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
             singleLine = true,
             isError = inputError != null,
-            supportingText = inputError?.let { error ->
-                { Text(error) }
-            },
+            supportingText = inputError,
             enabled = !isSubmitting,
         )
-        Button(
+
+        Spacer(modifier = Modifier.height(KasirSpacing.ItemGap))
+
+        KasirPrimaryButton(
+            text = "Tutup Shift",
             onClick = {
                 when (val result = validateShiftCash(closingCashInput, "Kas akhir")) {
                     is ShiftCashValidationResult.Valid -> onClose(result.amount)
                     is ShiftCashValidationResult.Invalid -> inputError = result.message
                 }
             },
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp),
+            modifier = Modifier.fillMaxWidth(),
             enabled = !isSubmitting,
-        ) {
-            Text(if (isSubmitting) "Menutup Shift..." else "Tutup Shift")
-        }
+            isLoading = isSubmitting,
+        )
     }
 }
 
@@ -275,12 +307,26 @@ private fun ClosedShiftContent(
     onStartNewShift: () -> Unit,
 ) {
     ShiftContentColumn {
-        ShiftHeading(
-            title = "Shift Ditutup",
-            supportingText = "Rekonsiliasi kas sudah dihitung oleh server.",
-        )
+        KasirCard(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Shift Ditutup",
+                style = MaterialTheme.typography.headlineSmall,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Periksa ringkasan kas sebelum membuka shift baru.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        Spacer(modifier = Modifier.height(KasirSpacing.ItemGap))
+
         ShiftValue(label = "Outlet", value = outletName)
-        ShiftValue(label = "Kas awal", value = formatShiftMoney(shift.openingCash))
+        KasirCard(modifier = Modifier.fillMaxWidth()) {
+            Text("Kas awal", style = MaterialTheme.typography.labelMedium)
+            PriceText(text = formatShiftMoney(shift.openingCash))
+        }
         ShiftValue(
             label = "Kas yang diharapkan",
             value = shift.expectedCash?.let(::formatShiftMoney) ?: "Belum tersedia",
@@ -293,15 +339,22 @@ private fun ClosedShiftContent(
             label = "Selisih",
             value = shift.difference?.let(::formatShiftMoney) ?: "Belum tersedia",
         )
-        ShiftValue(label = "Status", value = shift.status)
-        Button(
+        StatusBadge(
+            text = when {
+                shift.status.equals("OPEN", ignoreCase = true) -> "Shift aktif"
+                shift.status.equals("CLOSED", ignoreCase = true) -> "Shift ditutup"
+                else -> shift.status
+            },
+            tone = if (shift.status.equals("OPEN", ignoreCase = true)) StatusBadgeTone.Success else StatusBadgeTone.Neutral,
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        KasirPrimaryButton(
+            text = "Mulai Shift Baru",
             onClick = onStartNewShift,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp),
-        ) {
-            Text("Mulai Shift Baru")
-        }
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -310,20 +363,11 @@ private fun ShiftErrorContent(
     message: String,
     onRetry: () -> Unit,
 ) {
-    ShiftContentColumn {
-        ShiftHeading(
-            title = "Shift tidak dapat diproses",
-            supportingText = message,
-        )
-        Button(
-            onClick = onRetry,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp),
-        ) {
-            Text("Coba Lagi")
-        }
-    }
+    KasirErrorState(
+        message = message,
+        onRetry = onRetry,
+        modifier = Modifier.fillMaxSize(),
+    )
 }
 
 @Composable
@@ -334,28 +378,12 @@ private fun ShiftContentColumn(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
             .imePadding()
-            .padding(horizontal = 24.dp, vertical = 20.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = KasirSpacing.ScreenPadding, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = horizontalAlignment,
         content = content,
-    )
-}
-
-@Composable
-private fun ShiftHeading(
-    title: String,
-    supportingText: String,
-) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.headlineSmall,
-    )
-    Text(
-        text = supportingText,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
@@ -364,7 +392,7 @@ private fun ShiftValue(
     label: String,
     value: String,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    KasirCard(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
@@ -372,7 +400,7 @@ private fun ShiftValue(
         )
         Text(
             text = value,
-            style = MaterialTheme.typography.bodyLarge,
+            style = MaterialTheme.typography.titleMedium,
         )
     }
 }

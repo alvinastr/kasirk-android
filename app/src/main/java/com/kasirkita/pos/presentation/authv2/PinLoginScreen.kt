@@ -9,22 +9,15 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +30,13 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.kasirkita.pos.ui.components.KasirCard
+import com.kasirkita.pos.ui.components.KasirPrimaryButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.shape.RoundedCornerShape
+import com.kasirkita.pos.ui.components.KasirTextButton
+import com.kasirkita.pos.ui.theme.KasirSpacing
 
 @Composable
 fun PinLoginScreen(
@@ -60,78 +60,78 @@ fun PinLoginScreen(
             .windowInsetsPadding(WindowInsets.safeDrawing)
             .imePadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 16.dp),
+            .padding(horizontal = KasirSpacing.ScreenPadding, vertical = 16.dp),
         verticalArrangement = Arrangement.Center,
     ) {
-        TextButton(
+        KasirTextButton(
+            text = "Kembali",
             onClick = onBack,
-            modifier = Modifier.heightIn(min = 48.dp),
             enabled = !state.isLoading,
-        ) {
-            Text("Kembali")
-        }
+        )
         Spacer(modifier = Modifier.height(12.dp))
+
         Text(
             text = "Masukkan PIN",
             style = MaterialTheme.typography.headlineMedium,
         )
-        Text(
-            text = state.user.name,
-            modifier = Modifier.padding(top = 8.dp),
-            style = MaterialTheme.typography.titleMedium,
-        )
-        Text(
-            text = state.user.role.displayName(),
-            modifier = Modifier.padding(top = 2.dp),
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Spacer(modifier = Modifier.height(16.dp))
+
+        KasirCard(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "Masuk sebagai",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = state.user.name,
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = state.user.role.displayName(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         Spacer(modifier = Modifier.height(24.dp))
+
         OutlinedTextField(
             value = pin,
             onValueChange = { value ->
                 pin = value.filter(Char::isDigit).take(PIN_LENGTH)
             },
+            label = { Text("PIN 6 digit") },
+                shape = RoundedCornerShape(KasirSpacing.CornerRadius),
+                keyboardActions = KeyboardActions(onDone = { if (pin.length == PIN_LENGTH) submit() }),
             modifier = Modifier.fillMaxWidth(),
             enabled = !state.isLoading,
-            label = { Text("PIN 6 digit") },
+            singleLine = true,
             visualTransformation = PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.NumberPassword,
                 imeAction = ImeAction.Done,
             ),
-            keyboardActions = KeyboardActions(
-                onDone = { if (pin.length == PIN_LENGTH) submit() },
-            ),
-            singleLine = true,
         )
+
         state.errorMessage?.let { message ->
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = message,
-                modifier = Modifier.padding(top = 12.dp),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodyMedium,
             )
         }
-        Spacer(modifier = Modifier.height(20.dp))
-        Button(
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        KasirPrimaryButton(
+            text = "Masuk",
             onClick = submit,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp),
-            enabled = pin.length == PIN_LENGTH && !state.isLoading,
-        ) {
-            if (state.isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    strokeWidth = 2.dp,
-                )
-                Spacer(modifier = Modifier.size(8.dp))
-                Text("Memverifikasi PIN")
-            } else {
-                Text("Masuk")
-            }
-        }
+            modifier = Modifier.fillMaxWidth(),
+            enabled = pin.length == PIN_LENGTH,
+            isLoading = state.isLoading,
+        )
     }
 }
 

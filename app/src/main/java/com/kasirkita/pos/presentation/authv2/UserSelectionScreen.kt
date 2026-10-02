@@ -1,6 +1,8 @@
 package com.kasirkita.pos.presentation.authv2
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -9,24 +11,24 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kasirkita.pos.domain.model.ResolvedStore
 import com.kasirkita.pos.domain.model.StoreUser
 import com.kasirkita.pos.domain.model.UserRole
+import com.kasirkita.pos.ui.components.KasirCard
+import com.kasirkita.pos.ui.components.KasirEmptyState
+import com.kasirkita.pos.ui.components.KasirSecondaryButton
+import com.kasirkita.pos.ui.components.KasirTextButton
+import com.kasirkita.pos.ui.theme.KasirSpacing
 
 @Composable
 fun UserSelectionScreen(
@@ -41,15 +43,14 @@ fun UserSelectionScreen(
         modifier = modifier
             .fillMaxSize()
             .windowInsetsPadding(WindowInsets.safeDrawing)
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = KasirSpacing.ScreenPadding, vertical = 16.dp),
     ) {
-        TextButton(
+        KasirTextButton(
+            text = "Kembali",
             onClick = onBack,
-            modifier = Modifier.heightIn(min = 48.dp),
-        ) {
-            Text("Kembali")
-        }
+        )
         Spacer(modifier = Modifier.height(12.dp))
+
         Text(
             text = "Pilih pengguna",
             style = MaterialTheme.typography.headlineMedium,
@@ -58,59 +59,66 @@ fun UserSelectionScreen(
             text = store.tenant.name,
             modifier = Modifier.padding(top = 4.dp),
             style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(modifier = Modifier.height(20.dp))
 
         if (store.users.isEmpty()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("Belum ada pengguna aktif untuk toko ini.")
-                OutlinedButton(
-                    onClick = onBack,
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text("Periksa kode toko")
-                }
-            }
+            KasirEmptyState(
+                message = "Belum ada pengguna aktif untuk toko ini.",
+                modifier = Modifier.weight(1f),
+            )
+            KasirSecondaryButton(text = "Periksa kode toko", onClick = onBack, modifier = Modifier.fillMaxWidth())
         } else {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
             ) {
                 items(
                     items = store.users,
                     key = StoreUser::id,
                 ) { user ->
-                    OutlinedButton(
+                    UserCard(
+                        user = user,
                         onClick = { onUserSelected(user) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 64.dp),
-                        contentPadding = PaddingValues(16.dp),
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.Start,
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = user.name,
-                                style = MaterialTheme.typography.titleMedium,
-                            )
-                            Text(
-                                text = user.role.displayName(),
-                                style = MaterialTheme.typography.bodyMedium,
-                            )
-                        }
-                    }
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun UserCard(
+    user: StoreUser,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    KasirCard(
+        modifier = modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onClick),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = user.name,
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = user.role.displayName(),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            KasirSecondaryButton(
+                text = "Pilih",
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
