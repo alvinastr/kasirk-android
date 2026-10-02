@@ -1,4 +1,5 @@
 import java.net.URI
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -51,6 +52,37 @@ if (releaseScheme != "https") {
     throw GradleException("Release API URL must use HTTPS, not $releaseScheme: $releaseApiBaseUrl")
 }
 
+// Release signing configuration
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties()
+val hasKeystoreConfig = keystorePropertiesFile.exists()
+
+if (hasKeystoreConfig) {
+    keystoreProperties.load(keystorePropertiesFile.inputStream())
+}
+
+fun requiredSigningProperty(name: String): String {
+    val value = keystoreProperties.getProperty(name)?.trim()
+    if (value.isNullOrEmpty()) {
+        throw GradleException("Release signing property '$name' must be set in keystore.properties")
+    }
+    return value
+}
+
+val releaseStoreFile = if (hasKeystoreConfig) {
+    rootProject.file(requiredSigningProperty("storeFile"))
+} else {
+    null
+}
+
+if (releaseStoreFile != null && !releaseStoreFile.isFile) {
+    throw GradleException("Release signing keystore file does not exist: ${releaseStoreFile.absolutePath}")
+}
+
+val releaseStorePassword = if (hasKeystoreConfig) requiredSigningProperty("storePassword") else null
+val releaseKeyAlias = if (hasKeystoreConfig) requiredSigningProperty("keyAlias") else null
+val releaseKeyPassword = if (hasKeystoreConfig) requiredSigningProperty("keyPassword") else null
+
 android {
     namespace = "com.kasirkita.pos"
 
@@ -68,6 +100,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasKeystoreConfig) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         debug {
             buildConfigField("String", "API_BASE_URL", "\"" + debugApiBaseUrl + "\"")
@@ -75,6 +118,10 @@ android {
 
         release {
             buildConfigField("String", "API_BASE_URL", "\"" + releaseApiBaseUrl + "\"")
+
+            if (hasKeystoreConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
 
             optimization {
                 enable = false
