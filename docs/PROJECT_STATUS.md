@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-10-02 (Phase 5D Product/Kasir Screen Polish complete after automated and manual emulator validation)
+Last verified: 2026-10-02 (Phase 5E Cart Screen Polish complete after automated and manual Small_Phone emulator validation)
 
 ## Project Overview
 
@@ -684,9 +684,54 @@ Phase 5D changes are presentation-only and confined to:
 
 No ViewModel, repository, data, domain, cart business logic, stock business logic, offline/sync behavior, authentication/session behavior, API, or database changes were made.
 
+## Phase 5E — Cart Screen Polish
+
+Status: **COMPLETE — cashier-first Cart review screen verified manually on Small_Phone emulator.**
+
+### Implementation Summary
+
+- Cart screen now uses card-based cart item presentation for a clearer cashier order review.
+- Each cart item emphasizes product name, unit price, quantity, subtotal, remove action, and concise stock presentation.
+- Quantity controls now render as clear stepper buttons with large touch targets while preserving existing increment/decrement behavior.
+- Remove-item action remains visible and keeps the existing remove semantics.
+- Optional-stock-aware presentation preserves tracked stock display and avoids misleading numeric stock constraints for untracked products.
+- Subtotal and order total are visually emphasized using the Phase 5B monetary display components.
+- Sticky Checkout summary remains accessible at the bottom of the screen without overlapping the cart list.
+- Empty cart state now uses the Phase 5B design-system empty state with clear guidance.
+
+### Verification
+
+```text
+./gradlew testDebugUnitTest
+PASS
+
+./gradlew assembleDebug
+PASS
+
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=https://example.com/
+PASS
+
+Manual Small_Phone emulator validation
+PASS
+
+Checkout flow non-regression
+PASS
+```
+
+Mobile MCP not used. Device validation performed manually.
+
+### Scope Verification
+
+Phase 5E changes are presentation-only and confined to:
+
+- `presentation/cart/CartScreen.kt`
+- `docs/PROJECT_STATUS.md`
+
+No ViewModel, repository, domain, data, cart business logic, stock business logic, pricing calculation, checkout/payment logic, offline/sync behavior, authentication/session behavior, API, or database changes were made.
+
 ## Next Milestones
 
-1. Phase 5E: Transaction History follow-up UX and receipt review.
+1. Phase 5F: Receipt/struk visual polish.
 2. Auth V2 follow-up hardening dan strategi offline PIN.
 3. Printer/receipt printing.
 4. Customer Module.
