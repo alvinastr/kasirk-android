@@ -840,6 +840,65 @@ Total: 398 insertions, 340 deletions.
 
 No ViewModel, state model, repository, domain, data, AuthV2Navigation, authentication/session logic, tenant isolation, encrypted token storage, outlet/shift persistence logic, transaction/payment/stock logic, offline queue/sync, API, or database/schema changes were made.
 
+## Phase 5H — Secondary Screen Polish
+
+Status: **CLOSED — secondary operational screens polished and verified manually on Small_Phone.**
+
+### Implementation Summary
+
+- Transaction History, Transaction Detail, Reports, and Offline Recovery presentation were aligned with the Phase 5B design system.
+- Transaction History now uses readable card-based rows, better price hierarchy, design-system loading/empty/error states, and removes raw outlet UUIDs from history rows.
+- Phase 5H.1 cleanup removed the misleading `Pembayaran: Lihat detail` fallback; payment is shown only when the existing transaction payment method is available.
+- Transaction Detail now uses clearer grouped sections for summary, items, totals, and payment while preserving transaction values and calculations exactly.
+- Phase 5H.1 cleanup makes long transaction, outlet, and product IDs visually secondary and compact so they do not wrap badly on Small_Phone.
+- Reports presentation uses design-system loading/error states, spacing, and stacked metrics. Reports remains role-gated for Cashier; RBAC was not changed to inspect it.
+- Offline Recovery presentation uses design-system status badges and actions while preserving existing retry/delete/acknowledge semantics.
+- Mobile MCP was not used. Device validation was performed manually.
+- Phase 5I has not started.
+
+### Verification
+
+```text
+./gradlew testDebugUnitTest
+PASS
+
+./gradlew assembleDebug
+PASS
+
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=https://example.com/
+PASS
+
+git diff --check
+clean
+
+Manual Small_Phone validation
+PASS
+```
+
+### Manual Small_Phone Validation Summary
+
+- Transaction History is readable and scannable.
+- Raw outlet UUID is no longer shown in history rows.
+- No misleading `Pembayaran: Lihat detail` fallback remains.
+- Transaction Detail long transaction/outlet/product IDs are secondary and no longer wrap badly.
+- Detail screen scroll works.
+- Payment values verified: method CASH, subtotal/total Rp36.000, paid Rp40.000, change Rp4.000.
+- Offline Recovery validated PASS.
+- Reports remains role-gated for Cashier; no RBAC or permission change was made to test it.
+- No visible clipping, overflow, broken CTA, or blocker found.
+
+### Scope Verification
+
+Phase 5H changes are presentation-only and confined to:
+
+- `presentation/transaction/TransactionHistoryScreen.kt`
+- `presentation/transaction/TransactionDetailScreen.kt`
+- `presentation/reports/ReportsScreen.kt`
+- `presentation/offline/OfflineRecoveryScreen.kt`
+- `docs/PROJECT_STATUS.md`
+
+No ViewModel, state model, navigation, repository, domain, data, transaction/payment/offline behavior, business logic, API, or database/schema changes were made.
+
 ## Next Milestones
 
 1. Auth V2 follow-up hardening dan strategi offline PIN.

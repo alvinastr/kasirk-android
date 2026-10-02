@@ -8,17 +8,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,6 +31,15 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.OfflineTransaction
 import com.kasirkita.pos.domain.model.OfflineTransactionFailureType
+import com.kasirkita.pos.ui.components.StatusBadge
+import com.kasirkita.pos.ui.components.StatusBadgeTone
+import com.kasirkita.pos.ui.components.KasirEmptyState
+import com.kasirkita.pos.ui.components.KasirErrorState
+import com.kasirkita.pos.ui.components.KasirLoadingState
+import com.kasirkita.pos.ui.components.KasirPrimaryButton
+import com.kasirkita.pos.ui.components.KasirSecondaryButton
+import com.kasirkita.pos.ui.components.KasirTextButton
+import com.kasirkita.pos.ui.theme.KasirSpacing
 import java.text.NumberFormat
 import java.time.Instant
 import java.time.ZoneId
@@ -76,7 +82,7 @@ internal fun OfflineRecoveryContent(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = KasirSpacing.Large),
         ) {
             OfflineRecoveryHeader(onBack)
 
@@ -97,25 +103,19 @@ internal fun OfflineRecoveryContent(
 
             when {
                 state.isLoading && state.transactions.isEmpty() -> RecoveryCenteredContent {
-                    CircularProgressIndicator()
-                    Text("Memuat transaksi offline...")
+                    KasirLoadingState(message = "Memuat transaksi offline...")
                 }
                 state.errorMessage != null && state.transactions.isEmpty() ->
                     RecoveryCenteredContent {
-                        Text(state.errorMessage)
-                        Button(
-                            onClick = onRefresh,
-                            modifier = Modifier.heightIn(min = 48.dp),
-                        ) {
-                            Text("Coba Lagi")
-                        }
+                        KasirErrorState(
+                            message = state.errorMessage,
+                            onRetry = onRefresh,
+                        )
                     }
                 state.transactions.isEmpty() -> RecoveryCenteredContent {
-                    Text(
-                        text = "Tidak ada transaksi yang perlu dipulihkan.",
-                        style = MaterialTheme.typography.titleMedium,
+                    KasirEmptyState(
+                        message = "Tidak ada transaksi yang perlu dipulihkan.\nTransaksi offline yang bermasalah akan muncul di sini.",
                     )
-                    Text("Transaksi offline yang bermasalah akan muncul di sini.")
                 }
                 else -> OfflineRecoveryList(
                     transactions = state.transactions,
@@ -154,16 +154,14 @@ private fun OfflineRecoveryHeader(onBack: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp),
+            .padding(vertical = KasirSpacing.Small),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(KasirSpacing.Small),
     ) {
-        TextButton(
+        KasirTextButton(
+            text = "Kembali",
             onClick = onBack,
-            modifier = Modifier.heightIn(min = 48.dp),
-        ) {
-            Text("Kembali")
-        }
+        )
         Text(
             text = "Pemulihan Transaksi Offline",
             style = MaterialTheme.typography.headlineSmall,
@@ -209,7 +207,7 @@ private fun ColumnScope.OfflineRecoveryList(
 
     LazyColumn(
         modifier = Modifier.weight(1f),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
     ) {
         items(
             items = transactions,
@@ -255,18 +253,16 @@ private fun OfflineRecoveryRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(vertical = KasirSpacing.Large),
+        verticalArrangement = Arrangement.spacedBy(KasirSpacing.Small),
     ) {
-        Text(
+        StatusBadge(
             text = offlineRecoveryStatusLabel(transaction.failureType),
-            style = MaterialTheme.typography.titleMedium,
-            color = when (transaction.failureType) {
-                OfflineTransactionFailureType.RETRYABLE -> MaterialTheme.colorScheme.primary
-                OfflineTransactionFailureType.REJECTED,
-                OfflineTransactionFailureType.RECONCILIATION_REQUIRED,
-                null,
-                -> MaterialTheme.colorScheme.error
+            tone = when (transaction.failureType) {
+                OfflineTransactionFailureType.RETRYABLE -> StatusBadgeTone.Neutral
+                OfflineTransactionFailureType.REJECTED -> StatusBadgeTone.Error
+                OfflineTransactionFailureType.RECONCILIATION_REQUIRED -> StatusBadgeTone.Warning
+                null -> StatusBadgeTone.Error
             },
         )
         Text(formattedDate)
@@ -289,53 +285,30 @@ private fun OfflineRecoveryRow(
         }
 
         if (OfflineRecoveryAction.RETRY in actions) {
-            Button(
+            KasirPrimaryButton(
+                text = "Coba Sinkronkan",
                 onClick = onRetry,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp),
+                modifier = Modifier.fillMaxWidth(),
                 enabled = actionsEnabled,
-            ) {
-                if (isProcessing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Text("Coba Sinkronkan")
-                }
-            }
+                isLoading = isProcessing,
+            )
         }
         if (OfflineRecoveryAction.DELETE in actions) {
-            OutlinedButton(
+            KasirSecondaryButton(
+                text = "Hapus dari Perangkat",
                 onClick = onRequestDelete,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp),
+                modifier = Modifier.fillMaxWidth(),
                 enabled = actionsEnabled,
-            ) {
-                Text("Hapus dari Perangkat")
-            }
+            )
         }
         if (OfflineRecoveryAction.ACKNOWLEDGE in actions) {
-            Button(
+            KasirPrimaryButton(
+                text = "Saya Sudah Memeriksa",
                 onClick = onRequestAcknowledge,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 48.dp),
+                modifier = Modifier.fillMaxWidth(),
                 enabled = actionsEnabled,
-            ) {
-                if (isProcessing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp,
-                    )
-                } else {
-                    Text("Saya Sudah Memeriksa")
-                }
-            }
+                isLoading = isProcessing,
+            )
         }
     }
 }
