@@ -56,6 +56,7 @@ fun AppNavigation(
 ) {
     val sessionState by viewModel.sessionState.collectAsState()
     val selectedOutlet by viewModel.selectedOutlet.collectAsState()
+    val currentShift by viewModel.currentShift.collectAsState()
 
     when (val currentState = sessionState) {
         SessionState.Checking -> SessionLoadingContent()
@@ -174,6 +175,11 @@ fun AppNavigation(
                         onOfflineProblemsClick = {
                             navController.navigate(Screen.OfflineRecovery.route)
                         },
+                        currentUserName = (authenticatedSession as? NavigationSession.AuthV2)
+                            ?.value
+                            ?.userName,
+                        currentOutletName = selectedOutlet?.name,
+                        currentShift = currentShift,
                         onLogoutComplete = {
                             viewModel.onLoggedOut()
                             navController.navigate(AuthV2Screen.Graph.route) {
@@ -504,6 +510,7 @@ class AppNavigationViewModel @Inject constructor(
     private val _sessionState = MutableStateFlow<SessionState>(SessionState.Checking)
     val sessionState: StateFlow<SessionState> = _sessionState.asStateFlow()
     val selectedOutlet: StateFlow<Outlet?> = outletRepository.selectedOutlet
+    val currentShift = shiftRepository.currentShift
 
     init {
         checkSession()

@@ -598,14 +598,56 @@ No Mobile MCP required for this milestone. Device validation performed manually.
 
 Design system intentionally simple and Compose-native. No over-engineered abstractions.
 
+## Phase 5C — Home Screen Polish
+
+Status: **COMPLETE — cashier-first Home redesign verified manually on emulator.**
+
+Baseline Phase 5B commit: `a43726b` (`feat: establish POS UI design foundation`).
+
+### Implementation Summary
+
+- Cashier-first Home hierarchy implemented with prominent **Buka Kasir** action.
+- Real authenticated user, selected outlet, and current shift context displayed from existing navigation/repository state; no fake or placeholder operational data added.
+- Shift opening cash shown with Indonesian Rupiah formatting.
+- Shift `openedAt` ISO timestamp formatted for Indonesian POS display: time for today, date and time for earlier shifts.
+- Existing sync/offline state, navigation callbacks, and logout action retained; Home only reorganizes their presentation.
+
+### Verification
+
+```text
+./gradlew testDebugUnitTest
+PASS
+
+./gradlew assembleDebug
+PASS
+
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=https://example.com/
+PASS
+
+Manual emulator visual verification
+PASS
+```
+
+Mobile MCP not used. Device validation performed manually.
+
+### Scope Verification
+
+Phase 5C changes confined to Home presentation, presentation wiring, shared UI component import, and milestone documentation:
+
+- `presentation/home/HomeScreen.kt`
+- `presentation/navigation/AppNavigation.kt`
+- `ui/components/KasirComponents.kt`
+- `docs/PROJECT_STATUS.md`
+
+No business/domain/repository/data/core behavior changed. Auth/session behavior, tenant/account isolation, outlet/shift persistence, offline/sync behavior, transaction/payment/stock behavior, and existing navigation destinations remain unchanged.
+
 ## Next Milestones
 
-1. Phase 5C — Screen Polish and Component Adoption.
-2. Transaction History follow-up UX and receipt review.
-3. Auth V2 follow-up hardening dan strategi offline PIN.
-4. Printer/receipt printing.
-5. Customer Module.
-6. Reports Dashboard.
+1. Transaction History follow-up UX and receipt review.
+2. Auth V2 follow-up hardening dan strategi offline PIN.
+3. Printer/receipt printing.
+4. Customer Module.
+5. Reports Dashboard.
 
 ## Rules For Future Development
 
