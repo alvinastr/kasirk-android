@@ -1,84 +1,104 @@
 package com.kasirkita.pos.presentation.product
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.kasirkita.pos.domain.model.Cart
+import com.kasirkita.pos.presentation.cart.CartViewModel
+import com.kasirkita.pos.ui.components.KasirCard
+import com.kasirkita.pos.ui.components.KasirEmptyState
+import com.kasirkita.pos.ui.components.KasirErrorState
+import com.kasirkita.pos.ui.components.KasirLoadingState
+import com.kasirkita.pos.ui.components.KasirPrimaryButton
+import com.kasirkita.pos.ui.components.KasirSecondaryButton
+import com.kasirkita.pos.ui.components.KasirTextField
+import com.kasirkita.pos.ui.components.KasirTopBar
+import com.kasirkita.pos.ui.components.PriceText
+import com.kasirkita.pos.ui.components.StatusBadge
+import com.kasirkita.pos.ui.components.StatusBadgeTone
+import com.kasirkita.pos.ui.theme.KasirSpacing
+import com.kasirkita.pos.ui.theme.body
+import com.kasirkita.pos.ui.theme.sectionTitle
+import com.kasirkita.pos.ui.theme.supporting
 import java.text.NumberFormat
 import java.util.Locale
+
 
 @Composable
 fun ProductScreen(
     onCartClick: () -> Unit = {},
     viewModel: ProductCatalogViewModel = hiltViewModel(),
+    cartViewModel: CartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val cartState by cartViewModel.state.collectAsState()
 
-    when (val currentState = state) {
-        ProductCatalogState.Loading -> LoadingContent()
-        is ProductCatalogState.Error -> ErrorContent(
-            message = currentState.message,
-            onRetry = viewModel::loadProducts,
-        )
-        is ProductCatalogState.Success -> ProductList(
-            items = currentState.items,
-            message = currentState.message,
-            onRefresh = viewModel::refresh,
-            onAddToCart = viewModel::addToCart,
-            onCartClick = onCartClick,
-        )
-    }
+    ProductContent(
+        state = state,
+        cart = cartState.cart,
+        onRetry = viewModel::loadProducts,
+        onRefresh = viewModel::refresh,
+        onAddToCart = viewModel::addToCart,
+        onCartClick = onCartClick,
+    )
 }
 
 @Composable
-private fun LoadingContent() {
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        CircularProgressIndicator()
-    }
-}
-
-@Composable
-private fun ErrorContent(
-    message: String,
+private fun ProductContent(
+    state: ProductCatalogState,
+    cart: Cart,
     onRetry: () -> Unit,
+    onRefresh: () -> Unit,
+    onAddToCart: (ProductCatalogItem) -> Unit,
+    onCartClick: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Text(
-            text = message,
-            color = MaterialTheme.colorScheme.error,
-        )
-        Button(
-            onClick = onRetry,
-            modifier = Modifier.padding(top = 16.dp),
-        ) {
-            Text("Coba lagi")
+    Column(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+        when (state) {
+            ProductCatalogState.Loading -> KasirLoadingState(message = "Memuat produk...")
+            is ProductCatalogState.Error -> KasirErrorState(
+                message = state.message,
+                onRetry = onRetry,
+            )
+            is ProductCatalogState.Success -> ProductList(
+                items = state.items,
+                message = state.message,
+                onRefresh = onRefresh,
+                onAddToCart = onAddToCart,
+                modifier = Modifier.fillMaxSize(),
+            )
         }
+
+        }
+        CartSummaryBar(
+            cart = cart,
+            onCartClick = onCartClick,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -88,103 +108,226 @@ private fun ProductList(
     message: String?,
     onRefresh: () -> Unit,
     onAddToCart: (ProductCatalogItem) -> Unit,
-    onCartClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+
     val numberFormat = remember {
         NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
     }
+    val filteredItems = remember(items, searchQuery) {
+        items.filter { item ->
+            val query = searchQuery.trim()
+            val matchesSearch = query.isBlank() ||
+                item.product.name.contains(query, ignoreCase = true) ||
+                item.product.sku.contains(query, ignoreCase = true)
+            matchesSearch
+        }
+    }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
+        modifier = modifier.padding(horizontal = KasirSpacing.CompactScreenPadding),
+        verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
     ) {
-        Button(
-            onClick = onRefresh,
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Refresh")
-        }
+        KasirTopBar(title = "Kasir")
 
-        Button(
-            onClick = onCartClick,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp),
+        KasirTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            label = "Cari produk atau SKU",
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Buka Cart")
+            Text(
+                text = "${filteredItems.size} produk",
+                style = MaterialTheme.typography.supporting,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            KasirSecondaryButton(
+                text = "Refresh",
+                onClick = onRefresh,
+            )
         }
 
         message?.let { feedback ->
             Text(
                 text = feedback,
-                modifier = Modifier.padding(top = 8.dp),
                 color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.supporting,
             )
         }
 
-        if (items.any { item -> item.product.trackStock && item.stockQuantity == null }) {
-            Text(
-                text = "Stok belum tersedia. Produk tetap dapat dijual offline.",
-                modifier = Modifier.padding(top = 8.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        if (filteredItems.isEmpty()) {
+            KasirEmptyState(
+                message = if (items.isEmpty()) "Belum ada produk" else "Tidak ada produk yang cocok",
+                modifier = Modifier.weight(1f),
             )
-        }
-
-        if (items.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("Belum ada produk")
-            }
         } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 260.dp),
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+                horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+                contentPadding = PaddingValues(bottom = KasirSpacing.ItemGap),
             ) {
                 items(
-                    items = items,
+                    items = filteredItems,
                     key = { item -> item.product.id },
                 ) { item ->
-                    val product = item.product
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Text(
-                            text = product.name,
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text("SKU: ${product.sku}")
-                        Text("Harga: Rp${numberFormat.format(product.price)}")
-                        Text(
-                            if (product.trackStock) {
-                                when (item.stockQuantity) {
-                                    null -> "Stok: Tidak tersedia"
-                                    0 -> "Stok: 0 (Stok habis)"
-                                    else -> "Stok: ${item.stockQuantity}"
-                                }
-                            } else {
-                                "Stok tidak dikelola"
-                            },
-                            color = if (product.trackStock && item.stockQuantity == 0) {
-                                MaterialTheme.colorScheme.error
-                            } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
-                            },
-                        )
-                        Button(
-                            onClick = { onAddToCart(item) },
-                            enabled = product.isActive && item.canAddToCart,
-                        ) {
-                            Text("Tambah ke Cart")
-                        }
-                    }
-                    HorizontalDivider()
+                    ProductCard(
+                        item = item,
+                        numberFormat = numberFormat,
+                        onAddToCart = onAddToCart,
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ProductCard(
+    item: ProductCatalogItem,
+    numberFormat: NumberFormat,
+    onAddToCart: (ProductCatalogItem) -> Unit,
+) {
+    val addEnabled = item.product.isActive && item.canAddToCart
+
+    KasirCard(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = item.product.name,
+            style = MaterialTheme.typography.sectionTitle,
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+        Text(
+            text = "SKU: ${item.product.sku}",
+            style = MaterialTheme.typography.body,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        PriceText(
+            text = "Rp${numberFormat.format(item.product.price)}",
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        StockStatus(item = item)
+        KasirPrimaryButton(
+            text = "Tambah ke Keranjang",
+            onClick = { onAddToCart(item) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = addEnabled,
+        )
+    }
+}
+
+@Composable
+private fun StockStatus(item: ProductCatalogItem) {
+    val badgeTone: StatusBadgeTone
+    val badgeText: String
+    val detailText: String
+
+    when {
+        !item.product.isActive -> {
+            badgeTone = StatusBadgeTone.Error
+            badgeText = "Tidak aktif"
+            detailText = "Produk tidak aktif"
+        }
+        !item.product.trackStock -> {
+            badgeTone = StatusBadgeTone.Neutral
+            badgeText = "Tanpa pelacakan"
+            detailText = "Stok tidak dikelola"
+        }
+        item.stockQuantity == null -> {
+            badgeTone = StatusBadgeTone.Warning
+            badgeText = "Stok belum tersedia"
+            detailText = "Tetap dapat dijual offline"
+        }
+        item.stockQuantity <= 0 -> {
+            badgeTone = StatusBadgeTone.Error
+            badgeText = "Habis"
+            detailText = "Stok: ${item.stockQuantity}"
+        }
+        else -> {
+            badgeTone = StatusBadgeTone.Success
+            badgeText = "Tersedia"
+            detailText = "Stok: ${item.stockQuantity}"
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
+    ) {
+        Text(
+            text = detailText,
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        StatusBadge(
+            text = badgeText,
+            tone = badgeTone,
+        )
+    }
+}
+
+@Composable
+private fun CartSummaryBar(
+    cart: Cart,
+    onCartClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val numberFormat = remember {
+        NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
+    }
+
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 8.dp,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(
+            modifier = Modifier.padding(KasirSpacing.Large),
+            verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(
+                        text = "Keranjang",
+                        style = MaterialTheme.typography.supporting,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = "${cart.totalItems()} item",
+                        style = MaterialTheme.typography.body,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+                PriceText(
+                    text = "Rp${numberFormat.format(cart.totalAmount())}",
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+            }
+            KasirPrimaryButton(
+                text = "Lihat Keranjang",
+                onClick = onCartClick,
+                modifier = Modifier.fillMaxWidth(),
+                enabled = cart.items.isNotEmpty(),
+            )
         }
     }
 }

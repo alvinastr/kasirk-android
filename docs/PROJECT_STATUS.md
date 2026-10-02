@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-10-02 (Phase 4 security hardening closed after automated and manual emulator regression)
+Last verified: 2026-10-02 (Phase 5D Product/Kasir Screen Polish complete after automated and manual emulator validation)
 
 ## Project Overview
 
@@ -641,9 +641,52 @@ Phase 5C changes confined to Home presentation, presentation wiring, shared UI c
 
 No business/domain/repository/data/core behavior changed. Auth/session behavior, tenant/account isolation, outlet/shift persistence, offline/sync behavior, transaction/payment/stock behavior, and existing navigation destinations remain unchanged.
 
+## Phase 5D — Product / Kasir Screen Polish
+
+Status: **COMPLETE — cashier-first Product/Kasir screen verified manually on Small_Phone emulator.**
+
+### Implementation Summary
+
+- Product/Kasir screen now uses a cashier-first workspace layout with local product discovery and persistent cart access.
+- Local presentation-side search supports product name and SKU with case-insensitive matching from the already loaded product list.
+- Product cards present content consistently in this order: product name, SKU, Rupiah price, stock state, and add-to-cart action.
+- Stock presentation respects optional stock tracking:
+  - tracked products show stock count and availability state such as **Tersedia** or **Habis**;
+  - untracked products show **Stok tidak dikelola** / **Tanpa pelacakan** and are not marked out of stock based on numeric stock.
+- Persistent live cart summary shows current cart quantity and total value, and provides **Lihat Keranjang** access.
+- Empty cart action is disabled using the normal design-system disabled button state, and becomes enabled immediately when cart contains at least one item.
+- Category filtering deferred because category names/list are not currently exposed to Product/Kasir presentation state; only product `categoryId` exists.
+
+### Verification
+
+```text
+./gradlew testDebugUnitTest
+PASS
+
+./gradlew assembleDebug
+PASS
+
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=https://example.com/
+PASS
+
+Manual Small_Phone emulator validation
+PASS
+```
+
+Mobile MCP not used. Device validation performed manually.
+
+### Scope Verification
+
+Phase 5D changes are presentation-only and confined to:
+
+- `presentation/product/ProductScreen.kt`
+- `docs/PROJECT_STATUS.md`
+
+No ViewModel, repository, data, domain, cart business logic, stock business logic, offline/sync behavior, authentication/session behavior, API, or database changes were made.
+
 ## Next Milestones
 
-1. Transaction History follow-up UX and receipt review.
+1. Phase 5E: Transaction History follow-up UX and receipt review.
 2. Auth V2 follow-up hardening dan strategi offline PIN.
 3. Printer/receipt printing.
 4. Customer Module.
