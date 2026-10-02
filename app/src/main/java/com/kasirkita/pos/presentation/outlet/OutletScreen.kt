@@ -40,6 +40,7 @@ fun OutletScreen(
         viewModel.events.collect { event ->
             when (event) {
                 is OutletEvent.OutletPersisted -> onOutletSelected(event.outlet)
+                is OutletEvent.OutletSelectionFailed -> Unit  // Error handled by ViewModel state
             }
         }
     }

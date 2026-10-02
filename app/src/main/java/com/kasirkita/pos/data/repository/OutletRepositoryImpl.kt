@@ -30,12 +30,15 @@ class OutletRepositoryImpl @Inject constructor(
     }
 
     override suspend fun selectOutlet(outlet: Outlet) {
-        _selectedOutlet.value = outlet
         withContext(NonCancellable) {
-            val session = authSessionDataStore.getSession()
-            if (session != null) {
-                operationalContextDataStore.saveOutlet(session.tenantId, session.userId, outlet)
+            val session = requireNotNull(authSessionDataStore.getSession()) {
+                "An authenticated session is required to select an outlet"
             }
+            require(outlet.tenantId == session.tenantId) {
+                "Outlet does not belong to the current tenant"
+            }
+            operationalContextDataStore.saveOutlet(session.tenantId, session.userId, outlet)
+            _selectedOutlet.value = outlet
         }
     }
 

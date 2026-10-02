@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -42,6 +43,65 @@ class OutletRepositoryImplTest {
         second.restoreSelectedOutlet()
 
         assertEquals(selected, second.selectedOutlet.value)
+    }
+
+    @Test
+    fun selectOutlet_acceptsOutletFromCurrentTenant() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+        authDataStore.saveSession(session(tenantId = "tenant-current", userId = "user-current"))
+        val repository = OutletRepositoryImpl(FakeOutletApi(), authDataStore, opDataStore)
+        val validOutlet = outlet(id = "outlet-current", tenantId = "tenant-current")
+
+        repository.selectOutlet(validOutlet)
+
+        assertEquals(validOutlet, repository.selectedOutlet.value)
+        assertEquals(validOutlet, opDataStore.getOutlet("tenant-current", "user-current"))
+    }
+
+    @Test
+    fun selectOutlet_rejectsOutletForDifferentTenantAndDoesNotPersist() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+
+        authDataStore.saveSession(session(tenantId = "tenant-current", userId = "user-current"))
+        val repository = OutletRepositoryImpl(FakeOutletApi(), authDataStore, opDataStore)
+        val validOutlet = outlet(id = "outlet-valid", tenantId = "tenant-current")
+        repository.selectOutlet(validOutlet)
+
+        val crossTenantOutlet = outlet(id = "outlet-stale", tenantId = "tenant-other")
+        val result = runCatching { repository.selectOutlet(crossTenantOutlet) }
+
+        assertTrue(result.isFailure)
+        assertEquals(validOutlet, repository.selectedOutlet.value)
+        assertNotEquals(crossTenantOutlet, opDataStore.getOutlet("tenant-current", "user-current"))
+        assertEquals(validOutlet, opDataStore.getOutlet("tenant-current", "user-current"))
+    }
+
+    @Test
+    fun selectOutlet_usesCurrentSessionTenantForValidation() = runBlocking {
+        val authPreferences = InMemoryPreferencesDataStore()
+        val opPreferences = InMemoryPreferencesDataStore()
+        val authDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
+        val opDataStore = OperationalContextDataStore(opPreferences)
+        val repository = OutletRepositoryImpl(FakeOutletApi(), authDataStore, opDataStore)
+
+        authDataStore.saveSession(session(tenantId = "tenant-old", userId = "user-old"))
+        val oldTenantOutlet = outlet(id = "outlet-old", tenantId = "tenant-old")
+        repository.selectOutlet(oldTenantOutlet)
+
+        authDataStore.clearSession()
+        authDataStore.saveSession(session(tenantId = "tenant-current", userId = "user-current"))
+        val rejectedOldTenantOutlet = outlet(id = "outlet-old", tenantId = "tenant-old")
+        val result = runCatching { repository.selectOutlet(rejectedOldTenantOutlet) }
+
+        assertTrue(result.isFailure)
+        assertNull(opDataStore.getOutlet("tenant-current", "user-current"))
+        assertEquals(oldTenantOutlet, opDataStore.getOutlet("tenant-old", "user-old"))
     }
 
     @Test
@@ -168,10 +228,13 @@ class OutletRepositoryImplTest {
     }
 
     private companion object {
-        fun session() = AuthSession(
-            userId = "user-id",
+        fun session(
+            tenantId: String = "tenant-id",
+            userId: String = "user-id",
+        ) = AuthSession(
+            userId = userId,
             userName = "Kasir Utama",
-            tenantId = "tenant-id",
+            tenantId = tenantId,
             role = UserRole.CASHIER,
             outletId = "outlet-id",
             accessToken = "access-token",
@@ -180,9 +243,12 @@ class OutletRepositoryImplTest {
             deviceId = "device-id",
         )
 
-        fun outlet() = Outlet(
-            id = "outlet-id",
-            tenantId = "tenant-id",
+        fun outlet(
+            id: String = "outlet-id",
+            tenantId: String = "tenant-id",
+        ) = Outlet(
+            id = id,
+            tenantId = tenantId,
             name = "Outlet Utama",
             address = null,
             isActive = true,

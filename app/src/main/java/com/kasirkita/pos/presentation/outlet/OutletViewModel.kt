@@ -13,10 +13,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlin.coroutines.cancellation.CancellationException
 import javax.inject.Inject
 
 sealed interface OutletEvent {
     data class OutletPersisted(val outlet: Outlet) : OutletEvent
+    data class OutletSelectionFailed(val message: String) : OutletEvent
 }
 
 @HiltViewModel
@@ -54,8 +56,14 @@ class OutletViewModel @Inject constructor(
 
     fun selectOutlet(outlet: Outlet) {
         viewModelScope.launch {
-            outletRepository.selectOutlet(outlet)
-            _events.emit(OutletEvent.OutletPersisted(outlet))
+            try {
+                outletRepository.selectOutlet(outlet)
+                _events.emit(OutletEvent.OutletPersisted(outlet))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _events.emit(OutletEvent.OutletSelectionFailed(error.message ?: "Gagal memilih outlet"))
+            }
         }
     }
 }
