@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-10-02 (Phase 5E Cart Screen Polish complete after automated and manual Small_Phone emulator validation)
+Last verified: 2026-10-02 (Phase 5F Checkout + Receipt Screen Polish CLOSED after automated and manual Small_Phone emulator validation)
 
 ## Project Overview
 
@@ -729,13 +729,60 @@ Phase 5E changes are presentation-only and confined to:
 
 No ViewModel, repository, domain, data, cart business logic, stock business logic, pricing calculation, checkout/payment logic, offline/sync behavior, authentication/session behavior, API, or database changes were made.
 
+## Phase 5F — Checkout + Receipt Screen Polish
+
+Status: **CLOSED — cashier-first Checkout and Receipt flow verified manually on Small_Phone emulator.**
+
+### Implementation Summary
+
+- Checkout screen now uses a clear payment-completion hierarchy with `KasirTopBar`, order summary, cart item rows, payment method section, cash input section, and bottom completion CTA.
+- Payment/cash/change presentation is explicit: `Uang diterima`, insufficient-cash `Kurang`, and successful `Kembalian` use Indonesian customer-facing labels and the Phase 5B price components.
+- Existing CASH payment method remains unchanged; future translation to "Tunai" is deferred and not a Phase 5F blocker.
+- Receipt screen now presents transaction completion with a clear `Transaksi Berhasil` header, store/outlet/cashier context, readable item rows, totals, payment details, and bottom `Transaksi Baru` CTA.
+- Transaction ID remains available but visually secondary in the receipt footer.
+- Offline/pending-sync presentation is preserved; Checkout still shows queued transaction state without changing queue/sync logic.
+- No new payment/business features were added.
+
+### Verification
+
+```text
+./gradlew testDebugUnitTest
+PASS
+
+./gradlew assembleDebug
+PASS
+
+./gradlew assembleRelease -Pkasirkita.releaseApiBaseUrl=https://example.com/
+PASS
+
+Manual Small_Phone emulator validation
+PASS
+```
+
+Mobile MCP not used. Device validation performed manually.
+
+### Manual Small_Phone Validation Summary
+
+- Checkout renders correctly with clear `Pembayaran` header, readable order summary, CASH method, `Uang diterima`, correct `Kembalian`, and usable `Selesaikan Transaksi` CTA.
+- Receipt completes successfully with clear `Transaksi Berhasil`, store/outlet/cashier context, readable `Kopi Susu` item details, subtotal/total/payment/change correctness, secondary transaction ID, visible `Transaksi Baru` CTA, and verified scroll behavior.
+- No visible clipping, horizontal overflow, or Small_Phone blocker found.
+
+### Scope Verification
+
+Phase 5F changes are presentation-only and confined to:
+
+- `presentation/checkout/CheckoutScreen.kt`
+- `presentation/receipt/ReceiptScreen.kt`
+- `docs/PROJECT_STATUS.md`
+
+No ViewModel, repository, domain, data, transaction calculation, payment calculation, offline queue/sync, idempotency, stock behavior, authentication/session, API, or database/schema changes were made.
+
 ## Next Milestones
 
-1. Phase 5F: Receipt/struk visual polish.
-2. Auth V2 follow-up hardening dan strategi offline PIN.
-3. Printer/receipt printing.
-4. Customer Module.
-5. Reports Dashboard.
+1. Auth V2 follow-up hardening dan strategi offline PIN.
+2. Printer/receipt printing.
+3. Customer Module.
+4. Reports Dashboard.
 
 ## Rules For Future Development
 

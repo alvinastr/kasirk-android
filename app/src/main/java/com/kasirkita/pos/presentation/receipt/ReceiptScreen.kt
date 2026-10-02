@@ -5,26 +5,33 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.domain.model.ReceiptItem
+import com.kasirkita.pos.ui.components.KasirCard
+import com.kasirkita.pos.ui.components.KasirErrorState
+import com.kasirkita.pos.ui.components.KasirLoadingState
+import com.kasirkita.pos.ui.components.KasirPrimaryButton
+import com.kasirkita.pos.ui.components.KasirSecondaryButton
+import com.kasirkita.pos.ui.components.PriceDisplay
+import com.kasirkita.pos.ui.components.PriceText
+import com.kasirkita.pos.ui.theme.KasirSpacing
+import com.kasirkita.pos.ui.theme.body
+import com.kasirkita.pos.ui.theme.sectionTitle
+import com.kasirkita.pos.ui.theme.supporting
 import java.text.NumberFormat
 import java.util.Locale
 
@@ -36,7 +43,7 @@ fun ReceiptScreen(
     val state by viewModel.state.collectAsState()
 
     when (val currentState = state) {
-        ReceiptState.Loading -> ReceiptLoadingContent()
+        ReceiptState.Loading -> KasirLoadingState(message = "Memuat struk...")
 
         is ReceiptState.Error -> ReceiptErrorContent(
             message = currentState.message,
@@ -52,28 +59,6 @@ fun ReceiptScreen(
 }
 
 @Composable
-private fun ReceiptLoadingContent() {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(
-            space = 12.dp,
-            alignment = Alignment.CenterVertically,
-        ),
-    ) {
-        Text(
-            text = "Transaksi berhasil",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        CircularProgressIndicator()
-        Text("Memuat struk...")
-    }
-}
-
-@Composable
 private fun ReceiptErrorContent(
     message: String,
     onRetry: () -> Unit,
@@ -82,33 +67,29 @@ private fun ReceiptErrorContent(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(24.dp),
+            .padding(KasirSpacing.ScreenPadding),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(
-            space = 12.dp,
+            space = KasirSpacing.ItemGap,
             alignment = Alignment.CenterVertically,
         ),
     ) {
-        Text(
-            text = message,
-            style = MaterialTheme.typography.titleLarge,
-        )
-        OutlinedButton(
+        KasirCard {
+            androidx.compose.material3.Text(
+                text = message,
+                style = MaterialTheme.typography.body,
+            )
+        }
+        KasirSecondaryButton(
+            text = "Coba Lagi",
             onClick = onRetry,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp),
-        ) {
-            Text("Coba Lagi")
-        }
-        Button(
+            modifier = Modifier.fillMaxWidth(),
+        )
+        KasirPrimaryButton(
+            text = "Transaksi Baru",
             onClick = onNewTransaction,
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 48.dp),
-        ) {
-            Text("Transaksi Baru")
-        }
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -126,62 +107,93 @@ private fun ReceiptContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(horizontal = KasirSpacing.CompactScreenPadding),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                vertical = KasirSpacing.ItemGap,
+            ),
+            verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
         ) {
             item {
-                Text(
-                    text = "Transaksi berhasil",
-                    modifier = Modifier.padding(top = 16.dp),
-                    style = MaterialTheme.typography.titleLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = "Struk",
-                    style = MaterialTheme.typography.headlineSmall,
-                )
-                Text(receipt.tenant.name, style = MaterialTheme.typography.titleMedium)
-                Text("Outlet: ${receipt.outlet.name}")
-                Text("Kasir: ${receipt.cashier.name}")
-                receipt.customer?.let { customer ->
-                    Text("Customer: ${customer.name}")
-                }
-                Text("Transaction ID: ${receipt.transactionId}")
-                HorizontalDivider(modifier = Modifier.padding(top = 10.dp))
-            }
-
-            items(
-                items = receipt.items,
-                key = ReceiptItem::id,
-            ) { receiptItem ->
-                ReceiptItemRow(
-                    item = receiptItem,
-                    formatMoney = numberFormat::format,
-                )
+                ReceiptHeader(receipt = receipt)
             }
 
             item {
-                HorizontalDivider()
-                ReceiptAmountRow("Subtotal", receipt.subtotal, numberFormat::format)
-                ReceiptAmountRow("Diskon", receipt.discount, numberFormat::format)
-                ReceiptAmountRow("Pajak", receipt.tax, numberFormat::format)
-                ReceiptAmountRow("Total", receipt.total, numberFormat::format)
+                ReceiptItemsSection(items = receipt.items, numberFormat = numberFormat)
+            }
 
-                val payment = receipt.payment
-                Text("Payment method: ${payment?.method ?: "-"}")
-                Text("Cash received: Rp${numberFormat.format(payment?.amount ?: 0L)}")
-                Text("Change: Rp${numberFormat.format(receipt.change ?: 0L)}")
+            item {
+                ReceiptTotalsSection(receipt = receipt, numberFormat = numberFormat)
+            }
+
+            item {
+                ReceiptPaymentSection(receipt = receipt, numberFormat = numberFormat)
+            }
+
+            item {
+                ReceiptFooter(transactionId = receipt.transactionId)
             }
         }
 
-        Button(
+        KasirPrimaryButton(
+            text = "Transaksi Baru",
             onClick = onNewTransaction,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
-                .heightIn(min = 48.dp),
-        ) {
-            Text("Transaksi Baru")
+                .padding(KasirSpacing.Large),
+        )
+    }
+}
+
+@Composable
+private fun ReceiptHeader(receipt: Receipt) {
+    KasirCard(modifier = Modifier.fillMaxWidth()) {
+        androidx.compose.material3.Text(
+            text = "Transaksi Berhasil",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.primary,
+        )
+        androidx.compose.material3.Text(
+            text = receipt.tenant.name,
+            style = MaterialTheme.typography.sectionTitle,
+        )
+        receipt.outlet.address?.let { address ->
+            androidx.compose.material3.Text(
+                text = address,
+                style = MaterialTheme.typography.supporting,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        androidx.compose.material3.Text(
+            text = "Outlet: ${receipt.outlet.name}",
+            style = MaterialTheme.typography.body,
+        )
+        androidx.compose.material3.Text(
+            text = "Kasir: ${receipt.cashier.name}",
+            style = MaterialTheme.typography.body,
+        )
+        receipt.customer?.let { customer ->
+            androidx.compose.material3.Text(
+                text = "Customer: ${customer.name}",
+                style = MaterialTheme.typography.body,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ReceiptItemsSection(
+    items: List<ReceiptItem>,
+    numberFormat: NumberFormat,
+) {
+    KasirCard(modifier = Modifier.fillMaxWidth()) {
+        androidx.compose.material3.Text(
+            text = "Item",
+            style = MaterialTheme.typography.sectionTitle,
+        )
+        HorizontalDivider(modifier = Modifier.padding(vertical = KasirSpacing.Small))
+
+        items.forEach { item ->
+            ReceiptItemRow(item = item, numberFormat = numberFormat)
         }
     }
 }
@@ -189,35 +201,133 @@ private fun ReceiptContent(
 @Composable
 private fun ReceiptItemRow(
     item: ReceiptItem,
-    formatMoney: (Long) -> String,
+    numberFormat: NumberFormat,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = KasirSpacing.Small),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(item.productName, style = MaterialTheme.typography.titleSmall)
-        Text("SKU: ${item.sku}")
+        androidx.compose.material3.Text(
+            text = item.productName,
+            style = MaterialTheme.typography.body,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text("${item.quantity} x Rp${formatMoney(item.unitPrice)}")
-            Text("Rp${formatMoney(item.subtotal)}")
+            androidx.compose.material3.Text(
+                text = "${item.quantity} × Rp${numberFormat.format(item.unitPrice)}",
+                style = MaterialTheme.typography.supporting,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            androidx.compose.material3.Text(
+                text = "Rp${numberFormat.format(item.subtotal)}",
+                style = MaterialTheme.typography.body,
+            )
         }
     }
 }
 
 @Composable
-private fun ReceiptAmountRow(
-    label: String,
-    amount: Long,
-    formatMoney: (Long) -> String,
+private fun ReceiptTotalsSection(
+    receipt: Receipt,
+    numberFormat: NumberFormat,
 ) {
-    Row(
+    KasirCard(modifier = Modifier.fillMaxWidth()) {
+        PriceDisplay(
+            label = "Subtotal",
+            value = "Rp${numberFormat.format(receipt.subtotal)}",
+        )
+        if (receipt.discount > 0L) {
+            PriceDisplay(
+                label = "Diskon",
+                value = "Rp${numberFormat.format(receipt.discount)}",
+            )
+        }
+        if (receipt.tax > 0L) {
+            PriceDisplay(
+                label = "Pajak",
+                value = "Rp${numberFormat.format(receipt.tax)}",
+            )
+        }
+        HorizontalDivider(modifier = Modifier.padding(vertical = KasirSpacing.Small))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            androidx.compose.material3.Text(
+                text = "Total",
+                style = MaterialTheme.typography.sectionTitle,
+            )
+            PriceText(text = "Rp${numberFormat.format(receipt.total)}")
+        }
+    }
+}
+
+@Composable
+private fun ReceiptPaymentSection(
+    receipt: Receipt,
+    numberFormat: NumberFormat,
+) {
+    val payment = receipt.payment
+    KasirCard(modifier = Modifier.fillMaxWidth()) {
+        androidx.compose.material3.Text(
+            text = "Metode pembayaran",
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        androidx.compose.material3.Text(
+            text = payment?.method ?: "-",
+            style = MaterialTheme.typography.titleMedium,
+        )
+
+        if (payment != null) {
+            PriceDisplay(
+                label = "Uang diterima",
+                value = "Rp${numberFormat.format(payment.amount)}",
+            )
+        }
+
+        receipt.change?.let { change ->
+            if (change > 0L) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = KasirSpacing.Small))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    androidx.compose.material3.Text(
+                        text = "Kembalian",
+                        style = MaterialTheme.typography.sectionTitle,
+                    )
+                    PriceText(text = "Rp${numberFormat.format(change)}")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReceiptFooter(transactionId: String) {
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Text(label)
-        Text("Rp${formatMoney(amount)}")
+        androidx.compose.material3.Text(
+            text = "ID Transaksi",
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        androidx.compose.material3.Text(
+            text = transactionId,
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
