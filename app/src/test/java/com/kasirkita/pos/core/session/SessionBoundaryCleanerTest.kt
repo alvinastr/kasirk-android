@@ -166,6 +166,7 @@ class SessionBoundaryCleanerTest {
     private class FakeShiftApi : ShiftApi {
         override suspend fun getCurrentShift(): Response<com.kasirkita.pos.data.model.ShiftResponse> = error("Not used")
         override suspend fun openShift(request: com.kasirkita.pos.data.model.OpenShiftRequest): Response<com.kasirkita.pos.data.model.ShiftResponse> = error("Not used")
+        override suspend fun getShiftSummary(shiftId: String): Response<com.kasirkita.pos.data.model.ShiftSummaryResponse> = error("Not used")
         override suspend fun closeShift(shiftId: String, request: com.kasirkita.pos.data.model.CloseShiftRequest): Response<com.kasirkita.pos.data.model.ShiftResponse> = error("Not used")
     }
 

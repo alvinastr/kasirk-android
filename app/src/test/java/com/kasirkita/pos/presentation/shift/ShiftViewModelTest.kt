@@ -85,11 +85,11 @@ class ShiftViewModelTest {
             return getCurrentShiftResult
         }
 
-        override suspend fun openShift(outletId: String, openingCash: Long): Result<Shift> =
-            error("Not used")
+        override suspend fun openShift(outletId: String): Result<Shift> = error("Not used")
 
-        override suspend fun closeShift(shiftId: String, closingCash: Long): Result<Shift> =
-            error("Not used")
+        override suspend fun closeShift(shiftId: String): Result<Shift> = error("Not used")
+
+        override suspend fun getShiftSummary(shiftId: String): Result<com.kasirkita.pos.domain.model.ShiftSummary> = error("Not used")
 
         override suspend fun clearCurrentShift(tenantId: String?, userId: String?) {
             shiftState.value = null

@@ -85,10 +85,18 @@ class ProductCatalogViewModelTest {
         private val refreshResult: Result<List<Product>>,
         private val refreshGate: CompletableDeferred<Unit>? = null,
     ) : ProductRepository {
-        override suspend fun getProducts(): Result<List<Product>> =
+        override suspend fun getProducts(
+            query: String?,
+            categoryId: String?,
+            includeModifiers: Boolean?,
+        ): Result<List<Product>> =
             Result.success(cachedProducts)
 
-        override suspend fun refreshProducts(): Result<List<Product>> {
+        override suspend fun refreshProducts(
+            query: String?,
+            categoryId: String?,
+            includeModifiers: Boolean?,
+        ): Result<List<Product>> {
             refreshGate?.await()
             return refreshResult
         }

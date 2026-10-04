@@ -3,6 +3,7 @@ package com.kasirkita.pos.data.api
 import com.kasirkita.pos.data.model.CloseShiftRequest
 import com.kasirkita.pos.data.model.OpenShiftRequest
 import com.kasirkita.pos.data.model.ShiftResponse
+import com.kasirkita.pos.data.model.ShiftSummaryResponse
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -19,9 +20,14 @@ interface ShiftApi {
         @Body request: OpenShiftRequest,
     ): Response<ShiftResponse>
 
+    @GET("shifts/{id}/summary")
+    suspend fun getShiftSummary(
+        @Path("id") shiftId: String,
+    ): Response<ShiftSummaryResponse>
+
     @POST("shifts/{id}/close")
     suspend fun closeShift(
         @Path("id") shiftId: String,
-        @Body request: CloseShiftRequest,
+        @Body request: CloseShiftRequest = CloseShiftRequest(),
     ): Response<ShiftResponse>
 }

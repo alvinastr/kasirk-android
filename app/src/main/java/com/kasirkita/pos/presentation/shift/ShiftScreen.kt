@@ -405,7 +405,8 @@ private fun ShiftValue(
     }
 }
 
-internal fun formatShiftMoney(amount: Long): String {
+internal fun formatShiftMoney(amount: Long?): String {
+    if (amount == null) return "—"
     val formatter = NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
     return if (amount < 0) {
         "-Rp${formatter.format(-amount)}"

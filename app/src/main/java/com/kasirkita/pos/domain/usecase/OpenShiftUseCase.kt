@@ -7,11 +7,10 @@ import javax.inject.Inject
 class OpenShiftUseCase @Inject constructor(
     private val repository: ShiftRepository,
 ) {
+    suspend operator fun invoke(outletId: String): Result<Shift> = repository.openShift(outletId)
+
     suspend operator fun invoke(
         outletId: String,
         openingCash: Long,
-    ): Result<Shift> = repository.openShift(
-        outletId = outletId,
-        openingCash = openingCash,
-    )
+    ): Result<Shift> = repository.openShift(outletId, openingCash)
 }

@@ -11,6 +11,7 @@ import com.kasirkita.pos.data.api.ShiftApi
 import com.kasirkita.pos.data.model.CloseShiftRequest
 import com.kasirkita.pos.data.model.OpenShiftRequest
 import com.kasirkita.pos.data.model.ShiftResponse
+import com.kasirkita.pos.data.model.ShiftSummaryResponse
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.UserRole
 import kotlinx.coroutines.flow.Flow
@@ -57,7 +58,7 @@ class ShiftRepositoryImplTest {
 
         assertEquals(SHIFT_ID, shift?.id)
         assertEquals(OUTLET_ID, shift?.outletId)
-        assertEquals(50_000L, shift?.openingCash)
+        assertNull(shift?.openingCash)
         assertEquals(shift, repository.currentShift.value)
     }
 
@@ -83,10 +84,10 @@ class ShiftRepositoryImplTest {
         val api = FakeShiftApi(openResponse = Response.success(openShiftResponse()))
         val repository = repositoryWithSession(api)
 
-        val shift = repository.openShift(OUTLET_ID, 50_000L).getOrThrow()
+        val shift = repository.openShift(OUTLET_ID).getOrThrow()
 
         assertEquals(
-            OpenShiftRequest(OUTLET_ID, 50_000L),
+            OpenShiftRequest(OUTLET_ID),
             api.lastOpenRequest,
         )
         assertEquals("OPEN", shift.status)
@@ -94,7 +95,7 @@ class ShiftRepositoryImplTest {
     }
 
     @Test
-    fun closeShift_returnsReconciliationAndClearsCurrentShift() = runBlocking {
+    fun closeShift_returnsShiftSnapshotAndClearsCurrentShift() = runBlocking {
         val api = FakeShiftApi(
             currentResponse = Response.success(openShiftResponse()),
             closeResponse = Response.success(closedShiftResponse()),
@@ -102,12 +103,10 @@ class ShiftRepositoryImplTest {
         val repository = repositoryWithSession(api)
         repository.getCurrentShift().getOrThrow()
 
-        val shift = repository.closeShift(SHIFT_ID, 200_000L).getOrThrow()
+        val shift = repository.closeShift(SHIFT_ID).getOrThrow()
 
         assertEquals(SHIFT_ID, api.lastClosedShiftId)
-        assertEquals(CloseShiftRequest(200_000L), api.lastCloseRequest)
-        assertEquals(210_000L, shift.expectedCash)
-        assertEquals(-10_000L, shift.difference)
+        assertEquals(CloseShiftRequest(), api.lastCloseRequest)
         assertEquals("CLOSED", shift.status)
         assertNull(repository.currentShift.value)
     }
@@ -157,7 +156,7 @@ class ShiftRepositoryImplTest {
         assertEquals(SHIFT_ID, restored?.id)
         assertEquals(OUTLET_ID, restored?.outletId)
         assertEquals("OPEN", restored?.status)
-        assertEquals(50_000L, restored?.openingCash)
+        assertNull(restored?.openingCash)
     }
 
     @Test
@@ -243,7 +242,7 @@ class ShiftRepositoryImplTest {
         )
         val first = ShiftRepositoryImpl(api, authDataStore, opDataStore)
         first.getCurrentShift().getOrThrow()
-        first.closeShift(SHIFT_ID, 200_000L).getOrThrow()
+        first.closeShift(SHIFT_ID).getOrThrow()
 
         val second = ShiftRepositoryImpl(
             FakeShiftApi(currentFailure = IOException("offline")),
@@ -294,10 +293,8 @@ class ShiftRepositoryImplTest {
         val api = FakeShiftApi(openResponse = Response.success(openShiftResponse()))
         val repository = ShiftRepositoryImpl(api, authDataStore, opDataStore)
 
-        repository.openShift(OUTLET_ID, 50_000L).getOrThrow()
-        // openShift completes after DataStore write (NonCancellable ensures it)
+        repository.openShift(OUTLET_ID).getOrThrow()
 
-        // Simulate process death by creating new instances
         val newAuthDataStore = AuthSessionDataStoreTestHelper.createTestStore(authPreferences)
         val newOpDataStore = OperationalContextDataStore(opPreferences)
         val secondRepository = ShiftRepositoryImpl(
@@ -308,22 +305,53 @@ class ShiftRepositoryImplTest {
 
         secondRepository.restoreCurrentShift(expectedOutletId = OUTLET_ID)
 
-        // Verify shift was persisted and can be restored
         val restored = secondRepository.currentShift.value
         assertEquals(SHIFT_ID, restored?.id)
         assertEquals(OUTLET_ID, restored?.outletId)
         assertEquals("OPEN", restored?.status)
     }
 
+    @Test
+    fun getShiftSummary_mapsNestedPartiesTotalsAndProducts() = runBlocking {
+        val response = ShiftSummaryResponse(
+            shiftId = SHIFT_ID,
+            status = "CLOSED",
+            outlet = com.kasirkita.pos.data.model.ShiftSummaryPartyResponse(OUTLET_ID, "Outlet A"),
+            cashier = com.kasirkita.pos.data.model.ShiftSummaryPartyResponse("user-id", "Kasir A"),
+            openedAt = "2026-09-24T08:00:00.000Z",
+            closedAt = "2026-09-24T16:00:00.000Z",
+            generatedAt = "2026-09-24T16:01:00.000Z",
+            transactionCount = 2,
+            totals = com.kasirkita.pos.data.model.ShiftSummaryTotalsResponse(30_000L, 10_000L, 20_000L),
+            products = listOf(com.kasirkita.pos.data.model.ShiftSummaryProductResponse("product-id", "Kopi", 3)),
+        )
+        val api = FakeShiftApi(summaryResponse = Response.success(response))
+
+        val summary = repositoryWithSession(api).getShiftSummary(SHIFT_ID).getOrThrow()
+
+        assertEquals(SHIFT_ID, api.lastSummaryShiftId)
+        assertEquals("Outlet A", summary.outlet.name)
+        assertEquals("user-id", summary.cashier.id)
+        assertEquals("2026-09-24T16:01:00.000Z", summary.generatedAt)
+        assertEquals(2, summary.transactionCount)
+        assertEquals(30_000L, summary.totals.sales)
+        assertEquals(10_000L, summary.totals.cash)
+        assertEquals(20_000L, summary.totals.qris)
+        assertEquals("Kopi", summary.products.single().productName)
+        assertEquals(3, summary.products.single().quantity)
+    }
+
     private class FakeShiftApi(
         private val currentResponse: Response<ShiftResponse> = Response.success(openShiftResponse()),
         private val openResponse: Response<ShiftResponse> = Response.success(openShiftResponse()),
         private val closeResponse: Response<ShiftResponse> = Response.success(closedShiftResponse()),
+        private val summaryResponse: Response<ShiftSummaryResponse>? = null,
         private val currentFailure: Throwable? = null,
     ) : ShiftApi {
         var lastOpenRequest: OpenShiftRequest? = null
         var lastClosedShiftId: String? = null
         var lastCloseRequest: CloseShiftRequest? = null
+        var lastSummaryShiftId: String? = null
 
         override suspend fun getCurrentShift(): Response<ShiftResponse> {
             currentFailure?.let { throw it }
@@ -333,6 +361,24 @@ class ShiftRepositoryImplTest {
         override suspend fun openShift(request: OpenShiftRequest): Response<ShiftResponse> {
             lastOpenRequest = request
             return openResponse
+        }
+
+        override suspend fun getShiftSummary(shiftId: String): Response<ShiftSummaryResponse> {
+            lastSummaryShiftId = shiftId
+            return summaryResponse ?: Response.success(
+                com.kasirkita.pos.data.model.ShiftSummaryResponse(
+                    shiftId = shiftId,
+                    status = "CLOSED",
+                    outlet = com.kasirkita.pos.data.model.ShiftSummaryPartyResponse("outlet-id", "Outlet"),
+                    cashier = com.kasirkita.pos.data.model.ShiftSummaryPartyResponse("user-id", "Kasir"),
+                    openedAt = "2026-09-24T08:00:00.000Z",
+                    closedAt = "2026-09-24T16:00:00.000Z",
+                    generatedAt = "2026-09-24T16:01:00.000Z",
+                    transactionCount = 0,
+                    totals = com.kasirkita.pos.data.model.ShiftSummaryTotalsResponse(0L, 0L, 0L),
+                    products = emptyList(),
+                )
+            )
         }
 
         override suspend fun closeShift(
@@ -381,7 +427,7 @@ class ShiftRepositoryImplTest {
             shiftId = SHIFT_ID,
             outletId = OUTLET_ID,
             userId = "user-id",
-            openingCash = 50_000L,
+            openingCash = null,
             closingCash = null,
             expectedCash = null,
             difference = null,
@@ -391,9 +437,6 @@ class ShiftRepositoryImplTest {
         )
 
         fun closedShiftResponse() = openShiftResponse().copy(
-            closingCash = 200_000L,
-            expectedCash = 210_000L,
-            difference = -10_000L,
             status = "CLOSED",
             closedAt = "2026-09-24T16:00:00.000Z",
         )

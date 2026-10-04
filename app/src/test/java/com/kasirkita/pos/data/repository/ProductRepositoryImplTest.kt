@@ -191,6 +191,33 @@ class ProductRepositoryImplTest {
         assertEquals(0, api.getProductsCallCount)
     }
 
+    @Test
+    fun filteredQuery_bypassesLegacyCacheWithoutReplacingIt() = runBlocking {
+        val cached = sampleResponse(trackStock = true).toEntity()
+        dao.products += cached
+        api.productsResponse = listOf(sampleResponse(trackStock = false).copy(id = "filtered", stock = 7))
+
+        val products = repository.getProducts("kopi", CATEGORY_ID, true).getOrThrow()
+
+        assertEquals(listOf("filtered"), products.map { it.id })
+        assertEquals(Triple("kopi", CATEGORY_ID, true), api.lastQuery)
+        assertEquals(7, products.single().stock)
+        assertEquals(listOf(cached), dao.products)
+    }
+
+    @Test
+    fun includeModifiersQuery_bypassesLegacyCacheWithoutReplacingIt() = runBlocking {
+        val cached = sampleResponse(trackStock = true).toEntity()
+        dao.products += cached
+        api.productsResponse = listOf(sampleResponse(trackStock = true).copy(id = "with-modifiers"))
+
+        val products = repository.getProducts(includeModifiers = true).getOrThrow()
+
+        assertEquals(listOf("with-modifiers"), products.map { it.id })
+        assertEquals(Triple(null, null, true), api.lastQuery)
+        assertEquals(listOf(cached), dao.products)
+    }
+
     private fun sampleResponse(
         trackStock: Boolean,
         price: Long = 15_000L,
@@ -219,9 +246,15 @@ class ProductRepositoryImplTest {
         var lastCreateRequest: CreateProductRequest? = null
         var lastUpdateProductId: String? = null
         var lastUpdateRequest: JsonObject? = null
+        var lastQuery: Triple<String?, String?, Boolean?>? = null
 
-        override suspend fun getProducts(): List<ProductResponse> {
+        override suspend fun getProducts(
+            query: String?,
+            categoryId: String?,
+            includeModifiers: Boolean?
+        ): List<ProductResponse> {
             getProductsCallCount++
+            lastQuery = Triple(query, categoryId, includeModifiers)
             getProductsFailure?.let { throwable -> throw throwable }
             return productsResponse
         }

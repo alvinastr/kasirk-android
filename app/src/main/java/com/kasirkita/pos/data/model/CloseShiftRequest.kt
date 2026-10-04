@@ -1,8 +1,6 @@
 package com.kasirkita.pos.data.model
 
-import com.google.gson.annotations.SerializedName
-
-data class CloseShiftRequest(
-    @SerializedName("closing_cash")
-    val closingCash: Long,
-)
+class CloseShiftRequest {
+    override fun equals(other: Any?): Boolean = other is CloseShiftRequest
+    override fun hashCode(): Int = 0
+}

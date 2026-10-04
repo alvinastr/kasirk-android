@@ -105,7 +105,10 @@ class OperationalContextDataStore internal constructor(
                     preferences[shiftKey(tenantId, userId, "id")] = shift.id
                     preferences[shiftKey(tenantId, userId, "outlet_id")] = shift.outletId
                     preferences[shiftKey(tenantId, userId, "user_id")] = shift.userId
-                    preferences[shiftLongKey(tenantId, userId, "opening_cash")] = shift.openingCash
+                    val openingCashKey = shiftLongKey(tenantId, userId, "opening_cash")
+                    shift.openingCash
+                        ?.let { preferences[openingCashKey] = it }
+                        ?: preferences.remove(openingCashKey)
                     preferences[shiftKey(tenantId, userId, "status")] = shift.status
                     preferences[shiftKey(tenantId, userId, "opened_at")] = shift.openedAt
                 }
@@ -122,7 +125,7 @@ class OperationalContextDataStore internal constructor(
         val id = preferences[shiftKey(tenantId, userId, "id")] ?: return null
         val outletId = preferences[shiftKey(tenantId, userId, "outlet_id")] ?: return null
         val shiftUserId = preferences[shiftKey(tenantId, userId, "user_id")] ?: return null
-        val openingCash = preferences[shiftLongKey(tenantId, userId, "opening_cash")] ?: return null
+        val openingCash = preferences[shiftLongKey(tenantId, userId, "opening_cash")]
         val status = preferences[shiftKey(tenantId, userId, "status")] ?: return null
         val openedAt = preferences[shiftKey(tenantId, userId, "opened_at")] ?: return null
 

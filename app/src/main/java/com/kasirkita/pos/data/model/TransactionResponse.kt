@@ -27,6 +27,10 @@ data class TransactionResponse(
     val userId: String,
     @SerializedName("customer_id")
     val customerId: String?,
+    @SerializedName("cashier_session_id")
+    val cashierSessionId: String? = null,
+    @SerializedName("shift_id")
+    val shiftId: String? = null,
     val status: String,
     val subtotal: Long,
     val discount: Long,
@@ -42,6 +46,8 @@ fun TransactionResponse.toDomain(): Transaction = Transaction(
     outletId = outletId,
     userId = userId,
     customerId = customerId,
+    cashierSessionId = cashierSessionId,
+    shiftId = shiftId,
     status = status,
     subtotal = subtotal,
     discount = discount,

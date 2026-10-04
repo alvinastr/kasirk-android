@@ -1,6 +1,7 @@
 package com.kasirkita.pos.data.model
 
 import com.google.gson.annotations.SerializedName
+import com.kasirkita.pos.domain.model.ModifierSnapshot
 import com.kasirkita.pos.domain.model.Payment
 import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.domain.model.ReceiptCashier
@@ -57,12 +58,32 @@ data class ReceiptItemResponse(
     @SerializedName("product_id")
     val productId: String,
     @SerializedName("product_name")
-    val productName: String,
-    val sku: String,
+    val productName: String?,
+    val sku: String?,
     val quantity: Int,
     @SerializedName("unit_price")
     val unitPrice: Long,
     val subtotal: Long,
+    @SerializedName("base_price")
+    val basePrice: Long? = null,
+    @SerializedName("effective_price")
+    val effectivePrice: Long? = null,
+    val note: String? = null,
+    val modifiers: List<ReceiptModifierResponse>? = null,
+)
+
+data class ReceiptModifierResponse(
+    val id: String,
+    @SerializedName("modifier_group_id")
+    val modifierGroupId: String?,
+    @SerializedName("modifier_option_id")
+    val modifierOptionId: String?,
+    @SerializedName("group_name")
+    val groupName: String,
+    @SerializedName("option_name")
+    val optionName: String,
+    @SerializedName("price_delta")
+    val priceDelta: Long,
 )
 
 data class ReceiptPaymentResponse(
@@ -70,6 +91,10 @@ data class ReceiptPaymentResponse(
     val method: String,
     val status: String,
     val amount: Long,
+    @SerializedName("amount_received")
+    val amountReceived: Long? = null,
+    @SerializedName("change_amount")
+    val changeAmount: Long? = null,
     val provider: String?,
     @SerializedName("provider_reference")
     val providerReference: String?,
@@ -115,11 +140,26 @@ fun ReceiptResponse.toDomain(): Receipt = Receipt(
         ReceiptItem(
             id = item.itemId,
             productId = item.productId,
-            productName = item.productName,
-            sku = item.sku,
+            productName = item.productName.orEmpty(),
+            sku = item.sku.orEmpty(),
             quantity = item.quantity,
             unitPrice = item.unitPrice,
             subtotal = item.subtotal,
+            productNameSnapshot = item.productName,
+            skuSnapshot = item.sku,
+            basePriceSnapshot = item.basePrice,
+            effectivePriceSnapshot = item.effectivePrice,
+            note = item.note,
+            modifierSnapshots = item.modifiers.orEmpty().map { modifier ->
+                ModifierSnapshot(
+                    id = modifier.id,
+                    modifierGroupId = modifier.modifierGroupId,
+                    modifierOptionId = modifier.modifierOptionId,
+                    groupName = modifier.groupName,
+                    optionName = modifier.optionName,
+                    priceDelta = modifier.priceDelta,
+                )
+            },
         )
     },
     payment = payment?.let {
@@ -129,6 +169,8 @@ fun ReceiptResponse.toDomain(): Receipt = Receipt(
             status = it.status,
             amount = it.amount,
             paidAt = it.paidAt,
+            amountReceived = it.amountReceived,
+            changeAmount = it.changeAmount,
         )
     },
     subtotal = totals.subtotal,

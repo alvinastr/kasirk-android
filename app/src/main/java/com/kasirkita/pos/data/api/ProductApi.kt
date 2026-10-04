@@ -8,11 +8,16 @@ import retrofit2.http.GET
 import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
+import retrofit2.http.Query
 
 interface ProductApi {
 
     @GET("products")
-    suspend fun getProducts(): List<ProductResponse>
+    suspend fun getProducts(
+        @Query("q") query: String? = null,
+        @Query("category_id") categoryId: String? = null,
+        @Query("include_modifiers") includeModifiers: Boolean? = null
+    ): List<ProductResponse>
 
     @POST("products")
     suspend fun createProduct(

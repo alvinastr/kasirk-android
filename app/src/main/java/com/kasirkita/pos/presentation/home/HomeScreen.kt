@@ -424,9 +424,9 @@ private fun LogoutSection(
 }
 
 private fun formatRupiah(
-    amount: Long,
+    amount: Long?,
     numberFormat: NumberFormat,
-): String = "Rp${numberFormat.format(amount)}"
+): String = if (amount == null) "—" else "Rp${numberFormat.format(amount)}"
 
 private fun tryFormatOpenedAt(isoTimestamp: String?): String? {
     if (isoTimestamp.isNullOrBlank()) return null

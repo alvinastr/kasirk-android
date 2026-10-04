@@ -4,6 +4,8 @@ import com.kasirkita.pos.data.api.TransactionApi
 import com.kasirkita.pos.data.model.TransactionDetailResponse
 import com.kasirkita.pos.data.model.createTransactionRequest
 import com.kasirkita.pos.data.model.toDomain
+import com.kasirkita.pos.data.model.toNetwork
+import com.kasirkita.pos.domain.model.V1TransactionRequest
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.Transaction
 import com.kasirkita.pos.domain.repository.TransactionRepository
@@ -28,6 +30,14 @@ class TransactionRepositoryImpl @Inject constructor(
         transactionId: String,
     ): Result<Transaction> = runCatching {
         transactionApi.getTransactionDetail(transactionId).toDomain()
+    }
+
+    override suspend fun createV1Transaction(
+        request: V1TransactionRequest,
+    ): Result<Transaction> = runCatching {
+        val response = transactionApi.createV1Transaction(request.toNetwork())
+        if (!response.isSuccessful) throw HttpException(response)
+        response.requireBody().toDomain()
     }
 
     override suspend fun createTransaction(

@@ -8,6 +8,7 @@ import com.kasirkita.pos.data.model.CreateProductRequest
 import com.kasirkita.pos.data.model.ProductResponse
 import com.kasirkita.pos.data.model.UpdateProductRequest
 import com.kasirkita.pos.data.model.toJsonObject
+import com.kasirkita.pos.data.model.toDomain as modifierGroupToDomain
 import com.kasirkita.pos.domain.model.Product
 import com.kasirkita.pos.domain.repository.ProductRepository
 import javax.inject.Inject
@@ -20,18 +21,32 @@ class ProductRepositoryImpl @Inject constructor(
     private val authSessionDataStore: AuthSessionDataStore,
 ) : ProductRepository {
 
-    override suspend fun getProducts(): Result<List<Product>> = runCatching {
+    override suspend fun getProducts(
+        query: String?,
+        categoryId: String?,
+        includeModifiers: Boolean?
+    ): Result<List<Product>> = runCatching {
         val tenantId = requireTenantId()
-        val cachedProducts = localDataSource.getProducts(tenantId)
-        if (cachedProducts.isNotEmpty()) {
-            cachedProducts.map { it.toDomain() }
+        val isFiltered = query != null || categoryId != null || includeModifiers != null
+
+        if (isFiltered) {
+            fetchAndCacheProducts(tenantId, query, categoryId, includeModifiers)
         } else {
-            fetchAndCacheProducts(tenantId)
+            val cachedProducts = localDataSource.getProducts(tenantId)
+            if (cachedProducts.isNotEmpty()) {
+                cachedProducts.map { it.toDomain() }
+            } else {
+                fetchAndCacheProducts(tenantId, query, categoryId, includeModifiers)
+            }
         }
     }
 
-    override suspend fun refreshProducts(): Result<List<Product>> = runCatching {
-        fetchAndCacheProducts(requireTenantId())
+    override suspend fun refreshProducts(
+        query: String?,
+        categoryId: String?,
+        includeModifiers: Boolean?
+    ): Result<List<Product>> = runCatching {
+        fetchAndCacheProducts(requireTenantId(), query, categoryId, includeModifiers)
     }
 
     override suspend fun createProduct(
@@ -84,13 +99,28 @@ class ProductRepositoryImpl @Inject constructor(
         ).toEntity().requireTenant(tenantId).toDomain()
     }
 
-    private suspend fun fetchAndCacheProducts(tenantId: String): List<Product> {
-        val remoteProducts = productApi.getProducts()
+    private suspend fun fetchAndCacheProducts(
+        tenantId: String,
+        query: String? = null,
+        categoryId: String? = null,
+        includeModifiers: Boolean? = null
+    ): List<Product> {
+        val remoteProducts = productApi.getProducts(
+            query = query,
+            categoryId = categoryId,
+            includeModifiers = includeModifiers
+        )
         val entities = remoteProducts.map { response ->
             response.toEntity().requireTenant(tenantId)
         }
-        localDataSource.saveProducts(tenantId, entities)
-        return entities.map { it.toDomain() }
+
+        if (query == null && categoryId == null && includeModifiers == null) {
+            localDataSource.saveProducts(tenantId, entities)
+        }
+
+        return remoteProducts.map { response ->
+            response.toDomain()
+        }
     }
 
     private suspend fun requireTenantId(): String = authSessionDataStore
@@ -119,6 +149,22 @@ internal fun ProductResponse.toEntity(): ProductEntity = ProductEntity(
     createdAt = createdAt,
 )
 
+internal fun ProductResponse.toDomain(): Product = Product(
+    id = id,
+    tenantId = tenantId,
+    categoryId = categoryId,
+    name = name,
+    sku = sku,
+    price = price,
+    cost = cost,
+    minimumStock = minimumStock,
+    trackStock = trackStock,
+    isActive = isActive,
+    createdAt = createdAt,
+    stock = stock,
+    modifierGroups = modifierGroups?.map { it.modifierGroupToDomain(tenantId) } ?: emptyList()
+)
+
 internal fun ProductEntity.toDomain(): Product = Product(
     id = id,
     tenantId = tenantId,
@@ -131,4 +177,6 @@ internal fun ProductEntity.toDomain(): Product = Product(
     trackStock = trackStock,
     isActive = isActive,
     createdAt = createdAt,
+    stock = null,
+    modifierGroups = emptyList()
 )

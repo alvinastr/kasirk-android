@@ -6,4 +6,6 @@ data class Payment(
     val status: String,
     val amount: Long,
     val paidAt: String?,
+    val amountReceived: Long? = null,
+    val changeAmount: Long? = null,
 )

@@ -3,6 +3,7 @@ package com.kasirkita.pos.data.api
 import com.kasirkita.pos.data.model.CreateTransactionRequest
 import com.kasirkita.pos.data.model.TransactionDetailResponse
 import com.kasirkita.pos.data.model.TransactionsResponse
+import com.kasirkita.pos.data.model.V1CreateTransactionRequest
 import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
@@ -15,6 +16,11 @@ interface TransactionApi {
     @POST("transactions")
     suspend fun createTransaction(
         @Body request: CreateTransactionRequest,
+    ): Response<TransactionDetailResponse>
+
+    @POST("transactions")
+    suspend fun createV1Transaction(
+        @Body request: V1CreateTransactionRequest,
     ): Response<TransactionDetailResponse>
 
     @GET("transactions")

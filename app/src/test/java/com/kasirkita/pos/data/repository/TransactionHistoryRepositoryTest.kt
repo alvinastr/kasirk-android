@@ -8,6 +8,7 @@ import com.kasirkita.pos.data.model.TransactionItemResponse
 import com.kasirkita.pos.data.model.TransactionResponse
 import com.kasirkita.pos.data.model.TransactionsMetaResponse
 import com.kasirkita.pos.data.model.TransactionsResponse
+import com.kasirkita.pos.data.model.V1CreateTransactionRequest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
@@ -87,6 +88,10 @@ class TransactionHistoryRepositoryTest {
             transactionsFailure?.let { throw it }
             return transactionsResponse
         }
+
+        override suspend fun createV1Transaction(
+            request: V1CreateTransactionRequest,
+        ): Response<TransactionDetailResponse> = Response.success(detailResponse)
 
         override suspend fun getTransactionDetail(
             transactionId: String,

@@ -11,7 +11,7 @@ data class ShiftResponse(
     @SerializedName("user_id")
     val userId: String,
     @SerializedName("opening_cash")
-    val openingCash: Long,
+    val openingCash: Long? = null,
     @SerializedName("closing_cash")
     val closingCash: Long?,
     @SerializedName("expected_cash")

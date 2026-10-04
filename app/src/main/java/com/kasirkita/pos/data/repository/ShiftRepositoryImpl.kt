@@ -6,8 +6,10 @@ import com.kasirkita.pos.data.api.ShiftApi
 import com.kasirkita.pos.data.model.CloseShiftRequest
 import com.kasirkita.pos.data.model.OpenShiftRequest
 import com.kasirkita.pos.data.model.ShiftResponse
+import com.kasirkita.pos.data.model.ShiftSummaryResponse
 import com.kasirkita.pos.data.model.toDomain
 import com.kasirkita.pos.domain.model.Shift
+import com.kasirkita.pos.domain.model.ShiftSummary
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -47,16 +49,10 @@ class ShiftRepositoryImpl @Inject constructor(
         return result
     }
 
-    override suspend fun openShift(
-        outletId: String,
-        openingCash: Long,
-    ): Result<Shift> {
+    override suspend fun openShift(outletId: String): Result<Shift> {
         val result = runCatching {
             val response = shiftApi.openShift(
-                OpenShiftRequest(
-                    outletId = outletId,
-                    openingCash = openingCash,
-                ),
+                OpenShiftRequest(outletId = outletId),
             )
             if (!response.isSuccessful) throw HttpException(response)
             response.requireBody().toDomain()
@@ -69,14 +65,11 @@ class ShiftRepositoryImpl @Inject constructor(
         return result
     }
 
-    override suspend fun closeShift(
-        shiftId: String,
-        closingCash: Long,
-    ): Result<Shift> {
+    override suspend fun closeShift(shiftId: String): Result<Shift> {
         val result = runCatching {
             val response = shiftApi.closeShift(
                 shiftId = shiftId,
-                request = CloseShiftRequest(closingCash = closingCash),
+                request = CloseShiftRequest(),
             )
             if (!response.isSuccessful) throw HttpException(response)
             response.requireBody().toDomain()
@@ -87,6 +80,14 @@ class ShiftRepositoryImpl @Inject constructor(
             persistShiftState(null)
         }
         return result
+    }
+
+    override suspend fun getShiftSummary(shiftId: String): Result<ShiftSummary> {
+        return runCatching {
+            val response = shiftApi.getShiftSummary(shiftId)
+            if (!response.isSuccessful) throw HttpException(response)
+            response.requireSummaryBody().toDomain()
+        }
     }
 
     override suspend fun clearCurrentShift(tenantId: String?, userId: String?) {
@@ -139,6 +140,9 @@ class ShiftRepositoryImpl @Inject constructor(
 
     private fun Response<ShiftResponse>.requireBody(): ShiftResponse =
         body() ?: error("Shift response body is empty")
+
+    private fun Response<ShiftSummaryResponse>.requireSummaryBody(): ShiftSummaryResponse =
+        body() ?: error("Shift summary response body is empty")
 
     private companion object {
         const val HTTP_NOT_FOUND = 404

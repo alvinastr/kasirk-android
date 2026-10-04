@@ -20,4 +20,7 @@ data class ProductResponse(
     val isActive: Boolean,
     @SerializedName("created_at")
     val createdAt: String,
+    val stock: Int? = null,
+    @SerializedName("modifier_groups")
+    val modifierGroups: List<ModifierGroupResponse>? = null
 )
