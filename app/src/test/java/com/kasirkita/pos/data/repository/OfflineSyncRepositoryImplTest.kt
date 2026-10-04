@@ -5,6 +5,8 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import com.google.gson.GsonBuilder
+import com.google.gson.JsonParser
+
 import com.kasirkita.pos.core.database.dao.OfflineTransactionDao
 import com.kasirkita.pos.core.database.entity.OfflineTransactionEntity
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
@@ -17,7 +19,11 @@ import com.kasirkita.pos.data.model.SyncTransactionResult
 import com.kasirkita.pos.data.model.SyncTransactionsRequest
 import com.kasirkita.pos.data.model.SyncTransactionsResponse
 import com.kasirkita.pos.data.model.TransactionDetailResponse
+import com.kasirkita.pos.data.model.V1CreateTransactionRequest
 import com.kasirkita.pos.domain.model.AuthSession
+import com.kasirkita.pos.domain.model.V1Payment
+import com.kasirkita.pos.domain.model.V1TransactionItemRequest
+import com.kasirkita.pos.domain.model.V1TransactionRequest
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.model.OfflineTransactionFailureType
@@ -228,6 +234,43 @@ class OfflineSyncRepositoryImplTest {
         assertEquals(10_000L, queued.summary?.total)
         assertEquals("CASH", queued.summary?.paymentMethod)
         assertEquals(10_000L, queued.summary?.paymentAmount)
+    }
+
+    @Test
+    fun queueV1Transaction_persistsPayloadV2WithFullRequestIntent() = runBlocking {
+        val request = V1TransactionRequest(
+            clientTransactionId = "01eb0e2e-2d33-4e59-a53b-9d5646269b80",
+            outletId = OUTLET_ID,
+            cashierSessionId = "4c0e3c2c-1a1d-4e55-a8d1-f43cd0f655ab",
+            customerId = "50e1d086-a8e6-43a6-996c-428015bb1403",
+            discount = 500L,
+            items = listOf(
+                V1TransactionItemRequest(
+                    productId = PRODUCT_ID,
+                    quantity = 1,
+                    modifierOptionIds = listOf("fa6b2eae-67dc-4b08-94d5-4e049c252b15"),
+                    note = "iced",
+                ),
+                V1TransactionItemRequest(
+                    productId = PRODUCT_ID,
+                    quantity = 1,
+                    modifierOptionIds = listOf("2bce6171-ddd3-4432-8d77-85ee7f574d11"),
+                    note = "hot",
+                ),
+            ),
+            payment = V1Payment(method = "CASH", amountReceived = 20_000L),
+        )
+
+        val queued = repository.queueV1Transaction(
+            request,
+            sampleFinancialSnapshot().copy(subtotal = 20_000L, discount = 500L, total = 19_500L, paymentAmount = 20_000L),
+        ).getOrThrow()
+
+        assertTrue(queued.payloadJson.contains("\"version\":2"))
+        assertTrue(queued.payloadJson.contains("\"cashier_session_id\""))
+        assertTrue(queued.payloadJson.contains("\"modifier_option_ids\""))
+        assertTrue(queued.payloadJson.contains("\"amount_received\":20000"))
+        assertEquals(2, queued.summary?.itemCount)
     }
 
     @Test
@@ -625,6 +668,279 @@ class OfflineSyncRepositoryImplTest {
         assertEquals(secondServerId, dao.find(secondClientId)?.serverTransactionId)
     }
 
+    @Test
+    fun legacyPayload_fixture_reconstructsExactLegacyPaymentShape() = runBlocking {
+        val clientId = "11111111-1111-4111-8111-111111111111"
+        dao.insertRaw(
+            OfflineTransactionEntity(
+                id = clientId,
+                tenantId = TENANT_ID,
+                userId = USER_ID,
+                clientTransactionId = clientId,
+                outletId = OUTLET_ID,
+                payloadJson = """
+                    {"version":1,"transaction":{"client_transaction_id":"$clientId","outlet_id":"$OUTLET_ID","customer_id":null,"items":[{"product_id":"$PRODUCT_ID","quantity":1}],"payment":{"method":"CASH","amount":10000}},"financial_snapshot":{"subtotal":10000,"discount":0,"tax":0,"total":10000,"paymentAmount":10000}}
+                """.trimIndent(),
+                status = OfflineTransactionStatus.PENDING,
+                serverTransactionId = null,
+                lastError = null,
+                retryCount = 0,
+                createdAt = 1L,
+                updatedAt = 1L,
+            ),
+        )
+        api.responder = { request ->
+            assertEquals(1, request.transactions.size)
+            val transaction = request.transactions.single()
+            assertNull(transaction.cashierSessionId)
+            assertEquals(10_000L, transaction.payment.amount)
+            assertNull(transaction.payment.amountReceived)
+            Response.success(successResponse(request))
+        }
+
+        assertTrue(repository.syncPendingTransactions().getOrThrow() is SyncOutcome.Completed)
+        assertEquals(1, api.callCount)
+    }
+
+    @Test
+    fun v2_qris_roundTrip_hasMethodOnlyPayment() = runBlocking {
+        val request = V1TransactionRequest(
+            clientTransactionId = UUID.randomUUID().toString(), outletId = OUTLET_ID,
+            cashierSessionId = "4c0e3c2c-1a1d-4e55-a8d1-f43cd0f655ab", customerId = null,
+            items = listOf(V1TransactionItemRequest(PRODUCT_ID, 1, emptyList(), null)),
+            payment = V1Payment("QRIS", null),
+        )
+        val queued = repository.queueV1Transaction(request, sampleFinancialSnapshot()).getOrThrow()
+        val json = queued.payloadJson
+        assertTrue(json.contains("\"method\":\"QRIS\""))
+        assertTrue(!json.contains("amount_received"))
+        assertTrue(!json.contains("\"amount\""))
+    }
+
+    @Test
+    fun unknownVersion_failsWithoutBackendSubmission() = runBlocking {
+        val queued = queueTransaction("22222222-2222-4222-8222-222222222222")
+        dao.replacePayload(queued.clientTransactionId, queued.payloadJson.replace("\"version\":1", "\"version\":99"))
+
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+
+        assertTrue(outcome is SyncOutcome.ActionRequired)
+        assertEquals(0, api.callCount)
+        assertEquals(OfflineTransactionStatus.FAILED, dao.find(queued.clientTransactionId)?.status)
+    }
+
+    @Test
+    fun versionOneWithV2Fields_isRejectedWithoutBackendSubmission() = runBlocking {
+        val queued = queueTransaction("44444444-4444-4444-8444-444444444444")
+        val hybrid = queued.payloadJson.replace(
+            "\"outlet_id\":\"$OUTLET_ID\"",
+            "\"outlet_id\":\"$OUTLET_ID\",\"cashier_session_id\":\"4c0e3c2c-1a1d-4e55-a8d1-f43cd0f655ab\"",
+        )
+        dao.replacePayload(queued.clientTransactionId, hybrid)
+
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+
+        assertTrue(outcome is SyncOutcome.ActionRequired)
+        assertEquals(0, api.callCount)
+    }
+
+    @Test
+    fun invalidV2Cash_isNotPersisted() = runBlocking {
+        val request = V1TransactionRequest(UUID.randomUUID().toString(), OUTLET_ID,
+            "4c0e3c2c-1a1d-4e55-a8d1-f43cd0f655ab", null,
+            listOf(V1TransactionItemRequest(PRODUCT_ID, 1, emptyList(), null)),
+            V1Payment("CASH", null))
+
+        val result = repository.queueV1Transaction(request, sampleFinancialSnapshot())
+
+        assertTrue(result.isFailure)
+        assertEquals(0, dao.totalCount())
+    }
+
+    @Test
+    fun mismatchedV2Discount_isNotPersisted() = runBlocking {
+        val request = V1TransactionRequest(UUID.randomUUID().toString(), OUTLET_ID,
+            "4c0e3c2c-1a1d-4e55-a8d1-f43cd0f655ab", null,
+            listOf(V1TransactionItemRequest(PRODUCT_ID, 1, emptyList(), null)),
+            V1Payment("CASH", 10_000L), discount = 500L)
+
+        val result = repository.queueV1Transaction(request, sampleFinancialSnapshot())
+
+        assertTrue(result.isFailure)
+        assertEquals(0, dao.totalCount())
+    }
+
+    @Test
+    fun malformedV2_failsWithoutBackendSubmission() = runBlocking {
+        val clientId = "33333333-3333-4333-8333-333333333333"
+        dao.insertRaw(OfflineTransactionEntity(clientId, TENANT_ID, USER_ID, clientId, OUTLET_ID,
+            "{\"version\":2,\"transaction\":null,\"financial_snapshot\":null}",
+            OfflineTransactionStatus.PENDING, null, null, 0, 1L, 1L))
+
+        val outcome = repository.syncPendingTransactions().getOrThrow()
+
+        assertTrue(outcome is SyncOutcome.ActionRequired)
+        assertEquals(0, api.callCount)
+    }
+
+    @Test
+    fun legacyCashSync_serializesExactHistoricalWireShape() = runBlocking {
+        val id = "55555555-5555-4555-8555-555555555555"
+        queueTransaction(id)
+        api.responder = { request -> Response.success(successResponse(request)) }
+
+        repository.syncPendingTransactions().getOrThrow()
+
+        val wire = gson.toJson(api.lastRequest)
+        val transaction = JsonParser.parseString(wire).asJsonObject
+            .getAsJsonArray("transactions").single().asJsonObject
+        assertEquals(setOf("client_transaction_id", "outlet_id", "items", "payment"), transaction.keySet())
+        assertEquals(id, transaction.get("client_transaction_id").asString)
+        assertEquals(OUTLET_ID, transaction.get("outlet_id").asString)
+        assertEquals(PRODUCT_ID, transaction.getAsJsonArray("items").single().asJsonObject.get("product_id").asString)
+        assertEquals(1, transaction.getAsJsonArray("items").single().asJsonObject.get("quantity").asInt)
+        assertEquals(setOf("method", "amount"), transaction.getAsJsonObject("payment").keySet())
+        assertEquals("CASH", transaction.getAsJsonObject("payment").get("method").asString)
+        assertEquals(10_000L, transaction.getAsJsonObject("payment").get("amount").asLong)
+        assertTrue(setOf("cashier_session_id", "discount", "amount_received", "change_amount").none(transaction::has))
+        val item = transaction.getAsJsonArray("items").single().asJsonObject
+        assertTrue(!item.has("modifier_option_ids") && !item.has("note"))
+    }
+
+    @Test
+    fun v2CashSync_serializesExactV1WireShape() = runBlocking {
+        val request = v2Request(tender = 20_000L)
+        repository.queueV1Transaction(request, v2Snapshot(paymentAmount = 20_000L)).getOrThrow()
+        api.responder = { incoming -> Response.success(successResponse(incoming)) }
+
+        repository.syncPendingTransactions().getOrThrow()
+
+        val transaction = capturedTransactions().single()
+        val payment = transaction.getAsJsonObject("payment")
+        assertEquals(setOf("method", "amount_received"), payment.keySet())
+        assertEquals("CASH", payment.get("method").asString)
+        assertEquals(20_000L, payment.get("amount_received").asLong)
+        assertEquals(request.cashierSessionId, transaction.get("cashier_session_id").asString)
+        assertEquals(request.clientTransactionId, transaction.get("client_transaction_id").asString)
+        assertEquals(500L, transaction.get("discount").asLong)
+        val items = transaction.getAsJsonArray("items")
+        assertEquals(listOf("ice", "shot"), items[0].asJsonObject.getAsJsonArray("modifier_option_ids").map { it.asString })
+        assertEquals("less sugar", items[0].asJsonObject.get("note").asString)
+        assertTrue(!payment.has("amount") && !transaction.has("change_amount"))
+    }
+
+    @Test
+    fun v2QrisSync_serializesMethodOnlyPaymentAndKeepsSession() = runBlocking {
+        val request = v2Request(payment = V1Payment("QRIS", null)).copy(discount = null)
+        repository.queueV1Transaction(request, sampleFinancialSnapshot()).getOrThrow()
+        api.responder = { incoming -> Response.success(successResponse(incoming)) }
+
+        repository.syncPendingTransactions().getOrThrow()
+
+        val transaction = capturedTransactions().single()
+        assertEquals(setOf("method"), transaction.getAsJsonObject("payment").keySet())
+        assertEquals("QRIS", transaction.getAsJsonObject("payment").get("method").asString)
+        assertEquals(request.cashierSessionId, transaction.get("cashier_session_id").asString)
+    }
+
+    @Test
+    fun v2RoundTrip_preservesDuplicateLinesAndRequestIntentOnWire() = runBlocking {
+        val request = v2Request(
+            items = listOf(
+                V1TransactionItemRequest(PRODUCT_ID, 1, listOf("ice", "shot"), "less sugar"),
+                V1TransactionItemRequest(PRODUCT_ID, 2, listOf("hot"), "no sugar"),
+            ),
+            tender = 20_000L,
+        )
+        repository.queueV1Transaction(request, v2Snapshot(paymentAmount = 20_000L)).getOrThrow()
+        api.responder = { incoming -> Response.success(successResponse(incoming)) }
+
+        repository.syncPendingTransactions().getOrThrow()
+
+        val transaction = capturedTransactions().single()
+        val items = transaction.getAsJsonArray("items")
+        assertEquals(2, items.size())
+        assertEquals(listOf(1, 2), items.map { it.asJsonObject.get("quantity").asInt })
+        assertEquals(listOf(PRODUCT_ID, PRODUCT_ID), items.map { it.asJsonObject.get("product_id").asString })
+        assertEquals(listOf(listOf("ice", "shot"), listOf("hot")), items.map {
+            it.asJsonObject.getAsJsonArray("modifier_option_ids").map { id -> id.asString }
+        })
+        assertEquals(listOf("less sugar", "no sugar"), items.map { it.asJsonObject.get("note").asString })
+        assertEquals(request.clientTransactionId, transaction.get("client_transaction_id").asString)
+        assertEquals(request.cashierSessionId, transaction.get("cashier_session_id").asString)
+        assertEquals(request.customerId, transaction.get("customer_id").asString)
+        assertEquals(request.discount, transaction.get("discount").asLong)
+        assertEquals(20_000L, transaction.getAsJsonObject("payment").get("amount_received").asLong)
+    }
+
+    @Test
+    fun mixedLegacyAndV2SyncBatch_keepsPerRowWireSemantics() = runBlocking {
+        val legacyId = "66666666-6666-4666-8666-666666666666"
+        queueTransaction(legacyId)
+        val v2 = v2Request(tender = 20_000L)
+        repository.queueV1Transaction(v2, v2Snapshot(paymentAmount = 20_000L)).getOrThrow()
+        api.responder = { incoming -> Response.success(successResponse(incoming)) }
+
+        repository.syncPendingTransactions().getOrThrow()
+
+        assertEquals(1, api.callCount)
+        val transactions = capturedTransactions().associateBy { it.get("client_transaction_id").asString }
+        val legacyWire = requireNotNull(transactions[legacyId])
+        val v2Wire = requireNotNull(transactions[v2.clientTransactionId])
+        assertTrue(!legacyWire.has("cashier_session_id"))
+        assertEquals(setOf("method", "amount"), legacyWire.getAsJsonObject("payment").keySet())
+        assertTrue(!legacyWire.getAsJsonArray("items")[0].asJsonObject.has("note"))
+        assertTrue(v2Wire.has("cashier_session_id"))
+        assertEquals(setOf("method", "amount_received"), v2Wire.getAsJsonObject("payment").keySet())
+    }
+
+    private fun v2Request(
+        items: List<V1TransactionItemRequest> = listOf(
+            V1TransactionItemRequest(PRODUCT_ID, 1, listOf("ice", "shot"), "less sugar"),
+        ),
+        payment: V1Payment = V1Payment("CASH", 20_000L),
+        tender: Long? = payment.amountReceived,
+    ) = V1TransactionRequest(
+        clientTransactionId = "77777777-7777-4777-8777-777777777777",
+        outletId = OUTLET_ID,
+        cashierSessionId = "4c0e3c2c-1a1d-4e55-a8d1-f43cd0f655ab",
+        customerId = "50e1d086-a8e6-43a6-996c-428015bb1403",
+        items = items,
+        payment = payment.copy(amountReceived = tender),
+        discount = 500L,
+    )
+
+    private suspend fun capturedTransactions() = JsonParser.parseString(gson.toJson(api.lastRequest))
+        .asJsonObject.getAsJsonArray("transactions").map { it.asJsonObject }
+
+    private fun v2Snapshot(paymentAmount: Long) = OfflineFinancialSnapshot(
+        subtotal = 20_000L,
+        discount = 500L,
+        tax = 0L,
+        total = 19_500L,
+        paymentAmount = paymentAmount,
+    )
+
+    @Test
+    fun v2Retry_usesPersistedSessionInsteadOfCurrentSession() = runBlocking {
+        val sessionId = "4c0e3c2c-1a1d-4e55-a8d1-f43cd0f655ab"
+        val request = V1TransactionRequest(UUID.randomUUID().toString(), OUTLET_ID, sessionId, null,
+            listOf(V1TransactionItemRequest(PRODUCT_ID, 1, emptyList(), null)), V1Payment("CASH", 10_000L))
+        queueV1TransactionAndAssert(request)
+        sessionStore.clearSession()
+        sessionStore.saveSession(session().copy(outletId = OUTLET_ID))
+        api.responder = { incoming ->
+            assertEquals(sessionId, incoming.transactions.single().cashierSessionId)
+            Response.success(successResponse(incoming))
+        }
+
+        assertTrue(repository.syncPendingTransactions().getOrThrow() is SyncOutcome.Completed)
+    }
+
+    private suspend fun queueV1TransactionAndAssert(request: V1TransactionRequest) {
+        repository.queueV1Transaction(request, sampleFinancialSnapshot()).getOrThrow()
+    }
+
     private suspend fun queueTransaction(
         clientTransactionId: String = UUID.randomUUID().toString(),
     ) = repository.queueTransaction(
@@ -976,6 +1292,17 @@ class OfflineSyncRepositoryImplTest {
                     entity.userId == userId &&
                     entity.status == OfflineTransactionStatus.SYNCED
             }
+            revision.value++
+        }
+
+        fun insertRaw(entity: OfflineTransactionEntity) {
+            records[entity.id] = entity
+            revision.value++
+        }
+
+        fun replacePayload(clientTransactionId: String, payloadJson: String) {
+            val entity = requireNotNull(find(clientTransactionId))
+            records[entity.id] = entity.copy(payloadJson = payloadJson)
             revision.value++
         }
 

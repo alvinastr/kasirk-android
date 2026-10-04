@@ -5,6 +5,8 @@ import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.model.OfflineQueueSummary
 import com.kasirkita.pos.domain.model.OfflineTransaction
 import com.kasirkita.pos.domain.model.SyncOutcome
+import com.kasirkita.pos.domain.model.V1TransactionRequest
+
 import kotlinx.coroutines.flow.Flow
 
 interface OfflineSyncRepository {
@@ -14,6 +16,11 @@ interface OfflineSyncRepository {
         customerId: String?,
         items: List<CartItem>,
         paymentAmount: Long,
+        financialSnapshot: OfflineFinancialSnapshot,
+    ): Result<OfflineTransaction>
+
+    suspend fun queueV1Transaction(
+        request: V1TransactionRequest,
         financialSnapshot: OfflineFinancialSnapshot,
     ): Result<OfflineTransaction>
 

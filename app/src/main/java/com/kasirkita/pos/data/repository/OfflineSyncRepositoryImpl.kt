@@ -7,12 +7,20 @@ import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.core.datastore.SessionIdentity
 import com.kasirkita.pos.core.datastore.toSessionIdentity
 import com.kasirkita.pos.data.api.SyncApi
+import com.kasirkita.pos.data.model.CreateTransactionItemRequest
 import com.kasirkita.pos.data.model.CreateTransactionRequest
+import com.kasirkita.pos.data.model.CURRENT_PAYLOAD_VERSION
+import com.kasirkita.pos.data.model.DecodedOfflinePayload
+import com.kasirkita.pos.data.model.LEGACY_PAYLOAD_VERSION
 import com.kasirkita.pos.data.model.OfflineTransactionPayload
+import com.kasirkita.pos.data.model.OfflineTransactionPayloadV2
+import com.kasirkita.pos.data.model.PaymentRequest
 import com.kasirkita.pos.data.model.SyncTransactionError
 import com.kasirkita.pos.data.model.SyncTransactionsRequest
+import com.kasirkita.pos.data.model.V1CreateTransactionRequest
 import com.kasirkita.pos.data.model.TransactionDetailResponse
 import com.kasirkita.pos.data.model.createTransactionRequest
+import com.kasirkita.pos.data.model.toNetwork
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.model.OfflineQueueSummary
@@ -23,6 +31,8 @@ import com.kasirkita.pos.domain.model.OfflineTransactionStatus
 import com.kasirkita.pos.domain.model.SyncOutcome
 import com.kasirkita.pos.domain.model.SyncResult
 import com.kasirkita.pos.domain.model.SyncRetryableFailureReason
+import com.kasirkita.pos.domain.model.V1Payment
+import com.kasirkita.pos.domain.model.V1TransactionRequest
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import java.io.IOException
 import javax.inject.Inject
@@ -69,7 +79,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
             "Offline financial snapshot does not match the checkout request"
         }
         val payload = OfflineTransactionPayload(
-            version = PAYLOAD_VERSION,
+            version = LEGACY_PAYLOAD_VERSION,
             transaction = request,
             financialSnapshot = financialSnapshot,
         )
@@ -102,6 +112,46 @@ class OfflineSyncRepositoryImpl @Inject constructor(
             entity
         }
 
+        persistedEntity.toDomain()
+    }
+
+    override suspend fun queueV1Transaction(
+        request: V1TransactionRequest,
+        financialSnapshot: OfflineFinancialSnapshot,
+    ): Result<OfflineTransaction> = runCatching {
+        val identity = requireIdentity()
+        require(request.cashierSessionId.isNotBlank()) { "cashier_session_id is required" }
+        require(request.items.isNotEmpty()) { "items are required" }
+        require(request.items.all { it.quantity > 0 && it.note.orEmpty().length <= 255 }) {
+            "Invalid V1 transaction item"
+        }
+        require(request.payment.isValidV2Payment()) { "Invalid V1 payment" }
+        require(financialSnapshot.isValidV2For(request)) { "Invalid offline financial snapshot" }
+        val payload = OfflineTransactionPayloadV2(
+            transaction = request.toNetwork().toSyncRequest(),
+            financialSnapshot = financialSnapshot,
+        )
+        val now = System.currentTimeMillis()
+        val entity = OfflineTransactionEntity(
+            id = request.clientTransactionId,
+            tenantId = identity.tenantId,
+            userId = identity.userId,
+            clientTransactionId = request.clientTransactionId,
+            outletId = request.outletId,
+            payloadJson = gson.toJson(payload),
+            status = OfflineTransactionStatus.PENDING,
+            serverTransactionId = null,
+            lastError = null,
+            retryCount = 0,
+            createdAt = now,
+            updatedAt = now,
+        )
+        val insertResult = offlineTransactionDao.insert(entity)
+        val persistedEntity = if (insertResult == INSERT_IGNORED) {
+            offlineTransactionDao.getByClientTransactionId(identity.tenantId, identity.userId, request.clientTransactionId)
+                ?.takeIf { it.payloadJson == entity.payloadJson }
+                ?: error("Offline transaction conflict contains a different payload")
+        } else entity
         persistedEntity.toDomain()
     }
 
@@ -310,7 +360,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
             return SyncOutcome.Completed(syncResult(identity))
         }
 
-        val validPayloads = mutableListOf<Pair<OfflineTransactionEntity, OfflineTransactionPayload>>()
+        val validPayloads = mutableListOf<Pair<OfflineTransactionEntity, DecodedOfflinePayload>>()
         val actionRequired = mutableListOf<OfflineTransaction>()
 
         pending.forEach { entity ->
@@ -418,7 +468,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
             val result = resultsByClientId[entity.clientTransactionId]
             when {
                 result?.status == STATUS_SYNCED && result.transaction != null -> {
-                    if (payload.financialSnapshot.matches(result.transaction)) {
+                    if (payload.matches(result.transaction)) {
                         offlineTransactionDao.markSynced(
                             identity.tenantId,
                             identity.userId,
@@ -498,16 +548,90 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         .getSession()
         ?.toSessionIdentity()
 
-    private fun decodePayload(entity: OfflineTransactionEntity): OfflineTransactionPayload? =
-        runCatching {
-            gson.fromJson(entity.payloadJson, OfflineTransactionPayload::class.java)
-                ?.takeIf { payload ->
-                    payload.version == PAYLOAD_VERSION &&
-                        payload.transaction.clientTransactionId == entity.clientTransactionId &&
-                        payload.transaction.outletId == entity.outletId &&
-                        payload.financialSnapshot.isValidFor(payload.transaction)
-                }
-        }.getOrNull()
+    private fun decodePayload(entity: OfflineTransactionEntity): DecodedOfflinePayload? = runCatching {
+        val root = gson.fromJson(entity.payloadJson, com.google.gson.JsonObject::class.java)
+            ?: return null
+        val version = root.get("version")?.takeIf { it.isJsonPrimitive }?.asInt ?: return null
+        val decoded = when (version) {
+            LEGACY_PAYLOAD_VERSION -> {
+                val payload = gson.fromJson(entity.payloadJson, OfflineTransactionPayload::class.java)
+                if (payload.transaction.cashierSessionId != null || payload.transaction.discount != null ||
+                    payload.transaction.payment.method != "CASH" || payload.transaction.payment.amountReceived != null ||
+                    payload.transaction.items.isEmpty() || payload.transaction.items.any {
+                        it.quantity <= 0 || it.modifierOptionIds != null || it.note != null
+                    } || !payload.financialSnapshot.isValidFor(payload.transaction)) return null
+                DecodedOfflinePayload(version, payload.transaction, payload.financialSnapshot)
+            }
+            CURRENT_PAYLOAD_VERSION -> {
+                val payload = gson.fromJson(entity.payloadJson, OfflineTransactionPayloadV2::class.java)
+                if (!payload.isValidV2()) return null
+                DecodedOfflinePayload(version, payload.transaction, payload.financialSnapshot)
+            }
+            else -> return null
+        }
+        decoded.takeIf {
+            it.transaction.clientTransactionId == entity.clientTransactionId &&
+                it.transaction.outletId == entity.outletId
+        }
+    }.getOrNull()
+
+    private fun V1CreateTransactionRequest.toSyncRequest() = CreateTransactionRequest(
+        clientTransactionId = clientTransactionId,
+        outletId = outletId,
+        customerId = customerId,
+        cashierSessionId = cashierSessionId,
+        discount = discount,
+        items = items.map {
+            CreateTransactionItemRequest(it.productId, it.quantity, it.modifierOptionIds, it.note)
+        },
+        payment = PaymentRequest(
+            method = payment.method,
+            amountReceived = payment.amountReceived,
+        ),
+    )
+
+    private fun OfflineTransactionPayloadV2.isValidV2(): Boolean {
+            if (transaction.cashierSessionId.isNullOrBlank() || transaction.items.isEmpty()) return false
+            if (transaction.discount != null && transaction.discount < 0L) return false
+            if (transaction.items.any { it.quantity <= 0 || it.note.orEmpty().length > 255 }) return false
+            if (!transaction.payment.isValidV2Payment()) return false
+            return financialSnapshot.isValidV2For(transaction)
+        }
+
+    private fun PaymentRequest.isValidV2Payment(): Boolean = when (method) {
+        "CASH" -> amount == null && amountReceived != null && amountReceived >= 0L
+        "QRIS" -> amount == null && amountReceived == null
+        else -> false
+    }
+
+    private fun V1Payment.isValidV2Payment(): Boolean = when (method) {
+        "CASH" -> amountReceived != null && amountReceived >= 0L
+        "QRIS" -> amountReceived == null
+        else -> false
+    }
+
+    private fun OfflineFinancialSnapshot.isValidV2For(request: V1TransactionRequest): Boolean =
+        isValidV2Snapshot(request.discount ?: 0L, request.payment.method, request.payment.amountReceived)
+
+    private fun OfflineFinancialSnapshot.isValidV2For(request: CreateTransactionRequest): Boolean =
+        isValidV2Snapshot(request.discount ?: 0L, request.payment.method, request.payment.amountReceived)
+
+    private fun OfflineFinancialSnapshot.isValidV2Snapshot(
+        requestDiscount: Long,
+        method: String,
+        amountReceived: Long?,
+    ): Boolean {
+        val calculatedTotal = runCatching {
+            Math.addExact(Math.subtractExact(subtotal, discount), tax)
+        }.getOrNull() ?: return false
+        return subtotal >= 0L && discount >= 0L && discount == requestDiscount && tax >= 0L &&
+            total >= 0L && discount <= subtotal && calculatedTotal == total && paymentAmount >= 0L &&
+            when (method) {
+                "CASH" -> amountReceived != null && amountReceived >= total && paymentAmount == amountReceived
+                "QRIS" -> amountReceived == null && paymentAmount == total
+                else -> false
+            }
+    }
 
     private fun OfflineFinancialSnapshot.isValidFor(request: CreateTransactionRequest): Boolean {
         if (
@@ -522,12 +646,13 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         return discount <= subtotal && calculatedTotal == total && paymentAmount >= total
     }
 
-    private fun OfflineFinancialSnapshot.matches(transaction: TransactionDetailResponse): Boolean =
-        subtotal == transaction.subtotal &&
-            discount == transaction.discount &&
-            tax == transaction.tax &&
-            total == transaction.total &&
-            transaction.payments.singleOrNull()?.amount == paymentAmount
+    private fun DecodedOfflinePayload.matches(transaction: TransactionDetailResponse): Boolean =
+        financialSnapshot.subtotal == transaction.subtotal &&
+            financialSnapshot.discount == transaction.discount &&
+            financialSnapshot.tax == transaction.tax &&
+            financialSnapshot.total == transaction.total &&
+            transaction.payments.singleOrNull()?.amount ==
+                if (version == LEGACY_PAYLOAD_VERSION) financialSnapshot.paymentAmount else financialSnapshot.total
 
     private suspend fun requireIdentity(): SessionIdentity = currentIdentity()
         ?: error("Authenticated session is required")
@@ -574,7 +699,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         )
     }
 
-    private fun OfflineTransactionPayload.toSummary(): OfflineTransactionSummary =
+    private fun DecodedOfflinePayload.toSummary(): OfflineTransactionSummary =
         OfflineTransactionSummary(
             itemCount = transaction.items.sumOf { item -> item.quantity },
             subtotal = financialSnapshot.subtotal,

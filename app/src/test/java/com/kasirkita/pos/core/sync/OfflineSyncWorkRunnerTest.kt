@@ -12,6 +12,7 @@ import com.kasirkita.pos.domain.model.OfflineQueueSummary
 import com.kasirkita.pos.domain.model.OfflineTransaction
 import com.kasirkita.pos.domain.model.SyncOutcome
 import com.kasirkita.pos.domain.model.SyncResult
+import com.kasirkita.pos.domain.model.V1TransactionRequest
 import com.kasirkita.pos.domain.model.SyncRetryableFailureReason
 import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
@@ -153,6 +154,11 @@ class OfflineSyncWorkRunnerTest {
             customerId: String?,
             items: List<CartItem>,
             paymentAmount: Long,
+            financialSnapshot: OfflineFinancialSnapshot,
+        ): Result<OfflineTransaction> = error("Not used")
+
+        override suspend fun queueV1Transaction(
+            request: V1TransactionRequest,
             financialSnapshot: OfflineFinancialSnapshot,
         ): Result<OfflineTransaction> = error("Not used")
 

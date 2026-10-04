@@ -8,6 +8,7 @@ import com.kasirkita.pos.domain.model.OfflineTransactionFailureType
 import com.kasirkita.pos.domain.model.OfflineTransactionStatus
 import com.kasirkita.pos.domain.model.SyncOutcome
 import com.kasirkita.pos.domain.model.SyncResult
+import com.kasirkita.pos.domain.model.V1TransactionRequest
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -173,6 +174,11 @@ class OfflineRecoveryViewModelTest {
             customerId: String?,
             items: List<CartItem>,
             paymentAmount: Long,
+            financialSnapshot: OfflineFinancialSnapshot,
+        ): Result<OfflineTransaction> = error("Not used")
+
+        override suspend fun queueV1Transaction(
+            request: V1TransactionRequest,
             financialSnapshot: OfflineFinancialSnapshot,
         ): Result<OfflineTransaction> = error("Not used")
 

@@ -9,3 +9,19 @@ data class OfflineTransactionPayload(
     @SerializedName("financial_snapshot")
     val financialSnapshot: OfflineFinancialSnapshot,
 )
+
+const val LEGACY_PAYLOAD_VERSION = 1
+const val CURRENT_PAYLOAD_VERSION = 2
+
+data class OfflineTransactionPayloadV2(
+    val version: Int = CURRENT_PAYLOAD_VERSION,
+    val transaction: CreateTransactionRequest,
+    @SerializedName("financial_snapshot")
+    val financialSnapshot: OfflineFinancialSnapshot,
+)
+
+internal data class DecodedOfflinePayload(
+    val version: Int,
+    val transaction: CreateTransactionRequest,
+    val financialSnapshot: OfflineFinancialSnapshot,
+)
