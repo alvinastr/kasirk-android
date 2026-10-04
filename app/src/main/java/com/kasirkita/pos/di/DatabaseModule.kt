@@ -3,8 +3,12 @@ package com.kasirkita.pos.di
 import android.content.Context
 import androidx.room.Room
 import com.kasirkita.pos.core.database.AppDatabase
+import com.kasirkita.pos.core.database.dao.CategoryDao
+import com.kasirkita.pos.core.database.dao.ModifierGroupDao
+import com.kasirkita.pos.core.database.dao.ModifierOptionDao
 import com.kasirkita.pos.core.database.dao.OfflineTransactionDao
 import com.kasirkita.pos.core.database.dao.ProductDao
+import com.kasirkita.pos.core.database.dao.ProductModifierGroupDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -29,6 +33,7 @@ object DatabaseModule {
             AppDatabase.MIGRATION_1_2,
             AppDatabase.MIGRATION_2_3,
             AppDatabase.MIGRATION_3_4,
+            AppDatabase.MIGRATION_4_5,
         )
         .build()
 
@@ -41,6 +46,25 @@ object DatabaseModule {
     fun provideOfflineTransactionDao(
         database: AppDatabase,
     ): OfflineTransactionDao = database.offlineTransactionDao()
+
+    @Provides
+    @Singleton
+    fun provideCategoryDao(database: AppDatabase): CategoryDao = database.categoryDao()
+
+    @Provides
+    @Singleton
+    fun provideModifierGroupDao(database: AppDatabase): ModifierGroupDao =
+        database.modifierGroupDao()
+
+    @Provides
+    @Singleton
+    fun provideModifierOptionDao(database: AppDatabase): ModifierOptionDao =
+        database.modifierOptionDao()
+
+    @Provides
+    @Singleton
+    fun provideProductModifierGroupDao(database: AppDatabase): ProductModifierGroupDao =
+        database.productModifierGroupDao()
 
     private const val DATABASE_NAME = "kasirkita.db"
 }

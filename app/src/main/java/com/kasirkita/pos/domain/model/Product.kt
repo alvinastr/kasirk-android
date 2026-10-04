@@ -13,5 +13,6 @@ data class Product(
     val isActive: Boolean,
     val createdAt: String,
     val stock: Int? = null,
-    val modifierGroups: List<ModifierGroup> = emptyList()
+    val modifierGroups: List<ModifierGroup> = emptyList(),
+    val modifierMetadataLoaded: Boolean = false,
 )

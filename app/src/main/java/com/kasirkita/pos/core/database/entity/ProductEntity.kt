@@ -20,4 +20,6 @@ data class ProductEntity(
     val trackStock: Boolean,
     val isActive: Boolean,
     val createdAt: String,
+    @ColumnInfo(defaultValue = "0")
+    val modifierMetadataLoaded: Boolean = false,
 )

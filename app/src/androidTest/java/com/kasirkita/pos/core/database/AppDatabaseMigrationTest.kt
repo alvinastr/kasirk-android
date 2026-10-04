@@ -102,6 +102,43 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
+    fun migrate4To5_preservesExistingDataAndCreatesMetadataTables() = runBlocking {
+        createVersionFourDatabase()
+
+        database = Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            TEST_DATABASE_NAME,
+        )
+            .addMigrations(AppDatabase.MIGRATION_4_5)
+            .build()
+
+        val migrated = requireNotNull(database)
+        val product = migrated.productDao().getProducts(TENANT_ID).single()
+        val offlineTransaction = migrated.offlineTransactionDao()
+            .getPendingTransactions(TENANT_ID, USER_ID, 100)
+            .single()
+
+        assertEquals("legacy-product", product.id)
+        assertFalse(product.modifierMetadataLoaded)
+        assertEquals(LEGACY_PAYLOAD_JSON, offlineTransaction.payloadJson)
+        assertEquals("legacy-client", offlineTransaction.clientTransactionId)
+
+        val sqlite = migrated.openHelper.writableDatabase
+        listOf(
+            "categories",
+            "modifier_groups",
+            "modifier_options",
+            "product_modifier_groups",
+        ).forEach { tableName ->
+            sqlite.query(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+                arrayOf(tableName),
+            ).use { cursor -> assertTrue(cursor.moveToFirst()) }
+        }
+    }
+
+    @Test
     fun currentSchema_persistsUntrackedProduct() = runBlocking {
         database = Room.inMemoryDatabaseBuilder(
             context,
@@ -395,6 +432,66 @@ class AppDatabaseMigrationTest {
             .use { helper -> helper.writableDatabase }
     }
 
+    private fun createVersionFourDatabase() {
+        val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(TEST_DATABASE_NAME)
+            .callback(object : SupportSQLiteOpenHelper.Callback(4) {
+                override fun onCreate(db: SupportSQLiteDatabase) {
+                    db.execSQL("""
+                        CREATE TABLE `products` (
+                            `id` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `categoryId` TEXT,
+                            `name` TEXT NOT NULL, `sku` TEXT NOT NULL, `price` INTEGER NOT NULL,
+                            `cost` INTEGER NOT NULL, `minimumStock` INTEGER NOT NULL,
+                            `trackStock` INTEGER NOT NULL DEFAULT 1, `isActive` INTEGER NOT NULL,
+                            `createdAt` TEXT NOT NULL, PRIMARY KEY(`tenantId`, `id`)
+                        )
+                    """.trimIndent())
+                    db.execSQL("""
+                        CREATE TABLE `offline_transactions` (
+                            `id` TEXT NOT NULL, `tenantId` TEXT NOT NULL, `userId` TEXT NOT NULL,
+                            `clientTransactionId` TEXT NOT NULL, `outletId` TEXT NOT NULL,
+                            `payloadJson` TEXT NOT NULL, `status` TEXT NOT NULL,
+                            `serverTransactionId` TEXT, `lastError` TEXT,
+                            `retryCount` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL,
+                            `updatedAt` INTEGER NOT NULL,
+                            PRIMARY KEY(`tenantId`, `userId`, `clientTransactionId`)
+                        )
+                    """.trimIndent())
+                    db.execSQL("""
+                        CREATE INDEX `index_offline_transactions_tenantId_userId_status_createdAt`
+                        ON `offline_transactions` (`tenantId`, `userId`, `status`, `createdAt`)
+                    """.trimIndent())
+                    db.execSQL(
+                        "INSERT INTO products (id, tenantId, categoryId, name, sku, price, " +
+                            "cost, minimumStock, trackStock, isActive, createdAt) " +
+                            "VALUES ('legacy-product', '$TENANT_ID', NULL, 'Legacy Product', " +
+                            "'LEGACY', 10000, 5000, 0, 1, 1, '2026-09-18T00:00:00.000Z')",
+                    )
+                    db.execSQL(
+                        "INSERT INTO offline_transactions (id, tenantId, userId, " +
+                            "clientTransactionId, outletId, payloadJson, status, " +
+                            "serverTransactionId, lastError, retryCount, createdAt, updatedAt) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, 0, 1, 1)",
+                        arrayOf(
+                            "legacy-offline", TENANT_ID, USER_ID, "legacy-client",
+                            "outlet-id", LEGACY_PAYLOAD_JSON, "PENDING",
+                        ),
+                    )
+                }
+
+                override fun onUpgrade(
+                    db: SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int,
+                ) = Unit
+            })
+            .build()
+
+        FrameworkSQLiteOpenHelperFactory()
+            .create(configuration)
+            .use { helper -> helper.writableDatabase }
+    }
+
     private fun product(id: String, tenantId: String) = ProductEntity(
         id = id,
         tenantId = tenantId,
@@ -433,5 +530,6 @@ class AppDatabaseMigrationTest {
         const val OTHER_TENANT_ID = "other-tenant-id"
         const val USER_ID = "user-id"
         const val OTHER_USER_ID = "other-user-id"
+        const val LEGACY_PAYLOAD_JSON = "{}"
     }
 }

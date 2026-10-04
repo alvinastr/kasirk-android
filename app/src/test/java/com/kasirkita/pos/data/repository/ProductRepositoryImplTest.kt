@@ -5,10 +5,20 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.emptyPreferences
 import com.google.gson.JsonObject
+import com.kasirkita.pos.core.database.dao.CategoryDao
+import com.kasirkita.pos.core.database.dao.ModifierGroupDao
+import com.kasirkita.pos.core.database.dao.ModifierOptionDao
 import com.kasirkita.pos.core.database.dao.ProductDao
+import com.kasirkita.pos.core.database.dao.ProductModifierGroupDao
+import com.kasirkita.pos.core.database.entity.CategoryEntity
+import com.kasirkita.pos.core.database.entity.ModifierGroupEntity
+import com.kasirkita.pos.core.database.entity.ModifierOptionEntity
 import com.kasirkita.pos.core.database.entity.ProductEntity
+import com.kasirkita.pos.core.database.entity.ProductModifierGroupEntity
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.data.api.ProductApi
+import com.kasirkita.pos.data.local.CategoryLocalDataSource
+import com.kasirkita.pos.data.local.ModifierLocalDataSource
 import com.kasirkita.pos.data.local.ProductLocalDataSource
 import com.kasirkita.pos.data.model.CreateProductRequest
 import com.kasirkita.pos.data.model.ProductResponse
@@ -42,6 +52,12 @@ class ProductRepositoryImplTest {
             productApi = api,
             localDataSource = ProductLocalDataSource(dao),
             authSessionDataStore = sessionStore,
+            modifierLocalDataSource = ModifierLocalDataSource(
+                FakeModifierGroupDao(),
+                FakeModifierOptionDao(),
+                FakeProductModifierGroupDao(),
+            ),
+            categoryLocalDataSource = CategoryLocalDataSource(FakeCategoryDao()),
         )
     }
 
@@ -297,6 +313,77 @@ class ProductRepositoryImplTest {
 
         override suspend fun deleteAll(tenantId: String) {
             products.removeAll { product -> product.tenantId == tenantId }
+        }
+    }
+
+    private class FakeCategoryDao : CategoryDao {
+        val categories = mutableListOf<CategoryEntity>()
+
+        override suspend fun getCategories(tenantId: String): List<CategoryEntity> =
+            categories.filter { it.tenantId == tenantId }
+
+        override suspend fun insertCategories(categories: List<CategoryEntity>) {
+            this.categories.addAll(categories)
+        }
+
+        override suspend fun deleteAll(tenantId: String) {
+            categories.removeAll { it.tenantId == tenantId }
+        }
+    }
+
+    private class FakeModifierGroupDao : ModifierGroupDao {
+        val groups = mutableListOf<ModifierGroupEntity>()
+
+        override suspend fun getModifierGroups(tenantId: String): List<ModifierGroupEntity> =
+            groups.filter { it.tenantId == tenantId }
+
+        override suspend fun getModifierGroupsForProduct(
+            tenantId: String,
+            productId: String,
+        ): List<ModifierGroupEntity> = groups.filter { it.tenantId == tenantId }
+
+        override suspend fun insertModifierGroups(groups: List<ModifierGroupEntity>) {
+            this.groups.addAll(groups)
+        }
+
+        override suspend fun deleteAll(tenantId: String) {
+            groups.removeAll { it.tenantId == tenantId }
+        }
+    }
+
+    private class FakeModifierOptionDao : ModifierOptionDao {
+        val options = mutableListOf<ModifierOptionEntity>()
+
+        override suspend fun getOptionsForGroup(tenantId: String, modifierGroupId: String): List<ModifierOptionEntity> =
+            options.filter { it.tenantId == tenantId && it.modifierGroupId == modifierGroupId }
+
+        override suspend fun getOptionsForGroups(tenantId: String, modifierGroupIds: List<String>): List<ModifierOptionEntity> =
+            options.filter { it.tenantId == tenantId && it.modifierGroupId in modifierGroupIds }
+
+        override suspend fun insertOptions(options: List<ModifierOptionEntity>) {
+            this.options.addAll(options)
+        }
+
+        override suspend fun deleteAllForTenant(tenantId: String) {
+            options.removeAll { it.tenantId == tenantId }
+        }
+    }
+
+    private class FakeProductModifierGroupDao : ProductModifierGroupDao {
+        val assignments = mutableListOf<ProductModifierGroupEntity>()
+
+        override suspend fun getAssignmentsForProduct(tenantId: String, productId: String): List<ProductModifierGroupEntity> =
+            assignments.filter { it.tenantId == tenantId && it.productId == productId }
+
+        override suspend fun getAssignmentsForProducts(tenantId: String, productIds: List<String>): List<ProductModifierGroupEntity> =
+            assignments.filter { it.tenantId == tenantId && it.productId in productIds }
+
+        override suspend fun insertAssignments(assignments: List<ProductModifierGroupEntity>) {
+            this.assignments.addAll(assignments)
+        }
+
+        override suspend fun deleteAllForTenant(tenantId: String) {
+            assignments.removeAll { it.tenantId == tenantId }
         }
     }
 
