@@ -141,6 +141,9 @@ fun AppNavigation(
                         ShiftScreen(
                             outletId = outletForShift.id,
                             outletName = outletForShift.name,
+                            cashierName = (authenticatedSession as? NavigationSession.AuthV2)
+                                ?.value
+                                ?.userName,
                             autoNavigateToHome = isGateEntry,
                             onShiftOpen = {
                                 navController.navigate(Screen.Home.route) {

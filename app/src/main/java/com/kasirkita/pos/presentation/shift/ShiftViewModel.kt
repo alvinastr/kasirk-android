@@ -3,6 +3,7 @@ package com.kasirkita.pos.presentation.shift
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.domain.model.Shift
+import com.kasirkita.pos.domain.model.ShiftSummary
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.domain.usecase.CloseShiftUseCase
 import com.kasirkita.pos.domain.usecase.GetCurrentShiftUseCase
@@ -52,56 +53,52 @@ class ShiftViewModel @Inject constructor(
         }
     }
 
-    fun openShift(
-        outletId: String,
-        openingCash: Long,
-    ) {
+    fun openShift(outletId: String) {
         if (outletId.isBlank()) {
             _state.value = ShiftState.Error("Outlet belum dipilih.")
-            return
-        }
-        if (openingCash < 0L) {
-            _state.value = ShiftState.Error("Kas awal tidak boleh negatif.")
             return
         }
 
         viewModelScope.launch {
             _state.value = ShiftState.Opening
-            shiftStateAfterOpen(
-                openShiftUseCase(
-                    outletId = outletId,
-                    openingCash = openingCash,
-                ),
-            ).let { _state.value = it }
+            shiftStateAfterOpen(openShiftUseCase(outletId)).let { _state.value = it }
             if (_state.value is ShiftState.ShiftLoaded) {
                 _shiftOpened.tryEmit(Unit)
             }
         }
     }
 
-    fun closeShift(closingCash: Long) {
-        val activeShift = when (val currentState = _state.value) {
-            is ShiftState.ShiftLoaded -> currentState.shift
-            is ShiftState.Closing -> currentState.shift
-            else -> null
-        }
-        if (activeShift == null) {
+    fun loadSummaryForClose() {
+        val activeShift = activeShiftFromState() ?: run {
             _state.value = ShiftState.Error("Tidak ada shift aktif.")
-            return
-        }
-        if (closingCash < 0L) {
-            _state.value = ShiftState.Error("Kas akhir tidak boleh negatif.")
             return
         }
 
         viewModelScope.launch {
-            _state.value = ShiftState.Closing(activeShift)
-            shiftStateAfterClose(
-                closeShiftUseCase(
-                    shiftId = activeShift.id,
-                    closingCash = closingCash,
-                ),
-            ).let { _state.value = it }
+            _state.value = ShiftState.LoadingSummary(activeShift)
+            val result = shiftRepository.getShiftSummary(activeShift.id)
+            _state.value = shiftStateAfterSummary(activeShift, result)
+        }
+    }
+
+    fun confirmCloseShift() {
+        val currentState = _state.value as? ShiftState.SummaryLoaded ?: return
+        val activeShift = currentState.shift
+        val summary = currentState.summary
+
+        viewModelScope.launch {
+            _state.value = ShiftState.Closing(activeShift, summary)
+            val result = closeShiftUseCase(activeShift.id)
+            _state.value = result.fold(
+                onSuccess = { closedShift -> ShiftState.ShiftClosed(closedShift, summary) },
+                onFailure = { throwable ->
+                    ShiftState.SummaryLoaded(
+                        shift = activeShift,
+                        summary = summary,
+                        closeError = shiftErrorMessage(throwable),
+                    )
+                },
+            )
         }
     }
 
@@ -109,6 +106,14 @@ class ShiftViewModel @Inject constructor(
         if (_state.value is ShiftState.ShiftClosed) {
             _state.value = ShiftState.NoShift
         }
+    }
+
+    private fun activeShiftFromState(): Shift? = when (val currentState = _state.value) {
+        is ShiftState.ShiftLoaded -> currentState.shift
+        is ShiftState.LoadingSummary -> currentState.shift
+        is ShiftState.SummaryLoaded -> currentState.shift
+        is ShiftState.Closing -> currentState.shift
+        else -> null
     }
 }
 
@@ -124,16 +129,24 @@ internal fun shiftStateAfterOpen(result: Result<Shift>): ShiftState = result.fol
     onFailure = { throwable -> ShiftState.Error(shiftErrorMessage(throwable)) },
 )
 
-internal fun shiftStateAfterClose(result: Result<Shift>): ShiftState = result.fold(
-    onSuccess = ShiftState::ShiftClosed,
-    onFailure = { throwable -> ShiftState.Error(shiftErrorMessage(throwable)) },
+internal fun shiftStateAfterSummary(
+    shift: Shift,
+    result: Result<ShiftSummary>,
+): ShiftState = result.fold(
+    onSuccess = { summary -> ShiftState.SummaryLoaded(shift, summary) },
+    onFailure = { throwable ->
+        ShiftState.ShiftLoaded(
+            shift = shift,
+            summaryError = shiftErrorMessage(throwable),
+        )
+    },
 )
 
 internal fun shiftErrorMessage(throwable: Throwable): String = when {
     throwable is IOException ->
         "Tidak dapat terhubung ke server. Periksa koneksi lalu coba lagi."
     throwable is HttpException && throwable.code() == 400 ->
-        "Nilai kas tidak valid. Periksa kembali input Anda."
+        "Permintaan shift tidak valid. Muat ulang lalu coba lagi."
     throwable is HttpException && throwable.code() == 401 ->
         "Sesi sudah berakhir. Silakan login kembali."
     throwable is HttpException && throwable.code() == 403 ->

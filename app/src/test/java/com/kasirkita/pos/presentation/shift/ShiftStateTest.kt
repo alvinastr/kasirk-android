@@ -1,6 +1,9 @@
 package com.kasirkita.pos.presentation.shift
 
 import com.kasirkita.pos.domain.model.Shift
+import com.kasirkita.pos.domain.model.ShiftSummary
+import com.kasirkita.pos.domain.model.ShiftSummaryParty
+import com.kasirkita.pos.domain.model.ShiftSummaryTotals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -24,17 +27,28 @@ class ShiftStateTest {
     }
 
     @Test
-    fun successfulClose_keepsServerReconciliationInClosedState() {
-        val closed = openShift().copy(
-            closingCash = 200_000L,
-            expectedCash = 210_000L,
-            difference = -10_000L,
-            status = "CLOSED",
+    fun successfulSummary_returnsReviewStateWithBackendValues() {
+        val shift = openShift()
+        val summary = summary()
+
+        val state = shiftStateAfterSummary(shift, Result.success(summary))
+
+        assertEquals(ShiftState.SummaryLoaded(shift, summary), state)
+    }
+
+    @Test
+    fun summaryFailure_keepsActiveShiftAndDoesNotFabricateTotals() {
+        val shift = openShift()
+
+        val state = shiftStateAfterSummary(shift, Result.failure(IOException("network unavailable")))
+
+        assertEquals(
+            ShiftState.ShiftLoaded(
+                shift = shift,
+                summaryError = "Tidak dapat terhubung ke server. Periksa koneksi lalu coba lagi.",
+            ),
+            state,
         )
-
-        val state = shiftStateAfterClose(Result.success(closed))
-
-        assertEquals(ShiftState.ShiftClosed(closed), state)
     }
 
     @Test
@@ -52,27 +66,7 @@ class ShiftStateTest {
     }
 
     @Test
-    fun cashValidation_requiresWholeNonNegativeAmount() {
-        assertEquals(
-            ShiftCashValidationResult.Invalid("Kas awal wajib diisi."),
-            validateShiftCash("", "Kas awal"),
-        )
-        assertEquals(
-            ShiftCashValidationResult.Invalid("Kas awal harus berupa angka bulat."),
-            validateShiftCash("12.5", "Kas awal"),
-        )
-        assertEquals(
-            ShiftCashValidationResult.Invalid("Kas awal tidak boleh negatif."),
-            validateShiftCash("-1", "Kas awal"),
-        )
-        assertEquals(
-            ShiftCashValidationResult.Valid(0L),
-            validateShiftCash("0", "Kas awal"),
-        )
-    }
-
-    @Test
-    fun closedDifference_formatsNegativeRupiahClearly() {
+    fun shiftMoney_formatsNegativeRupiahClearly() {
         assertEquals("-Rp10.000", formatShiftMoney(-10_000L))
         assertTrue(formatShiftTime("invalid timestamp").contains("invalid"))
     }
@@ -81,12 +75,25 @@ class ShiftStateTest {
         id = "shift-id",
         outletId = "outlet-id",
         userId = "user-id",
-        openingCash = 50_000L,
+        openingCash = null,
         closingCash = null,
         expectedCash = null,
         difference = null,
         status = "OPEN",
         openedAt = "2026-09-24T08:00:00.000Z",
         closedAt = null,
+    )
+
+    private fun summary() = ShiftSummary(
+        shiftId = "shift-id",
+        status = "OPEN",
+        outlet = ShiftSummaryParty("outlet-id", "Outlet"),
+        cashier = ShiftSummaryParty("user-id", "Kasir"),
+        openedAt = "2026-09-24T08:00:00.000Z",
+        closedAt = null,
+        generatedAt = "2026-09-24T09:00:00.000Z",
+        transactionCount = 1,
+        totals = ShiftSummaryTotals(sales = 20_000L, cash = 10_000L, qris = 10_000L),
+        products = emptyList(),
     )
 }
