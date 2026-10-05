@@ -13,7 +13,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,6 +46,8 @@ fun ReceiptScreen(
     viewModel: ReceiptViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    var isPrinting by remember { mutableStateOf(false) }
+    var printError by remember { mutableStateOf<String?>(null) }
 
     when (val currentState = state) {
         ReceiptState.Loading -> KasirLoadingState(message = "Memuat struk...")
@@ -57,6 +61,23 @@ fun ReceiptScreen(
         is ReceiptState.Success -> ReceiptContent(
             receipt = currentState.receipt,
             onNewTransaction = onNewTransaction,
+            isPrinting = isPrinting,
+            onPrint = { receipt ->
+                viewModel.printReceipt(
+                    receipt = receipt,
+                    onPrintStart = { isPrinting = true },
+                    onPrintComplete = {
+                        isPrinting = false
+                        printError = null
+                    },
+                    onPrintError = { error ->
+                        isPrinting = false
+                        printError = error
+                    },
+                )
+            },
+            printError = printError,
+            onPrintErrorDismiss = { printError = null },
         )
     }
 }
@@ -100,6 +121,10 @@ private fun ReceiptErrorContent(
 private fun ReceiptContent(
     receipt: Receipt,
     onNewTransaction: () -> Unit,
+    isPrinting: Boolean = false,
+    onPrint: (Receipt) -> Unit = {},
+    printError: String? = null,
+    onPrintErrorDismiss: () -> Unit = {},
 ) {
     val numberFormat = remember {
         NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
@@ -137,13 +162,44 @@ private fun ReceiptContent(
             }
         }
 
-        KasirPrimaryButton(
-            text = "Transaksi Baru",
-            onClick = onNewTransaction,
+        if (printError != null) {
+            KasirCard(modifier = Modifier
+                .fillMaxWidth()
+                .padding(KasirSpacing.Large)) {
+                Column(verticalArrangement = Arrangement.spacedBy(KasirSpacing.Small)) {
+                    androidx.compose.material3.Text(
+                        text = "Gagal cetak: $printError",
+                        style = MaterialTheme.typography.body,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    KasirSecondaryButton(
+                        text = "Tutup",
+                        onClick = onPrintErrorDismiss,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(KasirSpacing.Large),
-        )
+            verticalArrangement = Arrangement.spacedBy(KasirSpacing.Small),
+        ) {
+            KasirPrimaryButton(
+                text = "Cetak Struk",
+                onClick = { onPrint(receipt) },
+                enabled = !isPrinting,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            KasirPrimaryButton(
+                text = "Transaksi Baru",
+                onClick = onNewTransaction,
+                enabled = !isPrinting,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

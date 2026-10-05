@@ -36,6 +36,7 @@ import com.kasirkita.pos.presentation.product.ProductManagementScreen
 import com.kasirkita.pos.presentation.product.ProductScreen
 import com.kasirkita.pos.presentation.receipt.ReceiptScreen
 import com.kasirkita.pos.presentation.reports.ReportsScreen
+import com.kasirkita.pos.presentation.settings.PrinterSettingsScreen
 import com.kasirkita.pos.presentation.shift.ShiftScreen
 import com.kasirkita.pos.presentation.stock.StockAdjustmentScreen
 import com.kasirkita.pos.presentation.transaction.TransactionDetailScreen
@@ -89,6 +90,9 @@ fun AppNavigation(
             val reportsRoute = authenticatedSession
                 ?.role
                 ?.let(::reportsRouteFor)
+            val printerSettingsRoute = authenticatedSession
+                ?.role
+                ?.let(::printerSettingsRouteFor)
             val startDestination = startupRouteFor(currentState)
 
             NavHost(
@@ -385,6 +389,12 @@ fun AppNavigation(
                         ReportsScreen(onBack = navController::popBackStack)
                     }
                 }
+
+                printerSettingsRoute?.let { route ->
+                    composable(route) {
+                        PrinterSettingsScreen()
+                    }
+                }
             }
         }
     }
@@ -464,6 +474,13 @@ internal fun reportsRouteFor(role: UserRole): String? = when (role) {
     UserRole.OWNER,
     UserRole.ADMIN,
     -> Screen.Reports.route
+    UserRole.CASHIER -> null
+}
+
+internal fun printerSettingsRouteFor(role: UserRole): String? = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    -> Screen.PrinterSettings.route
     UserRole.CASHIER -> null
 }
 

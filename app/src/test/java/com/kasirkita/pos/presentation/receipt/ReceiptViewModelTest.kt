@@ -1,11 +1,18 @@
 package com.kasirkita.pos.presentation.receipt
 
+import android.content.Context
+import android.content.ContextWrapper
 import androidx.lifecycle.SavedStateHandle
+import com.kasirkita.pos.data.datastore.PrinterConfigDataStore
+import com.kasirkita.pos.data.printer.BluetoothPrinterTransport
+import com.kasirkita.pos.data.printer.EscPosReceiptFormatter
 import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.domain.repository.ReceiptRepository
 import com.kasirkita.pos.domain.usecase.GetReceiptUseCase
+import com.kasirkita.pos.domain.usecase.PrintReceiptUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -42,6 +49,7 @@ class ReceiptViewModelTest {
                 mapOf("transactionId" to "transaction-id"),
             ),
             getReceipt = GetReceiptUseCase(repository),
+            printReceipt = FakePrintReceiptUseCase(),
         )
 
         advanceUntilIdle()
@@ -56,5 +64,11 @@ class ReceiptViewModelTest {
         private val result: Result<Receipt>,
     ) : ReceiptRepository {
         override suspend fun getReceipt(transactionId: String): Result<Receipt> = result
+    }
+
+    private class FakePrintReceiptUseCase : PrintReceiptUseCase() {
+        override suspend fun invoke(receipt: Receipt): Result<Unit> {
+            return Result.success(Unit)
+        }
     }
 }

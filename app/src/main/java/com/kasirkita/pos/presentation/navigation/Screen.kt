@@ -23,5 +23,6 @@ sealed class Screen(val route: String) {
         fun createRoute(transactionId: String): String = "transactions/$transactionId"
     }
     data object Reports : Screen("reports")
+    data object PrinterSettings : Screen("settings/printer")
     data object OfflineRecovery : Screen("offline-recovery")
 }

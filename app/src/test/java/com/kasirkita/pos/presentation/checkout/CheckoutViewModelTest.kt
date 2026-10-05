@@ -4,6 +4,13 @@ import androidx.lifecycle.SavedStateHandle
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.domain.model.*
 import com.kasirkita.pos.domain.repository.*
+import com.kasirkita.pos.domain.model.DrawerPulseProfile
+import com.kasirkita.pos.domain.model.Payment
+import com.kasirkita.pos.domain.model.PrinterConfig
+import com.kasirkita.pos.domain.model.Receipt
+import com.kasirkita.pos.domain.repository.ReceiptRepository
+import com.kasirkita.pos.domain.usecase.GetReceiptUseCase
+import com.kasirkita.pos.domain.usecase.PrintAfterCheckoutUseCase
 import com.kasirkita.pos.domain.usecase.QueueOfflineTransactionUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -51,8 +58,16 @@ class CheckoutViewModelTest {
         val product = Product("coffee", "tenant", "category", "Americano", "AM", 20_000, 0, 0, false, true, "now")
         cart.addConfiguredProduct(product, item().modifierSelections, item().note)
         cart.updateQuantity(item().lineKey.value, 2)
-        return CheckoutViewModel(online, QueueOfflineTransactionUseCase(offline), cart,
-            FakeOutlet(outlet), FakeShift(shift), handle)
+        return CheckoutViewModel(
+            online,
+            QueueOfflineTransactionUseCase(offline),
+            cart,
+            FakeOutlet(outlet),
+            FakeShift(shift),
+            GetReceiptUseCase(FakeReceiptRepository()),
+            FakePrintAfterCheckoutUseCase(),
+            handle
+        )
     }
 
     private fun viewModelWithDuplicateConfiguredLines(): CheckoutViewModel {
@@ -61,8 +76,16 @@ class CheckoutViewModelTest {
         val hot = listOf(CartModifierSelectionSnapshot("hot", "temperature", "Temperature", "Hot", 0))
         cart.addConfiguredProduct(product, ice, "Sedikit es")
         cart.addConfiguredProduct(product, hot, "Tanpa gula")
-        return CheckoutViewModel(online, QueueOfflineTransactionUseCase(offline), cart,
-            FakeOutlet(outlet), FakeShift(shift), handle)
+        return CheckoutViewModel(
+            online,
+            QueueOfflineTransactionUseCase(offline),
+            cart,
+            FakeOutlet(outlet),
+            FakeShift(shift),
+            GetReceiptUseCase(FakeReceiptRepository()),
+            FakePrintAfterCheckoutUseCase(),
+            handle
+        )
     }
 
     @Test fun onlineRequestUsesOutletShiftModifiersNoteAndTenderWithoutEarlyClear() = runTest(dispatcher) {
@@ -416,5 +439,43 @@ class CheckoutViewModelTest {
         override suspend fun getShiftSummary(shiftId: String): Result<ShiftSummary> = error("Unused")
         override suspend fun clearCurrentShift(tenantId: String?, userId: String?) = error("Unused")
         override suspend fun restoreCurrentShift(expectedOutletId: String?) = error("Unused")
+    }
+
+    private class FakeReceiptRepository : ReceiptRepository {
+        override suspend fun getReceipt(transactionId: String): Result<Receipt> {
+            return Result.success(Receipt(
+                transactionId = transactionId,
+                clientTransactionId = "sale-id",
+                status = "COMPLETED",
+                createdAt = "now",
+                tenant = ReceiptTenant("tenant", "Tenant", null),
+                outlet = ReceiptOutlet("selected-outlet", "Outlet", null),
+                cashier = ReceiptCashier("cashier", "Cashier"),
+                customer = null,
+                items = emptyList(),
+                payment = Payment(
+                    id = "payment-id",
+                    method = "CASH",
+                    status = "COMPLETED",
+                    amount = 60_000,
+                    paidAt = "now",
+                    amountReceived = 60_000,
+                    changeAmount = 10_000,
+                ),
+                subtotal = 50_000,
+                discount = 0,
+                tax = 0,
+                total = 50_000,
+                change = 10_000,
+            ))
+        }
+    }
+
+    private class FakePrintAfterCheckoutUseCase : PrintAfterCheckoutUseCase() {
+        override suspend fun invoke(
+            receipt: Receipt,
+            paymentMethod: String,
+            isOriginalOnlineCheckout: Boolean,
+        ): Result = Result.Success(printed = true, drawerOpened = true)
     }
 }

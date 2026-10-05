@@ -9,6 +9,8 @@ import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.domain.repository.TransactionRepository
+import com.kasirkita.pos.domain.usecase.GetReceiptUseCase
+import com.kasirkita.pos.domain.usecase.PrintAfterCheckoutUseCase
 import com.kasirkita.pos.domain.usecase.QueueOfflineTransactionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -30,6 +32,8 @@ class CheckoutViewModel @Inject constructor(
     private val cartRepository: CartRepository,
     outletRepository: OutletRepository,
     shiftRepository: ShiftRepository,
+    private val getReceiptUseCase: GetReceiptUseCase,
+    private val printAfterCheckoutUseCase: PrintAfterCheckoutUseCase,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -161,6 +165,19 @@ class CheckoutViewModel @Inject constructor(
             val transaction = onlineResult.getOrNull()
             if (transaction != null) {
                 cartRepository.clearCart()
+
+                // Fetch canonical server receipt and trigger auto-print/drawer
+                val receiptResult = getReceiptUseCase(transaction.id)
+                val receipt = receiptResult.getOrNull()
+                if (receipt != null) {
+                    val paymentMethod = snapshot.payment.method.name // "CASH" or "QRIS"
+                    printAfterCheckoutUseCase(
+                        receipt = receipt,
+                        paymentMethod = paymentMethod,
+                        isOriginalOnlineCheckout = true,
+                    )
+                }
+
                 _state.update {
                     it.copy(
                         isLoading = false,
