@@ -67,6 +67,17 @@ internal fun ProductScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val cartState by cartViewModel.state.collectAsState()
+    val modifierSelection by viewModel.modifierSelection.collectAsState()
+
+    modifierSelection?.let { selection ->
+        ModifierSelectionDialog(
+            state = selection,
+            onToggleOption = viewModel::toggleModifier,
+            onNoteChange = viewModel::updateModifierNote,
+            onConfirm = viewModel::confirmModifiers,
+            onCancel = viewModel::cancelModifiers,
+        )
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val layoutMode = posLayoutMode(maxWidth.value.toInt())

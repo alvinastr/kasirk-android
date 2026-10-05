@@ -38,6 +38,41 @@ class ProductCatalogViewModel @Inject constructor(
     private var stocks: List<Stock>? = null
     private var hasLoadedProducts = false
 
+    private val _modifierSelection = MutableStateFlow<ModifierSelectionState?>(null)
+    val modifierSelection: StateFlow<ModifierSelectionState?> = _modifierSelection.asStateFlow()
+
+    fun openModifierSelector(product: Product) {
+        _modifierSelection.value = ModifierSelectionState.create(product)
+    }
+
+    fun toggleModifier(optionId: String) {
+        _modifierSelection.value = _modifierSelection.value?.toggleOption(optionId)
+    }
+
+    fun updateModifierNote(value: String) {
+        _modifierSelection.value = _modifierSelection.value?.updateNote(value)
+    }
+
+    fun cancelModifiers() {
+        _modifierSelection.value = null
+    }
+
+    fun confirmModifiers() {
+        val currentSelection = _modifierSelection.value ?: return
+        if (!currentSelection.canAdd) return
+        viewModelScope.launch {
+            val result = addToCartUseCase(
+                product = currentSelection.product,
+                selectedModifiers = currentSelection.selectedSnapshots(),
+                note = currentSelection.note,
+                availableStock = null,
+            )
+            if (result == CartUpdateResult.UPDATED) {
+                _modifierSelection.value = null
+            }
+        }
+    }
+
     init {
         loadProducts()
     }
@@ -77,20 +112,28 @@ class ProductCatalogViewModel @Inject constructor(
 
     fun addToCart(item: ProductCatalogItem) {
         val currentState = _state.value as? ProductCatalogState.Success ?: return
-        val message = when (productTapAction(item.product)) {
-            ProductTapAction.DirectAdd -> when (
-                addToCartUseCase(product = item.product, availableStock = item.stockQuantity)
-            ) {
-                CartUpdateResult.UPDATED -> null
-                CartUpdateResult.STOCK_LIMIT_REACHED -> "Jumlah di cart sudah mencapai stok yang tersedia."
+        when (productTapAction(item.product)) {
+            ProductTapAction.DirectAdd -> {
+                val message = when (
+                    addToCartUseCase(product = item.product, availableStock = item.stockQuantity)
+                ) {
+                    CartUpdateResult.UPDATED -> null
+                    CartUpdateResult.STOCK_LIMIT_REACHED -> "Jumlah di cart sudah mencapai stok yang tersedia."
+                }
+                _state.value = currentState.copy(message = message)
             }
-            ProductTapAction.BlockedUnknownModifiers ->
-                "Pilihan produk belum tersedia. Muat ulang katalog sebelum menambahkan produk ini."
-            ProductTapAction.RequiresModifierSelection ->
-                "Produk ini memerlukan pilihan opsi sebelum dapat ditambahkan."
-            ProductTapAction.BlockedUnavailable -> "Produk tidak tersedia untuk dijual."
+            ProductTapAction.RequiresModifierSelection -> {
+                openModifierSelector(item.product)
+            }
+            ProductTapAction.BlockedUnknownModifiers -> {
+                val message = "Pilihan produk belum tersedia. Muat ulang katalog sebelum menambahkan produk ini."
+                _state.value = currentState.copy(message = message)
+            }
+            ProductTapAction.BlockedUnavailable -> {
+                val message = "Produk tidak tersedia untuk dijual."
+                _state.value = currentState.copy(message = message)
+            }
         }
-        _state.value = currentState.copy(message = message)
     }
 
     private suspend fun refreshRemoteCatalog() = coroutineScope {
