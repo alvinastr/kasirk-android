@@ -371,6 +371,11 @@ fun AppNavigation(
                     composable(detailRoute) {
                         TransactionDetailScreen(
                             onBack = navController::popBackStack,
+                            onViewReceipt = { transactionId ->
+                                navController.navigate(
+                                    Screen.Receipt.createRoute(transactionId),
+                                )
+                            },
                         )
                     }
                 }

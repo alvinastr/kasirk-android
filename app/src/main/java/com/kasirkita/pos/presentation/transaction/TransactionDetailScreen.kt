@@ -36,6 +36,7 @@ import java.util.Locale
 @Composable
 fun TransactionDetailScreen(
     onBack: () -> Unit,
+    onViewReceipt: (String) -> Unit,
     viewModel: TransactionDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -44,6 +45,7 @@ fun TransactionDetailScreen(
         state = state,
         onBack = onBack,
         onRetry = viewModel::loadTransaction,
+        onViewReceipt = onViewReceipt,
     )
 }
 
@@ -52,6 +54,7 @@ internal fun TransactionDetailContent(
     state: TransactionDetailState,
     onBack: () -> Unit,
     onRetry: () -> Unit,
+    onViewReceipt: (String) -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -77,6 +80,7 @@ internal fun TransactionDetailContent(
             is TransactionDetailState.Success -> TransactionDetailSuccessContent(
                 transaction = currentState.transaction,
                 onBack = onBack,
+                onViewReceipt = onViewReceipt,
             )
         }
     }
@@ -108,6 +112,7 @@ private fun TransactionDetailMessage(
 private fun TransactionDetailSuccessContent(
     transaction: Transaction,
     onBack: () -> Unit,
+    onViewReceipt: (String) -> Unit,
 ) {
     val numberFormat = remember {
         NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
@@ -165,7 +170,14 @@ private fun TransactionDetailSuccessContent(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            HorizontalDivider(modifier = Modifier.padding(top = KasirSpacing.Large))
+            if (transaction.status == "completed") {
+            KasirTextButton(
+                text = "Lihat Struk",
+                onClick = { onViewReceipt(transaction.id) },
+                modifier = Modifier.padding(top = KasirSpacing.Large),
+            )
+        }
+        HorizontalDivider(modifier = Modifier.padding(top = KasirSpacing.Large))
             Text(
                 text = "Item",
                 style = MaterialTheme.typography.titleMedium,

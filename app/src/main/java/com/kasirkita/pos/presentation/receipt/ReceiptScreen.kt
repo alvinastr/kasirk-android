@@ -34,6 +34,9 @@ import com.kasirkita.pos.ui.theme.sectionTitle
 import com.kasirkita.pos.ui.theme.supporting
 import java.text.NumberFormat
 import java.util.Locale
+import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @Composable
 fun ReceiptScreen(
@@ -146,6 +149,12 @@ private fun ReceiptContent(
 
 @Composable
 private fun ReceiptHeader(receipt: Receipt) {
+    val dateFormatter = remember {
+        DateTimeFormatter.ofPattern(
+            "dd MMM yyyy, HH.mm",
+            java.util.Locale.forLanguageTag("id-ID"),
+        )
+    }
     KasirCard(modifier = Modifier.fillMaxWidth()) {
         androidx.compose.material3.Text(
             text = "Transaksi Berhasil",
@@ -168,6 +177,16 @@ private fun ReceiptHeader(receipt: Receipt) {
             style = MaterialTheme.typography.body,
         )
         androidx.compose.material3.Text(
+            text = formatTransactionDate(receipt.createdAt, dateFormatter),
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        androidx.compose.material3.Text(
+            text = "ID: ${receipt.transactionId}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        androidx.compose.material3.Text(
             text = "Kasir: ${receipt.cashier.name}",
             style = MaterialTheme.typography.body,
         )
@@ -179,6 +198,15 @@ private fun ReceiptHeader(receipt: Receipt) {
         }
     }
 }
+
+private fun formatTransactionDate(
+    value: String,
+    formatter: DateTimeFormatter,
+): String = runCatching {
+    OffsetDateTime.parse(value)
+        .atZoneSameInstant(ZoneId.systemDefault())
+        .format(formatter)
+}.getOrDefault(value)
 
 @Composable
 private fun ReceiptItemsSection(
@@ -209,12 +237,42 @@ private fun ReceiptItemRow(
             .padding(vertical = KasirSpacing.Small),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        androidx.compose.material3.Text(
-            text = item.productName,
-            style = MaterialTheme.typography.body,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            androidx.compose.material3.Text(
+                text = item.productName,
+                style = MaterialTheme.typography.body,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            if (item.sku.isNotBlank()) {
+                androidx.compose.material3.Text(
+                    text = "SKU: ${item.sku}",
+                    style = MaterialTheme.typography.supporting,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            item.modifierSnapshots.forEach { modifier ->
+                androidx.compose.material3.Text(
+                    text = "- ${modifier.groupName}: ${modifier.optionName} (+Rp${numberFormat.format(modifier.priceDelta)})",
+                    style = MaterialTheme.typography.supporting,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            item.note?.takeIf { it.isNotBlank() }?.let { note ->
+                androidx.compose.material3.Text(
+                    text = "Note: $note",
+                    style = MaterialTheme.typography.supporting,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                )
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -286,27 +344,36 @@ private fun ReceiptPaymentSection(
             style = MaterialTheme.typography.titleMedium,
         )
 
-        if (payment != null) {
+        val showCashTender = payment?.method?.equals("CASH", ignoreCase = true) == true
+            && payment.amountReceived != null
+
+        val showCashChange = payment?.method?.equals("CASH", ignoreCase = true) == true
+            && payment.changeAmount != null
+
+        PriceDisplay(
+            label = "Total",
+            value = "Rp${numberFormat.format(payment?.amount ?: 0L)}",
+        )
+
+        if (showCashTender) {
             PriceDisplay(
                 label = "Uang diterima",
-                value = "Rp${numberFormat.format(payment.amount)}",
+                value = "Rp${numberFormat.format(payment.amountReceived)}",
             )
         }
 
-        receipt.change?.let { change ->
-            if (change > 0L) {
-                HorizontalDivider(modifier = Modifier.padding(vertical = KasirSpacing.Small))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    androidx.compose.material3.Text(
-                        text = "Kembalian",
-                        style = MaterialTheme.typography.sectionTitle,
-                    )
-                    PriceText(text = "Rp${numberFormat.format(change)}")
-                }
+        if (showCashChange) {
+            HorizontalDivider(modifier = Modifier.padding(vertical = KasirSpacing.Small))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Text(
+                    text = "Kembalian",
+                    style = MaterialTheme.typography.sectionTitle,
+                )
+                PriceText(text = "Rp${numberFormat.format(payment.changeAmount)}")
             }
         }
     }
