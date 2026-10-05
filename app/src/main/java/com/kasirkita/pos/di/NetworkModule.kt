@@ -45,7 +45,6 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideGson(): Gson = GsonBuilder()
-        .serializeNulls()
         .create()
 
     @Provides

@@ -1,10 +1,11 @@
 package com.kasirkita.pos.data.repository
 
 import com.google.gson.Gson
-import com.google.gson.GsonBuilder
+import com.google.gson.JsonObject
 import com.kasirkita.pos.data.model.V1CreateTransactionRequest
 import com.kasirkita.pos.data.model.V1CreateTransactionItemRequest
 import com.kasirkita.pos.data.model.V1PaymentRequest
+import com.kasirkita.pos.di.NetworkModule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -12,7 +13,7 @@ import org.junit.Test
 
 class V1CreateTransactionRequestJsonTest {
 
-    private val gson = GsonBuilder().serializeNulls().create()
+    private val gson = NetworkModule.provideGson()
 
     @Test
     fun cashPayment_serializesCashTenderAsAmountReceivedNotAmount() {
@@ -131,7 +132,7 @@ class V1CreateTransactionRequestJsonTest {
     }
 
     @Test
-    fun v1Request_preservesNullNotesInItemLines() {
+    fun cashCheckout_omitsNullOptionalFieldsAndPreservesCashTender() {
         val request = V1CreateTransactionRequest(
             clientTransactionId = "c5c5c5c5-aaaa-4444-bbbb-555555555555",
             outletId = "outlet-id",
@@ -142,22 +143,46 @@ class V1CreateTransactionRequestJsonTest {
                     productId = "product-id",
                     quantity = 1,
                     modifierOptionIds = emptyList(),
-                    note = "with note",
+                    note = null,
                 ),
+            ),
+            payment = V1PaymentRequest(method = "CASH", amountReceived = 20_000L),
+            discount = null,
+        )
+        val json = gson.toJsonTree(request).asJsonObject
+        val itemJson = json.getAsJsonArray("items").single().asJsonObject
+        val paymentJson = json.getAsJsonObject("payment")
+
+        assertFalse(itemJson.has("note"))
+        assertFalse(json.has("discount"))
+        assertFalse(json.has("customer_id"))
+        assertEquals("CASH", paymentJson.get("method").asString)
+        assertEquals(20_000L, paymentJson.get("amount_received").asLong)
+    }
+
+    @Test
+    fun v1Request_preservesNonNullOptionalFields() {
+        val request = V1CreateTransactionRequest(
+            clientTransactionId = "c6c6c6c6-aaaa-4444-bbbb-666666666666",
+            outletId = "outlet-id",
+            cashierSessionId = "session-id",
+            customerId = "customer-id",
+            items = listOf(
                 V1CreateTransactionItemRequest(
                     productId = "product-id",
                     quantity = 1,
                     modifierOptionIds = emptyList(),
-                    note = null,
+                    note = "with note",
                 ),
             ),
-            payment = V1PaymentRequest(method = "CASH", amountReceived = 30_000L),
-            discount = null,
+            payment = V1PaymentRequest(method = "CASH", amountReceived = 20_000L),
+            discount = 1_000L,
         )
         val json = gson.toJsonTree(request).asJsonObject
-        val itemsArray = json.getAsJsonArray("items")
+        val itemJson = json.getAsJsonArray("items").single().asJsonObject
 
-        assertEquals("with note", itemsArray[0].asJsonObject.get("note").asString)
-        assertTrue(itemsArray[1].asJsonObject.get("note").isJsonNull)
+        assertEquals("customer-id", json.get("customer_id").asString)
+        assertEquals("with note", itemJson.get("note").asString)
+        assertEquals(1_000L, json.get("discount").asLong)
     }
 }
