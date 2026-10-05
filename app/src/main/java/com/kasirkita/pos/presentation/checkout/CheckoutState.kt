@@ -9,8 +9,10 @@ data class CheckoutState(
     val cart: Cart = Cart(),
     val selectedOutlet: Outlet? = null,
     val currentShift: Shift? = null,
+    val payment: CheckoutPaymentState = CheckoutPaymentState(),
     val isLoading: Boolean = false,
     val transaction: Transaction? = null,
     val offlineQueuedClientTransactionId: String? = null,
+    val persistedTotal: Long = 0L,
     val errorMessage: String? = null,
 )

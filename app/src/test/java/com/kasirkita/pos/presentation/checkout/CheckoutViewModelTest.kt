@@ -55,6 +55,16 @@ class CheckoutViewModelTest {
             FakeOutlet(outlet), FakeShift(shift), handle)
     }
 
+    private fun viewModelWithDuplicateConfiguredLines(): CheckoutViewModel {
+        val product = Product("coffee", "tenant", "category", "Americano", "AM", 20_000, 0, 0, false, true, "now")
+        val ice = listOf(CartModifierSelectionSnapshot("ice", "temperature", "Temperature", "Ice", 0))
+        val hot = listOf(CartModifierSelectionSnapshot("hot", "temperature", "Temperature", "Hot", 0))
+        cart.addConfiguredProduct(product, ice, "Sedikit es")
+        cart.addConfiguredProduct(product, hot, "Tanpa gula")
+        return CheckoutViewModel(online, QueueOfflineTransactionUseCase(offline), cart,
+            FakeOutlet(outlet), FakeShift(shift), handle)
+    }
+
     @Test fun onlineRequestUsesOutletShiftModifiersNoteAndTenderWithoutEarlyClear() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()
@@ -107,12 +117,16 @@ class CheckoutViewModelTest {
         offline.result = Result.failure(IOException("storage"))
         val vm = viewModel()
         runCurrent()
-        vm.checkout(60_000)
+        vm.selectQuickTender(60_000)
+        vm.confirmPayment()
         runCurrent()
         online.complete(Result.failure(IOException("offline")))
         advanceUntilIdle()
         assertEquals(1, cart.getCart().value.items.size)
         assertNull(vm.state.value.offlineQueuedClientTransactionId)
+        assertFalse(vm.state.value.isLoading)
+        assertTrue(vm.state.value.payment.canSubmit)
+        assertTrue(vm.state.value.errorMessage.orEmpty().contains("tidak dapat disimpan offline"))
         assertEquals("sale-id", offline.requests.single().clientTransactionId)
         vm.checkout(60_000)
         runCurrent()
@@ -122,11 +136,215 @@ class CheckoutViewModelTest {
         assertTrue(cart.getCart().value.items.isEmpty())
     }
 
+    @Test fun cashRequestUsesTenderNotChangeAndUnderpaymentNeverSubmits() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+
+        vm.enterManualCash("40000")
+        vm.confirmPayment()
+        runCurrent()
+        assertTrue(online.requests.isEmpty())
+        assertTrue(offline.requests.isEmpty())
+        assertEquals(1, cart.getCart().value.items.size)
+        assertEquals("Jumlah pembayaran kurang dari total belanja", vm.state.value.errorMessage)
+
+        vm.selectQuickTender(100_000L)
+        assertEquals(50_000L, vm.state.value.payment.totalAmount)
+        assertEquals(50_000L, vm.state.value.payment.changeAmount)
+        vm.confirmPayment()
+        runCurrent()
+
+        val request = online.requests.single()
+        assertEquals("sale-id", request.clientTransactionId)
+        assertEquals("CASH", request.payment.method)
+        assertEquals(100_000L, request.payment.amountReceived)
+        assertNotEquals("client-computed change must not be sent as tender", vm.state.value.payment.changeAmount, request.payment.amountReceived)
+    }
+
+    @Test fun qrisCanSubmitWithoutTenderAndNeverLeaksPreviousCashTender() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+
+        vm.selectQuickTender(100_000L)
+        vm.selectPaymentMethod(CheckoutPaymentMethod.QRIS)
+        assertNull(vm.state.value.payment.amountReceived)
+        assertTrue(vm.state.value.payment.canSubmit)
+        vm.confirmPayment()
+        runCurrent()
+
+        val request = online.requests.single()
+        assertEquals("sale-id", request.clientTransactionId)
+        assertEquals("QRIS", request.payment.method)
+        assertNull(request.payment.amountReceived)
+    }
+
+    @Test fun qrisNetworkFailureQueuesV2SnapshotWithTotalAndSameRequest() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+        vm.selectPaymentMethod(CheckoutPaymentMethod.QRIS)
+        vm.confirmPayment()
+        runCurrent()
+        online.complete(Result.failure(IOException("offline")))
+        advanceUntilIdle()
+
+        assertEquals(online.requests.single(), offline.requests.single())
+        assertEquals("sale-id", offline.requests.single().clientTransactionId)
+        assertEquals("active-shift", offline.requests.single().cashierSessionId)
+        assertEquals("QRIS", offline.requests.single().payment.method)
+        assertNull(offline.requests.single().payment.amountReceived)
+        assertEquals(50_000L, offline.snapshots.single().paymentAmount)
+        assertEquals(listOf("ice", "shot"), offline.requests.single().items.single().modifierOptionIds)
+        assertEquals("Sedikit es", offline.requests.single().items.single().note)
+        assertTrue(cart.getCart().value.items.isEmpty())
+    }
+
+    @Test fun cashNetworkFailureQueuesV2SnapshotWithTenderAndSameRequest() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+        vm.selectQuickTender(100_000L)
+        vm.confirmPayment()
+        runCurrent()
+        online.complete(Result.failure(IOException("offline")))
+        advanceUntilIdle()
+
+        assertEquals(online.requests.single(), offline.requests.single())
+        assertEquals("sale-id", offline.requests.single().clientTransactionId)
+        assertEquals("active-shift", offline.requests.single().cashierSessionId)
+        assertEquals("CASH", offline.requests.single().payment.method)
+        assertEquals(100_000L, offline.requests.single().payment.amountReceived)
+        assertEquals(100_000L, offline.snapshots.single().paymentAmount)
+        assertTrue(cart.getCart().value.items.isEmpty())
+    }
+
+    @Test fun duplicateConfirmWhileSubmittingIsGuarded() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+
+        vm.selectExactCash()
+        vm.confirmPayment()
+        vm.confirmPayment()
+        runCurrent()
+
+        assertEquals(1, online.requests.size)
+        assertTrue(offline.requests.isEmpty())
+    }
+
+    @Test fun switchingQrisBackToCashRequiresFreshTenderAndDoesNotRegenerateIdentity() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+        val idBefore = handle.get<String>(CheckoutTransactionIdentity.KEY)
+
+        vm.selectQuickTender(100_000L)
+        vm.enterManualCash("60000")
+        vm.selectPaymentMethod(CheckoutPaymentMethod.QRIS)
+        vm.selectPaymentMethod(CheckoutPaymentMethod.CASH)
+
+        assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
+        assertNull(vm.state.value.payment.amountReceived)
+        assertFalse(vm.state.value.payment.canSubmit)
+        vm.confirmPayment()
+        runCurrent()
+        assertTrue(online.requests.isEmpty())
+        assertTrue(offline.requests.isEmpty())
+    }
+
+    @Test fun tenderAndMethodChangesDoNotChangeClientTransactionId() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+        val idBefore = handle.get<String>(CheckoutTransactionIdentity.KEY)
+
+        vm.selectExactCash()
+        vm.selectQuickTender(100_000L)
+        vm.enterManualCash("60000")
+        vm.selectPaymentMethod(CheckoutPaymentMethod.QRIS)
+        vm.selectPaymentMethod(CheckoutPaymentMethod.CASH)
+        vm.selectExactCash()
+        vm.confirmPayment()
+        runCurrent()
+
+        assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
+        assertEquals("sale-id", online.requests.single().clientTransactionId)
+    }
+
+    @Test fun offlineFallbackPreservesDuplicateConfiguredCartLines() = runTest(dispatcher) {
+        val vm = viewModelWithDuplicateConfiguredLines()
+        runCurrent()
+        assertEquals(2, cart.getCart().value.items.size)
+        vm.selectPaymentMethod(CheckoutPaymentMethod.QRIS)
+        vm.confirmPayment()
+        runCurrent()
+        online.complete(Result.failure(IOException("offline")))
+        advanceUntilIdle()
+
+        val queued = offline.requests.single()
+        assertEquals("sale-id", queued.clientTransactionId)
+        assertEquals("active-shift", queued.cashierSessionId)
+        assertEquals(2, queued.items.size)
+        assertEquals(listOf("ice"), queued.items[0].modifierOptionIds)
+        assertEquals("Sedikit es", queued.items[0].note)
+        assertEquals(listOf("hot"), queued.items[1].modifierOptionIds)
+        assertEquals("Tanpa gula", queued.items[1].note)
+        assertTrue(cart.getCart().value.items.isEmpty())
+    }
+
+    @Test fun stableIdAcrossAllPaymentActions() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+        val idBefore = handle.get<String>(CheckoutTransactionIdentity.KEY)
+
+        vm.selectExactCash()
+        assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
+
+        vm.selectQuickTender(100_000L)
+        assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
+
+        vm.enterManualCash("60000")
+        assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
+
+        vm.selectPaymentMethod(CheckoutPaymentMethod.QRIS)
+        assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
+
+        vm.selectPaymentMethod(CheckoutPaymentMethod.CASH)
+        assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
+
+        vm.selectExactCash()
+        assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
+    }
+
+    @Test fun offlineQueueSuccessClearsCartOnlyAfterQueuePersistenceCompletes() = runTest(dispatcher) {
+        offline.suspendUntilCompleted = true
+        val vm = viewModel()
+        runCurrent()
+        vm.selectExactCash()
+        vm.confirmPayment()
+        runCurrent()
+
+        online.complete(Result.failure(IOException("offline")))
+        runCurrent()
+
+        assertEquals(1, offline.requests.size)
+        assertTrue(vm.state.value.isLoading)
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNull(vm.state.value.offlineQueuedClientTransactionId)
+
+        offline.complete(Result.success(offlineTransaction()))
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.isLoading)
+        assertEquals("sale-id", vm.state.value.offlineQueuedClientTransactionId)
+        assertTrue(cart.getCart().value.items.isEmpty())
+    }
+
     private fun transaction() = Transaction(
         id = "server-id", clientTransactionId = "sale-id", outletId = outlet.id,
         userId = "cashier", customerId = null, status = "COMPLETED",
         subtotal = 50_000, discount = 0, tax = 0, total = 50_000,
         items = emptyList(), payments = emptyList(), change = 10_000, createdAt = "now",
+    )
+
+    private fun offlineTransaction() = OfflineTransaction(
+        "row", "tenant", "cashier", "sale-id", "selected-outlet", "{}", "PENDING",
+        null, null, 0, 0, 0,
     )
 
     private class FakeTransactions : TransactionRepository {
@@ -151,12 +369,19 @@ class CheckoutViewModelTest {
         var result: Result<OfflineTransaction> = Result.success(OfflineTransaction(
             "row", "tenant", "cashier", "sale-id", "selected-outlet", "{}", "PENDING",
             null, null, 0, 0, 0))
+        var suspendUntilCompleted = false
+        private var pending: kotlinx.coroutines.CompletableDeferred<Result<OfflineTransaction>>? = null
         override suspend fun queueV1Transaction(request: V1TransactionRequest,
             financialSnapshot: OfflineFinancialSnapshot): Result<OfflineTransaction> {
             requests += request
             snapshots += financialSnapshot
+            if (suspendUntilCompleted) {
+                pending = kotlinx.coroutines.CompletableDeferred()
+                return pending!!.await()
+            }
             return result
         }
+        fun complete(result: Result<OfflineTransaction>) { pending!!.complete(result) }
         override suspend fun queueTransaction(clientTransactionId: String, outletId: String,
             customerId: String?, items: List<CartItem>, paymentAmount: Long,
             financialSnapshot: OfflineFinancialSnapshot): Result<OfflineTransaction> = error("Legacy queue used")

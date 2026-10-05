@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.data.model.buildV1TransactionRequest
 import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
-import com.kasirkita.pos.domain.model.V1Payment
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
@@ -41,9 +40,9 @@ class CheckoutViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             combine(
-                cartRepository.getCart(),
-                outletRepository.selectedOutlet,
-                shiftRepository.currentShift,
+                    cartRepository.getCart(),
+                    outletRepository.selectedOutlet,
+                    shiftRepository.currentShift,
             ) { cart, outlet, shift -> Triple(cart, outlet, shift) }
                 .collect { (cart, outlet, shift) ->
                     _state.update { current ->
@@ -51,19 +50,68 @@ class CheckoutViewModel @Inject constructor(
                             cart = cart,
                             selectedOutlet = outlet,
                             currentShift = shift,
+                            payment = current.payment.withTotal(cart.totalAmount()),
                         )
                     }
                 }
         }
     }
 
-    fun checkout(paymentAmount: Long) {
+    fun selectPaymentMethod(method: CheckoutPaymentMethod) {
+        _state.update { current ->
+            current.copy(
+                payment = when (method) {
+                    CheckoutPaymentMethod.CASH -> current.payment.selectCash()
+                    CheckoutPaymentMethod.QRIS -> current.payment.selectQris()
+                },
+                errorMessage = null,
+            )
+        }
+    }
+
+    fun selectExactCash() {
+        _state.update { current ->
+            current.copy(
+                payment = current.payment.selectExactCash(),
+                errorMessage = null,
+            )
+        }
+    }
+
+    fun selectQuickTender(amount: Long) {
+        _state.update { current ->
+            current.copy(
+                payment = current.payment.selectTender(amount),
+                errorMessage = null,
+            )
+        }
+    }
+
+    fun enterManualCash(input: String) {
+        _state.update { current ->
+            current.copy(
+                payment = current.payment.enterManualCash(input),
+                errorMessage = null,
+            )
+        }
+    }
+
+    fun confirmPayment() {
         val snapshot = _state.value
         if (
             snapshot.isLoading ||
             snapshot.transaction != null ||
             snapshot.offlineQueuedClientTransactionId != null
         ) {
+            return
+        }
+
+        if (!snapshot.payment.canSubmit) {
+            val error = when (snapshot.payment.method) {
+                CheckoutPaymentMethod.CASH -> "Jumlah pembayaran kurang dari total belanja"
+                CheckoutPaymentMethod.QRIS -> "Pembayaran QRIS tidak valid"
+            }
+            _state.update { it.copy(errorMessage = error) }
             return
         }
 
@@ -75,8 +123,6 @@ class CheckoutViewModel @Inject constructor(
             shift == null || !shift.status.equals(OPEN_STATUS, ignoreCase = true) ->
                 "Tidak ada shift aktif"
             shift.outletId != outlet.id -> "Shift aktif tidak sesuai dengan outlet yang dipilih"
-            paymentAmount < snapshot.cart.totalAmount() ->
-                "Jumlah pembayaran kurang dari total belanja"
             else -> null
         }
 
@@ -89,18 +135,23 @@ class CheckoutViewModel @Inject constructor(
         val cashierSessionId = shift?.id ?: return
         val clientTransactionId = transactionIdentity.getOrCreate()
 
-        viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, errorMessage = null) }
+        // Mark submitting synchronously so a duplicate confirmPayment() before the
+        // coroutine resumes is guarded by isLoading rather than launching twice.
+        _state.update {
+            it.copy(
+                isLoading = true,
+                errorMessage = null,
+                persistedTotal = snapshot.cart.totalAmount(),
+            )
+        }
 
+        viewModelScope.launch {
             val v1Request = buildV1TransactionRequest(
                 clientTransactionId = clientTransactionId,
                 outletId = outletId,
                 cashierSessionId = cashierSessionId,
                 items = snapshot.cart.items,
-                payment = V1Payment(
-                    method = "CASH",
-                    amountReceived = paymentAmount,
-                ),
+                payment = snapshot.payment.toPayment(),
                 customerId = null,
                 discount = null,
             )
@@ -138,7 +189,7 @@ class CheckoutViewModel @Inject constructor(
                     discount = 0L,
                     tax = 0L,
                     total = snapshot.cart.totalAmount(),
-                    paymentAmount = paymentAmount,
+                    paymentAmount = snapshot.payment.amountReceived ?: snapshot.cart.totalAmount(),
                 ),
             ).fold(
                 onSuccess = {
@@ -164,6 +215,30 @@ class CheckoutViewModel @Inject constructor(
                 },
             )
         }
+    }
+
+    /**
+     * Backward-compatible CASH-only adapter for callers using the pre-M12 API.
+     * QRIS always uses [confirmPayment], so this method cannot create a QRIS
+     * request with a cash tender amount.
+     */
+    fun checkout(paymentAmount: Long) {
+        val snapshot = _state.value
+        if (
+            snapshot.isLoading ||
+            snapshot.transaction != null ||
+            snapshot.offlineQueuedClientTransactionId != null
+        ) {
+            return
+        }
+
+        _state.update { current ->
+            current.copy(
+                payment = current.payment.selectCash().selectTender(paymentAmount),
+                errorMessage = null,
+            )
+        }
+        confirmPayment()
     }
 
     private companion object {

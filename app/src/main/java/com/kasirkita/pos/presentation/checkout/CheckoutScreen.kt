@@ -15,10 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
@@ -28,6 +25,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirPrimaryButton
+import com.kasirkita.pos.ui.components.KasirSecondaryButton
 import com.kasirkita.pos.ui.components.KasirTextField
 import com.kasirkita.pos.ui.components.KasirTopBar
 import com.kasirkita.pos.ui.components.PriceDisplay
@@ -47,7 +45,6 @@ fun CheckoutScreen(
     val numberFormat = remember {
         NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
     }
-    var paymentText by rememberSaveable { mutableStateOf("") }
     val transaction = state.transaction
     val queuedClientTransactionId = state.offlineQueuedClientTransactionId
 
@@ -81,7 +78,7 @@ fun CheckoutScreen(
                 item {
                     CheckoutOfflineContent(
                         clientTransactionId = queuedClientTransactionId,
-                        totalAmount = state.cart.totalAmount(),
+                        totalAmount = state.persistedTotal,
                         numberFormat = numberFormat,
                     )
                 }
@@ -98,23 +95,25 @@ fun CheckoutScreen(
 
             items(
                 items = state.cart.items,
-                key = CartItem::productId,
+                key = { item -> item.lineKey.value },
             ) { item ->
                 CheckoutItemRow(item = item, numberFormat = numberFormat)
             }
 
             item {
-                PaymentMethodSection()
+                PaymentMethodSection(
+                    method = state.payment.method,
+                    onMethodSelected = viewModel::selectPaymentMethod,
+                )
             }
 
             item {
-                CashPaymentSection(
-                    totalAmount = state.cart.totalAmount(),
-                    paymentText = paymentText,
-                    onPaymentChange = { value ->
-                        paymentText = value.filter(Char::isDigit)
-                    },
+                PaymentControls(
+                    payment = state.payment,
                     numberFormat = numberFormat,
+                    onExactCash = viewModel::selectExactCash,
+                    onQuickTender = viewModel::selectQuickTender,
+                    onManualCash = viewModel::enterManualCash,
                 )
             }
 
@@ -132,14 +131,10 @@ fun CheckoutScreen(
         }
 
         SubmitPaymentSection(
+            payment = state.payment,
             isLoading = state.isLoading,
-            isEnabled = !state.isLoading && state.cart.items.isNotEmpty(),
-            totalAmount = state.cart.totalAmount(),
-            paymentAmount = paymentText.toLongOrNull() ?: 0L,
-            numberFormat = numberFormat,
-            onSubmit = {
-                viewModel.checkout(paymentText.toLongOrNull() ?: 0L)
-            },
+            isEnabled = state.cart.items.isNotEmpty(),
+            onSubmit = viewModel::confirmPayment,
         )
     }
 }
@@ -252,54 +247,120 @@ private fun CheckoutItemRow(
 }
 
 @Composable
-private fun PaymentMethodSection() {
+private fun PaymentMethodSection(
+    method: CheckoutPaymentMethod,
+    onMethodSelected: (CheckoutPaymentMethod) -> Unit,
+) {
     KasirCard(modifier = Modifier.fillMaxWidth()) {
         Text(
             text = "Metode pembayaran",
             style = MaterialTheme.typography.supporting,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+        ) {
+            KasirSecondaryButton(
+                text = "CASH",
+                onClick = { onMethodSelected(CheckoutPaymentMethod.CASH) },
+                modifier = Modifier.weight(1f),
+                enabled = method != CheckoutPaymentMethod.CASH,
+            )
+            KasirSecondaryButton(
+                text = "QRIS",
+                onClick = { onMethodSelected(CheckoutPaymentMethod.QRIS) },
+                modifier = Modifier.weight(1f),
+                enabled = method != CheckoutPaymentMethod.QRIS,
+            )
+        }
         Text(
-            text = "CASH",
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            text = "Dipilih: ${method.name}",
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
 
 @Composable
-private fun CashPaymentSection(
-    totalAmount: Long,
-    paymentText: String,
-    onPaymentChange: (String) -> Unit,
+private fun PaymentControls(
+    payment: CheckoutPaymentState,
     numberFormat: NumberFormat,
+    onExactCash: () -> Unit,
+    onQuickTender: (Long) -> Unit,
+    onManualCash: (String) -> Unit,
 ) {
     KasirCard(modifier = Modifier.fillMaxWidth()) {
-        KasirTextField(
-            value = paymentText,
-            onValueChange = onPaymentChange,
-            label = "Uang diterima",
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            prefix = "Rp",
-            singleLine = true,
+        PriceDisplay(
+            label = "Total",
+            value = "Rp${numberFormat.format(payment.totalAmount)}",
         )
 
-        val paymentAmount = paymentText.toLongOrNull() ?: 0L
-        val change = if (paymentAmount >= totalAmount) paymentAmount - totalAmount else 0L
-        val isInsufficientCash = paymentAmount < totalAmount
-
-        if (isInsufficientCash) {
-            val shortfall = totalAmount - paymentAmount
+        if (payment.method == CheckoutPaymentMethod.QRIS) {
             Text(
-                text = "Kurang: Rp${numberFormat.format(shortfall)}",
+                text = "QRIS toko (QR fisik/statik). Pastikan kasir memverifikasi pembayaran melalui QRIS toko sebelum konfirmasi.",
+                style = MaterialTheme.typography.body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@KasirCard
+        }
+
+        Text(
+            text = "Uang diterima",
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+        ) {
+            KasirSecondaryButton(
+                text = "Uang Pas",
+                onClick = onExactCash,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        payment.quickTenderCandidates.forEach { tender ->
+            KasirSecondaryButton(
+                text = "Rp${numberFormat.format(tender)}",
+                onClick = { onQuickTender(tender) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        KasirSecondaryButton(
+            text = "Lainnya",
+            onClick = { onManualCash(payment.manualInput) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+
+        if (payment.tenderMode == CashTenderMode.MANUAL) {
+            KasirTextField(
+                value = payment.manualInput,
+                onValueChange = onManualCash,
+                label = "Jumlah uang diterima",
+                modifier = Modifier.fillMaxWidth(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                prefix = "Rp",
+                singleLine = true,
+            )
+        }
+
+        payment.amountReceived?.let { received ->
+            PriceDisplay(
+                label = "Uang diterima",
+                value = "Rp${numberFormat.format(received)}",
+            )
+        }
+        if (payment.shortageAmount > 0L) {
+            Text(
+                text = "Kurang: Rp${numberFormat.format(payment.shortageAmount)}",
                 style = MaterialTheme.typography.supporting,
                 color = MaterialTheme.colorScheme.error,
             )
-        } else {
+        } else if (payment.amountReceived != null) {
             PriceDisplay(
                 label = "Kembalian",
-                value = "Rp${numberFormat.format(change)}",
+                value = "Rp${numberFormat.format(payment.changeAmount)}",
             )
         }
     }
@@ -307,14 +368,17 @@ private fun CashPaymentSection(
 
 @Composable
 private fun SubmitPaymentSection(
+    payment: CheckoutPaymentState,
     isLoading: Boolean,
     isEnabled: Boolean,
-    totalAmount: Long,
-    paymentAmount: Long,
-    numberFormat: NumberFormat,
     onSubmit: () -> Unit,
 ) {
-    val canSubmit = isEnabled && paymentAmount >= totalAmount && !isLoading
+    val canSubmit = isEnabled && payment.canSubmit && !isLoading
+    val buttonText = if (payment.method == CheckoutPaymentMethod.QRIS) {
+        "Konfirmasi Pembayaran QRIS"
+    } else {
+        "Selesaikan Transaksi"
+    }
 
     Column(
         modifier = Modifier
@@ -322,7 +386,7 @@ private fun SubmitPaymentSection(
             .padding(KasirSpacing.Large),
         verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
     ) {
-        if (paymentAmount < totalAmount) {
+        if (payment.method == CheckoutPaymentMethod.CASH && !payment.canSubmit) {
             Text(
                 text = "Pembayaran belum cukup",
                 style = MaterialTheme.typography.supporting,
@@ -332,7 +396,7 @@ private fun SubmitPaymentSection(
         }
 
         KasirPrimaryButton(
-            text = "Selesaikan Transaksi",
+            text = buttonText,
             onClick = onSubmit,
             modifier = Modifier.fillMaxWidth(),
             enabled = canSubmit,
