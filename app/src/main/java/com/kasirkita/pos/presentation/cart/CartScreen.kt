@@ -48,6 +48,7 @@ import java.util.Locale
 @Composable
 fun CartScreen(
     onCheckout: () -> Unit = {},
+    embedded: Boolean = false,
     viewModel: CartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()

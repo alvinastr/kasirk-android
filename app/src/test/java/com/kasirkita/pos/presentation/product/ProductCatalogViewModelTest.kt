@@ -56,6 +56,12 @@ class ProductCatalogViewModelTest {
         val cartRepository = CartRepositoryImpl()
         val viewModel = ProductCatalogViewModel(
             getProductsUseCase = GetProductsUseCase(productRepository),
+            getCategoriesUseCase = com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
+                object : com.kasirkita.pos.domain.repository.CategoryRepository {
+                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
+                        Result.success(emptyList())
+                },
+            ),
             getStocksUseCase = GetStocksUseCase(stockRepository),
             productRepository = productRepository,
             outletRepository = FakeOutletRepository(),
@@ -172,6 +178,7 @@ class ProductCatalogViewModelTest {
             trackStock = true,
             isActive = true,
             createdAt = "2026-09-30T00:00:00Z",
+            modifierMetadataLoaded = true,
         )
     }
 }

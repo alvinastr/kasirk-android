@@ -3,16 +3,25 @@ package com.kasirkita.pos.presentation.product
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import com.kasirkita.pos.presentation.navigation.PosWorkspaceRailDestination
+import com.kasirkita.pos.presentation.navigation.posWorkspaceShowsRail
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -28,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Cart
+import com.kasirkita.pos.presentation.cart.CartScreen
 import com.kasirkita.pos.presentation.cart.CartViewModel
 import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirEmptyState
@@ -47,28 +57,105 @@ import com.kasirkita.pos.ui.theme.supporting
 import java.text.NumberFormat
 import java.util.Locale
 
-
 @Composable
-fun ProductScreen(
+internal fun ProductScreen(
     onCartClick: () -> Unit = {},
+    railDestinations: List<PosWorkspaceRailDestination> = emptyList(),
+    onRailDestinationClick: (PosWorkspaceRailDestination) -> Unit = {},
     viewModel: ProductCatalogViewModel = hiltViewModel(),
     cartViewModel: CartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val cartState by cartViewModel.state.collectAsState()
 
-    ProductContent(
-        state = state,
-        cart = cartState.cart,
-        onRetry = viewModel::loadProducts,
-        onRefresh = viewModel::refresh,
-        onAddToCart = viewModel::addToCart,
-        onCartClick = onCartClick,
-    )
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val layoutMode = posLayoutMode(maxWidth.value.toInt())
+        Row(modifier = Modifier.fillMaxSize()) {
+            if (posWorkspaceShowsRail(layoutMode)) {
+                NavigationRail(modifier = Modifier.fillMaxHeight()) {
+                    railDestinations.forEach { destination ->
+                        NavigationRailItem(
+                            selected = destination.selected,
+                            onClick = { onRailDestinationClick(destination) },
+                            icon = { Text(destination.label.take(1)) },
+                            label = { Text(destination.label) },
+                        )
+                    }
+                }
+            }
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+        when (layoutMode) {
+            PosLayoutMode.Wide -> WideProductLayout(
+                state = state,
+                cart = cartState.cart,
+                onRetry = viewModel::loadProducts,
+                onRefresh = viewModel::refresh,
+                onAddToCart = viewModel::addToCart,
+                onCheckout = { onCartClick() },
+            )
+            PosLayoutMode.Narrow -> NarrowProductLayout(
+                state = state,
+                cart = cartState.cart,
+                onRetry = viewModel::loadProducts,
+                onRefresh = viewModel::refresh,
+                onAddToCart = viewModel::addToCart,
+                onCartClick = onCartClick,
+            )
+        }
+            }
+        }
+    }
 }
 
 @Composable
-private fun ProductContent(
+private fun WideProductLayout(
+    state: ProductCatalogState,
+    cart: Cart,
+    onRetry: () -> Unit,
+    onRefresh: () -> Unit,
+    onAddToCart: (ProductCatalogItem) -> Unit,
+    onCheckout: () -> Unit,
+) {
+    Row(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .weight(0.65f)
+                .fillMaxHeight()
+        ) {
+            when (state) {
+                ProductCatalogState.Loading -> KasirLoadingState(message = "Memuat produk...")
+                is ProductCatalogState.Error -> KasirErrorState(
+                    message = state.message,
+                    onRetry = onRetry,
+                )
+                is ProductCatalogState.Success -> ProductCatalogPanel(
+                    items = state.items,
+                    categories = state.categories,
+                    message = state.message,
+                    onRefresh = onRefresh,
+                    onAddToCart = onAddToCart,
+                )
+            }
+        }
+        Surface(
+            modifier = Modifier
+                .weight(0.35f)
+                .fillMaxHeight(),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 8.dp,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            CartScreen(
+                onCheckout = onCheckout,
+                embedded = true,
+                viewModel = hiltViewModel(),
+            )
+        }
+    }
+}
+
+@Composable
+private fun NarrowProductLayout(
     state: ProductCatalogState,
     cart: Cart,
     onRetry: () -> Unit,
@@ -78,21 +165,20 @@ private fun ProductContent(
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-        when (state) {
-            ProductCatalogState.Loading -> KasirLoadingState(message = "Memuat produk...")
-            is ProductCatalogState.Error -> KasirErrorState(
-                message = state.message,
-                onRetry = onRetry,
-            )
-            is ProductCatalogState.Success -> ProductList(
-                items = state.items,
-                message = state.message,
-                onRefresh = onRefresh,
-                onAddToCart = onAddToCart,
-                modifier = Modifier.fillMaxSize(),
-            )
-        }
-
+            when (state) {
+                ProductCatalogState.Loading -> KasirLoadingState(message = "Memuat produk...")
+                is ProductCatalogState.Error -> KasirErrorState(
+                    message = state.message,
+                    onRetry = onRetry,
+                )
+                is ProductCatalogState.Success -> ProductCatalogPanel(
+                    items = state.items,
+                    categories = state.categories,
+                    message = state.message,
+                    onRefresh = onRefresh,
+                    onAddToCart = onAddToCart,
+                )
+            }
         }
         CartSummaryBar(
             cart = cart,
@@ -103,30 +189,33 @@ private fun ProductContent(
 }
 
 @Composable
-private fun ProductList(
+private fun ProductCatalogPanel(
     items: List<ProductCatalogItem>,
+    categories: List<com.kasirkita.pos.domain.model.Category>,
     message: String?,
     onRefresh: () -> Unit,
     onAddToCart: (ProductCatalogItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
+    var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val numberFormat = remember {
         NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
     }
-    val filteredItems = remember(items, searchQuery) {
-        items.filter { item ->
-            val query = searchQuery.trim()
-            val matchesSearch = query.isBlank() ||
-                item.product.name.contains(query, ignoreCase = true) ||
-                item.product.sku.contains(query, ignoreCase = true)
-            matchesSearch
-        }
+
+    val categoryFilters = remember(categories) {
+        buildCategoryFilters(categories, items)
+    }
+
+    val filteredItems = remember(items, searchQuery, selectedCategoryId) {
+        filterProductCatalog(items, searchQuery, selectedCategoryId)
     }
 
     Column(
-        modifier = modifier.padding(horizontal = KasirSpacing.CompactScreenPadding),
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = KasirSpacing.CompactScreenPadding),
         verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
     ) {
         KasirTopBar(title = "Kasir")
@@ -138,6 +227,24 @@ private fun ProductList(
             modifier = Modifier.fillMaxWidth(),
         )
 
+        if (categoryFilters.size > 1) {
+            LazyRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                items(categoryFilters) { filter ->
+                    val isSelected = (filter.id == null && selectedCategoryId == null) ||
+                        (filter.id == selectedCategoryId)
+                    KasirSecondaryButton(
+                        text = filter.label,
+                        onClick = { selectedCategoryId = filter.id },
+                        enabled = true,
+                        modifier = if (isSelected) Modifier else Modifier,
+                    )
+                }
+            }
+        }
 
         Row(
             modifier = Modifier.fillMaxWidth(),

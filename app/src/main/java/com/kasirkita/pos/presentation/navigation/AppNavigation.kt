@@ -191,7 +191,14 @@ fun AppNavigation(
                 }
 
                 composable(Screen.Products.route) {
+                    val role = authenticatedSession?.role
                     ProductScreen(
+                        railDestinations = role?.let(::posWorkspaceRailDestinationsFor).orEmpty(),
+                        onRailDestinationClick = { destination ->
+                            navController.navigate(destination.route) {
+                                launchSingleTop = true
+                            }
+                        },
                         onCartClick = {
                             navController.navigate(Screen.Cart.route)
                         },
@@ -451,6 +458,26 @@ internal fun reportsRouteFor(role: UserRole): String? = when (role) {
     -> Screen.Reports.route
     UserRole.CASHIER -> null
 }
+
+internal data class PosWorkspaceRailDestination(
+    val route: String,
+    val label: String,
+    val selected: Boolean,
+)
+
+internal fun posWorkspaceRailDestinationsFor(role: UserRole): List<PosWorkspaceRailDestination> = buildList {
+    add(PosWorkspaceRailDestination(Screen.Products.route, "POS", selected = true))
+    add(PosWorkspaceRailDestination(transactionHistoryRouteFor(role), "Riwayat", selected = false))
+    if (productManagementRouteFor(role) != null) {
+        add(PosWorkspaceRailDestination(Screen.ProductManagement.route, "Produk", selected = false))
+    }
+    if (reportsRouteFor(role) != null) {
+        add(PosWorkspaceRailDestination(Screen.Reports.route, "Laporan", selected = false))
+    }
+}
+
+internal fun posWorkspaceShowsRail(layoutMode: com.kasirkita.pos.presentation.product.PosLayoutMode): Boolean =
+    layoutMode == com.kasirkita.pos.presentation.product.PosLayoutMode.Wide
 
 internal const val PRODUCT_CREATED_RESULT_KEY = "product_created"
 internal const val PRODUCT_UPDATED_RESULT_KEY = "product_updated"
