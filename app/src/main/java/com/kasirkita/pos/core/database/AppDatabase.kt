@@ -138,7 +138,7 @@ abstract class AppDatabase : RoomDatabase() {
                         `isActive` INTEGER NOT NULL,
                         `displayOrder` INTEGER NOT NULL,
                         PRIMARY KEY(`tenantId`, `id`),
-                        FOREIGN KEY(`tenantId`, `modifierGroupId`) REFERENCES `modifier_groups`(`tenantId`, `id`)
+                        FOREIGN KEY(`tenantId`, `modifierGroupId`) REFERENCES `modifier_groups`(`tenantId`, `id`) ON DELETE CASCADE
                     )
                     """.trimIndent(),
                 )
@@ -160,8 +160,8 @@ abstract class AppDatabase : RoomDatabase() {
                         `selectionType` TEXT NOT NULL,
                         `displayOrder` INTEGER NOT NULL,
                         PRIMARY KEY(`tenantId`, `productId`, `modifierGroupId`),
-                        FOREIGN KEY(`tenantId`, `productId`) REFERENCES `products`(`tenantId`, `id`),
-                        FOREIGN KEY(`tenantId`, `modifierGroupId`) REFERENCES `modifier_groups`(`tenantId`, `id`)
+                        FOREIGN KEY(`tenantId`, `productId`) REFERENCES `products`(`tenantId`, `id`) ON DELETE CASCADE,
+                        FOREIGN KEY(`tenantId`, `modifierGroupId`) REFERENCES `modifier_groups`(`tenantId`, `id`) ON DELETE CASCADE
                     )
                     """.trimIndent(),
                 )

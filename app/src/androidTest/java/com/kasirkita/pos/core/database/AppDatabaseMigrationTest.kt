@@ -51,6 +51,7 @@ class AppDatabaseMigrationTest {
                 AppDatabase.MIGRATION_1_2,
                 AppDatabase.MIGRATION_2_3,
                 AppDatabase.MIGRATION_3_4,
+                AppDatabase.MIGRATION_4_5,
             )
             .build()
 
@@ -72,7 +73,7 @@ class AppDatabaseMigrationTest {
             AppDatabase::class.java,
             TEST_DATABASE_NAME,
         )
-            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
+            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
             .build()
 
         val product = requireNotNull(database).productDao().getProducts(TENANT_ID).single()
@@ -89,7 +90,7 @@ class AppDatabaseMigrationTest {
             AppDatabase::class.java,
             TEST_DATABASE_NAME,
         )
-            .addMigrations(AppDatabase.MIGRATION_3_4)
+            .addMigrations(AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
             .build()
 
         val migrated = requireNotNull(database)
@@ -135,6 +136,91 @@ class AppDatabaseMigrationTest {
                 "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
                 arrayOf(tableName),
             ).use { cursor -> assertTrue(cursor.moveToFirst()) }
+        }
+
+        // Opening AppDatabase validates the complete v5 Room schema. Check the
+        // foreign-key actions explicitly because SQLite defaults to NO ACTION.
+        assertForeignKeyAction(
+            sqlite,
+            table = "modifier_options",
+            childColumns = setOf("tenantId", "modifierGroupId"),
+            onDelete = "CASCADE",
+            onUpdate = "NO ACTION",
+        )
+        assertForeignKeyAction(
+            sqlite,
+            table = "product_modifier_groups",
+            childColumns = setOf("tenantId", "productId"),
+            onDelete = "CASCADE",
+            onUpdate = "NO ACTION",
+        )
+        assertForeignKeyAction(
+            sqlite,
+            table = "product_modifier_groups",
+            childColumns = setOf("tenantId", "modifierGroupId"),
+            onDelete = "CASCADE",
+            onUpdate = "NO ACTION",
+        )
+
+        sqlite.execSQL(
+            "INSERT INTO modifier_groups (id, tenantId, name, isActive) VALUES (?, ?, ?, ?)",
+            arrayOf<Any?>("legacy-group", TENANT_ID, "Size", 1),
+        )
+        sqlite.execSQL(
+            "INSERT INTO modifier_options " +
+                "(id, tenantId, modifierGroupId, name, priceDelta, isActive, displayOrder) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            arrayOf<Any?>("legacy-option", TENANT_ID, "legacy-group", "Large", 2000, 1, 1),
+        )
+        sqlite.execSQL(
+            "INSERT INTO product_modifier_groups " +
+                "(tenantId, productId, modifierGroupId, required, selectionType, displayOrder) " +
+                "VALUES (?, ?, ?, ?, ?, ?)",
+            arrayOf<Any?>(TENANT_ID, "legacy-product", "legacy-group", 1, "SINGLE", 1),
+        )
+        sqlite.execSQL(
+            "DELETE FROM modifier_groups WHERE tenantId = ? AND id = ?",
+            arrayOf(TENANT_ID, "legacy-group"),
+        )
+        assertTableRowCount(sqlite, "modifier_options", 0)
+        assertTableRowCount(sqlite, "product_modifier_groups", 0)
+    }
+
+    private fun assertForeignKeyAction(
+        database: SupportSQLiteDatabase,
+        table: String,
+        childColumns: Set<String>,
+        onDelete: String,
+        onUpdate: String,
+    ) {
+        database.query("PRAGMA foreign_key_list(`$table`)").use { cursor ->
+            val fromIndex = cursor.getColumnIndexOrThrow("from")
+            val onDeleteIndex = cursor.getColumnIndexOrThrow("on_delete")
+            val onUpdateIndex = cursor.getColumnIndexOrThrow("on_update")
+            val actualColumns = mutableSetOf<String>()
+            var matchingForeignKey = false
+            while (cursor.moveToNext()) {
+                val childColumn = cursor.getString(fromIndex)
+                if (childColumn in childColumns) {
+                    actualColumns += childColumn
+                    assertEquals(onDelete, cursor.getString(onDeleteIndex))
+                    assertEquals(onUpdate, cursor.getString(onUpdateIndex))
+                    matchingForeignKey = true
+                }
+            }
+            assertTrue(matchingForeignKey)
+            assertEquals(childColumns, actualColumns)
+        }
+    }
+
+    private fun assertTableRowCount(
+        database: SupportSQLiteDatabase,
+        table: String,
+        expectedCount: Int,
+    ) {
+        database.query("SELECT COUNT(*) FROM `$table`").use { cursor ->
+            assertTrue(cursor.moveToFirst())
+            assertEquals(expectedCount, cursor.getInt(0))
         }
     }
 
