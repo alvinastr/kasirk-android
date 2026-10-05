@@ -8,7 +8,7 @@ class UpdateCartQuantityUseCase @Inject constructor(
     private val cartRepository: CartRepository,
 ) {
     operator fun invoke(
-        productId: String,
+        lineKey: String,
         quantity: Int,
-    ): CartUpdateResult = cartRepository.updateQuantity(productId, quantity)
+    ): CartUpdateResult = cartRepository.updateQuantity(lineKey, quantity)
 }

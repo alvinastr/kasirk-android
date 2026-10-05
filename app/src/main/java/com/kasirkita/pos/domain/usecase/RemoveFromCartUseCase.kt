@@ -6,7 +6,7 @@ import javax.inject.Inject
 class RemoveFromCartUseCase @Inject constructor(
     private val cartRepository: CartRepository,
 ) {
-    operator fun invoke(productId: String) {
-        cartRepository.removeProduct(productId)
+    operator fun invoke(lineKey: String) {
+        cartRepository.removeProduct(lineKey)
     }
 }

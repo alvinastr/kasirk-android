@@ -108,14 +108,14 @@ private fun CartContent(
                 ) {
                     items(
                         items = cart.items,
-                        key = CartItem::productId,
+                        key = { item -> item.lineKey.value },
                     ) { item ->
                         CartItemCard(
                             item = item,
                             numberFormat = numberFormat,
-                            onDecreaseQuantity = { onDecreaseQuantity(item.productId) },
-                            onIncreaseQuantity = { onIncreaseQuantity(item.productId) },
-                            onRemove = { onRemoveProduct(item.productId) },
+                            onDecreaseQuantity = { onDecreaseQuantity(item.lineKey.value) },
+                            onIncreaseQuantity = { onIncreaseQuantity(item.lineKey.value) },
+                            onRemove = { onRemoveProduct(item.lineKey.value) },
                         )
                     }
                 }
@@ -162,6 +162,26 @@ private fun CartItemCard(
                 style = MaterialTheme.typography.supporting,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        if (item.modifierSelections.isNotEmpty()) {
+            Text(
+                text = item.modifierSelections.joinToString(" • ") { it.optionName },
+                style = MaterialTheme.typography.supporting,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        item.note?.let { note ->
+            Text(
+                text = "Catatan: $note",
+                style = MaterialTheme.typography.supporting,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }

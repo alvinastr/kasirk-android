@@ -13,6 +13,7 @@ import com.kasirkita.pos.data.repository.OutletRepositoryImpl
 import com.kasirkita.pos.data.repository.ShiftRepositoryImpl
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.Cart
+import com.kasirkita.pos.domain.model.CartModifierSelectionSnapshot
 import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.model.Product
 import com.kasirkita.pos.domain.model.Shift
@@ -172,8 +173,14 @@ class SessionBoundaryCleanerTest {
 
     private class FakeCartRepository : CartRepository {
         override fun addProduct(product: Product, availableStock: Int?): CartUpdateResult = CartUpdateResult.UPDATED
-        override fun removeProduct(productId: String) = Unit
-        override fun updateQuantity(productId: String, quantity: Int): CartUpdateResult = CartUpdateResult.UPDATED
+        override fun addConfiguredProduct(
+            product: Product,
+            selectedModifiers: List<CartModifierSelectionSnapshot>,
+            note: String?,
+            availableStock: Int?,
+        ): CartUpdateResult = CartUpdateResult.UPDATED
+        override fun removeProduct(lineKey: String) = Unit
+        override fun updateQuantity(lineKey: String, quantity: Int): CartUpdateResult = CartUpdateResult.UPDATED
         override fun getCart(): StateFlow<Cart> = MutableStateFlow(Cart(emptyList()))
         override fun clearCart() = Unit
     }

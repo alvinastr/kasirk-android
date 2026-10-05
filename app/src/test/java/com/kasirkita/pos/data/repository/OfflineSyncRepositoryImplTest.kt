@@ -25,6 +25,7 @@ import com.kasirkita.pos.domain.model.V1Payment
 import com.kasirkita.pos.domain.model.V1TransactionItemRequest
 import com.kasirkita.pos.domain.model.V1TransactionRequest
 import com.kasirkita.pos.domain.model.CartItem
+import com.kasirkita.pos.domain.model.CartLineKey
 import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.model.OfflineTransactionFailureType
 import com.kasirkita.pos.domain.model.OfflineTransactionStatus
@@ -1000,10 +1001,11 @@ class OfflineSyncRepositoryImplTest {
     )
 
     private fun sampleCartItem(): CartItem = CartItem(
+        lineKey = CartLineKey.from(PRODUCT_ID, emptyList(), null),
         productId = PRODUCT_ID,
         name = "Kopi",
         sku = "KOPI",
-        price = 10_000L,
+        basePrice = 10_000L,
         quantity = 1,
     )
 

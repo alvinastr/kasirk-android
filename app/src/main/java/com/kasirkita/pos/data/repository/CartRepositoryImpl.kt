@@ -2,7 +2,10 @@ package com.kasirkita.pos.data.repository
 
 import com.kasirkita.pos.domain.model.Cart
 import com.kasirkita.pos.domain.model.CartItem
+import com.kasirkita.pos.domain.model.CartLineKey
+import com.kasirkita.pos.domain.model.CartModifierSelectionSnapshot
 import com.kasirkita.pos.domain.model.Product
+import com.kasirkita.pos.domain.model.normalizeItemNote
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.CartUpdateResult
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,105 +19,83 @@ class CartRepositoryImpl @Inject constructor() : CartRepository {
 
     private val cart = MutableStateFlow(Cart())
 
+    override fun addProduct(product: Product, availableStock: Int?): CartUpdateResult =
+        addConfiguredProduct(product, emptyList(), null, availableStock)
+
     @Synchronized
-    override fun addProduct(
+    override fun addConfiguredProduct(
         product: Product,
+        selectedModifiers: List<CartModifierSelectionSnapshot>,
+        note: String?,
         availableStock: Int?,
     ): CartUpdateResult {
+        val normalizedNote = normalizeItemNote(note)
+        val normalizedSelections = selectedModifiers
+            .distinctBy { it.optionId }
+            .sortedBy { it.optionId }
+        val key = CartLineKey.from(product.id, normalizedSelections.map { it.optionId }, normalizedNote)
         val currentCart = cart.value
-        val existingItem = currentCart.items.firstOrNull { item ->
-            item.productId == product.id
-        }
+        val existingItem = currentCart.items.firstOrNull { it.lineKey == key }
         val stockLimit = availableStock?.coerceAtLeast(0)
 
-        if (
-            product.trackStock &&
-            stockLimit != null &&
-            (existingItem?.quantity ?: 0) >= stockLimit
-        ) {
+        if (product.trackStock && stockLimit != null && (existingItem?.quantity ?: 0) >= stockLimit) {
             if (existingItem != null) {
-                cart.value = currentCart.copy(
-                    items = currentCart.items.map { item ->
-                        if (item.productId == product.id) {
-                            item.copy(availableStock = stockLimit)
-                        } else {
-                            item
-                        }
-                    },
-                )
+                cart.value = currentCart.copy(items = currentCart.items.map { item ->
+                    if (item.lineKey == key) item.copy(availableStock = stockLimit) else item
+                })
             }
             return CartUpdateResult.STOCK_LIMIT_REACHED
         }
 
         cart.value = if (existingItem == null) {
-            currentCart.copy(
-                items = currentCart.items + CartItem(
-                    productId = product.id,
+            currentCart.copy(items = currentCart.items + CartItem(
+                lineKey = key,
+                productId = product.id,
+                name = product.name,
+                sku = product.sku,
+                basePrice = product.price,
+                quantity = 1,
+                modifierSelections = normalizedSelections,
+                note = normalizedNote,
+                trackStock = product.trackStock,
+                availableStock = stockLimit,
+            ))
+        } else {
+            currentCart.copy(items = currentCart.items.map { item ->
+                if (item.lineKey == key) item.copy(
                     name = product.name,
                     sku = product.sku,
-                    price = product.price,
-                    quantity = 1,
+                    basePrice = product.price,
+                    quantity = item.quantity + 1,
+                    modifierSelections = normalizedSelections,
                     trackStock = product.trackStock,
                     availableStock = stockLimit,
-                ),
-            )
-        } else {
-            currentCart.copy(
-                items = currentCart.items.map { item ->
-                    if (item.productId == product.id) {
-                        item.copy(
-                            name = product.name,
-                            sku = product.sku,
-                            price = product.price,
-                            quantity = item.quantity + 1,
-                            trackStock = product.trackStock,
-                            availableStock = stockLimit,
-                        )
-                    } else {
-                        item
-                    }
-                },
-            )
+                ) else item
+            })
         }
         return CartUpdateResult.UPDATED
     }
 
     @Synchronized
-    override fun removeProduct(productId: String) {
-        cart.value = cart.value.copy(
-            items = cart.value.items.filterNot { it.productId == productId },
-        )
+    override fun removeProduct(lineKey: String) {
+        cart.value = cart.value.copy(items = cart.value.items.filterNot { it.lineKey.value == lineKey })
     }
 
     @Synchronized
-    override fun updateQuantity(productId: String, quantity: Int): CartUpdateResult {
+    override fun updateQuantity(lineKey: String, quantity: Int): CartUpdateResult {
+        val currentCart = cart.value
+        val existingItem = currentCart.items.firstOrNull { it.lineKey.value == lineKey }
+            ?: return CartUpdateResult.UPDATED
         if (quantity <= 0) {
-            removeProduct(productId)
+            removeProduct(lineKey)
             return CartUpdateResult.UPDATED
         }
-
-        val currentCart = cart.value
-        val existingItem = currentCart.items.firstOrNull { item ->
-            item.productId == productId
-        } ?: return CartUpdateResult.UPDATED
-
-        if (
-            existingItem.trackStock &&
-            existingItem.availableStock != null &&
-            quantity > existingItem.availableStock
-        ) {
+        if (existingItem.trackStock && existingItem.availableStock != null && quantity > existingItem.availableStock) {
             return CartUpdateResult.STOCK_LIMIT_REACHED
         }
-
-        cart.value = currentCart.copy(
-            items = currentCart.items.map { item ->
-                if (item.productId == productId) {
-                    item.copy(quantity = quantity)
-                } else {
-                    item
-                }
-            },
-        )
+        cart.value = currentCart.copy(items = currentCart.items.map { item ->
+            if (item.lineKey.value == lineKey) item.copy(quantity = quantity) else item
+        })
         return CartUpdateResult.UPDATED
     }
 

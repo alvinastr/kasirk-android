@@ -3,11 +3,13 @@ package com.kasirkita.pos.presentation.checkout
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kasirkita.pos.data.model.buildV1TransactionRequest
 import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
+import com.kasirkita.pos.domain.model.V1Payment
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
-import com.kasirkita.pos.domain.usecase.CreateTransactionUseCase
+import com.kasirkita.pos.domain.repository.TransactionRepository
 import com.kasirkita.pos.domain.usecase.QueueOfflineTransactionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +26,7 @@ import javax.inject.Inject
 
 @HiltViewModel
 class CheckoutViewModel @Inject constructor(
-    private val createTransaction: CreateTransactionUseCase,
+    private val transactionRepository: TransactionRepository,
     private val queueOfflineTransaction: QueueOfflineTransactionUseCase,
     private val cartRepository: CartRepository,
     outletRepository: OutletRepository,
@@ -82,17 +84,28 @@ class CheckoutViewModel @Inject constructor(
             _state.update { it.copy(errorMessage = error) }
             return
         }
+
         val outletId = outlet?.id ?: return
+        val cashierSessionId = shift?.id ?: return
         val clientTransactionId = transactionIdentity.getOrCreate()
 
         viewModelScope.launch {
             _state.update { it.copy(isLoading = true, errorMessage = null) }
-            val onlineResult = createTransaction(
+
+            val v1Request = buildV1TransactionRequest(
                 clientTransactionId = clientTransactionId,
                 outletId = outletId,
+                cashierSessionId = cashierSessionId,
                 items = snapshot.cart.items,
-                paymentAmount = paymentAmount,
+                payment = V1Payment(
+                    method = "CASH",
+                    amountReceived = paymentAmount,
+                ),
+                customerId = null,
+                discount = null,
             )
+
+            val onlineResult = transactionRepository.createV1Transaction(v1Request)
 
             val transaction = onlineResult.getOrNull()
             if (transaction != null) {
@@ -119,11 +132,7 @@ class CheckoutViewModel @Inject constructor(
             }
 
             queueOfflineTransaction(
-                clientTransactionId = clientTransactionId,
-                outletId = outletId,
-                customerId = null,
-                items = snapshot.cart.items,
-                paymentAmount = paymentAmount,
+                request = v1Request,
                 financialSnapshot = OfflineFinancialSnapshot(
                     subtotal = snapshot.cart.totalAmount(),
                     discount = 0L,
