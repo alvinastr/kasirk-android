@@ -140,7 +140,7 @@ class ModifierRepositoryImpl @Inject constructor(
         productId: String
     ): Result<List<ProductModifierAssignment>> = runCatching {
         val response = productApi.getProductModifierGroups(productId)
-        response.map { it.toDomain() }
+        response.modifierGroups.map { it.toDomain(response.productId) }
     }
 
     override suspend fun assignModifierGroup(
@@ -159,7 +159,7 @@ class ModifierRepositoryImpl @Inject constructor(
                 displayOrder = displayOrder,
             )
         )
-        response.toDomain()
+        response.modifierGroups.first { it.id == modifierGroupId }.toDomain(response.productId)
     }
 
     override suspend fun updateModifierGroupAssignment(
@@ -180,7 +180,7 @@ class ModifierRepositoryImpl @Inject constructor(
                 displayOrder = displayOrder,
             )
         )
-        response.toDomain()
+        response.modifierGroups.first { it.id == modifierGroupId }.toDomain(response.productId)
     }
 
     override suspend fun removeModifierGroup(
@@ -208,12 +208,12 @@ class ModifierRepositoryImpl @Inject constructor(
             })
         }
         val response = productApi.replaceModifierGroups(productId, request)
-        response.map { it.toDomain() }
+        response.modifierGroups.map { it.toDomain(response.productId) }
     }
 
-    internal fun ProductModifierAssignmentResponse.toDomain(): ProductModifierAssignment = ProductModifierAssignment(
+    internal fun ProductModifierAssignmentResponse.toDomain(productId: String): ProductModifierAssignment = ProductModifierAssignment(
         productId = productId,
-        groupId = modifierGroupId,
+        groupId = id,
         required = required,
         selectionMode = SelectionMode.valueOf(selectionType),
         displayOrder = displayOrder

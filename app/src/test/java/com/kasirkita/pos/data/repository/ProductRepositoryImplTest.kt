@@ -22,7 +22,7 @@ import com.kasirkita.pos.data.local.ModifierLocalDataSource
 import com.kasirkita.pos.data.local.ProductLocalDataSource
 import com.kasirkita.pos.data.model.AssignModifierGroupRequest
 import com.kasirkita.pos.data.model.CreateProductRequest
-import com.kasirkita.pos.data.model.ProductModifierAssignmentResponse
+import com.kasirkita.pos.data.model.ProductModifierGroupsResponse
 import com.kasirkita.pos.data.model.ProductResponse
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.UserRole
@@ -296,18 +296,18 @@ class ProductRepositoryImplTest {
 
         override suspend fun getProductModifierGroups(
             productId: String
-        ): List<ProductModifierAssignmentResponse> = emptyList()
+        ): ProductModifierGroupsResponse = ProductModifierGroupsResponse(productId, emptyList())
 
         override suspend fun assignModifierGroup(
             productId: String,
             request: AssignModifierGroupRequest
-        ): ProductModifierAssignmentResponse = throw UnsupportedOperationException("Not stubbed")
+        ): ProductModifierGroupsResponse = throw UnsupportedOperationException("Not stubbed")
 
         override suspend fun updateModifierGroupAssignment(
             productId: String,
             groupId: String,
             request: AssignModifierGroupRequest
-        ): ProductModifierAssignmentResponse = throw UnsupportedOperationException("Not stubbed")
+        ): ProductModifierGroupsResponse = throw UnsupportedOperationException("Not stubbed")
 
         override suspend fun removeModifierGroup(
             productId: String,
@@ -317,7 +317,7 @@ class ProductRepositoryImplTest {
         override suspend fun replaceModifierGroups(
             productId: String,
             request: JsonObject
-        ): List<ProductModifierAssignmentResponse> = emptyList()
+        ): ProductModifierGroupsResponse = ProductModifierGroupsResponse(productId, emptyList())
     }
 
     private class FakeProductDao : ProductDao {

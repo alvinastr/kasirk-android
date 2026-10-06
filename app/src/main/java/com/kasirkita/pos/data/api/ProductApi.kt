@@ -3,8 +3,8 @@ package com.kasirkita.pos.data.api
 import com.google.gson.JsonObject
 import com.kasirkita.pos.data.model.AssignModifierGroupRequest
 import com.kasirkita.pos.data.model.CreateProductRequest
+import com.kasirkita.pos.data.model.ProductModifierGroupsResponse
 import com.kasirkita.pos.data.model.ProductResponse
-import com.kasirkita.pos.data.model.ProductModifierAssignmentResponse
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -37,20 +37,20 @@ interface ProductApi {
     @GET("products/{product_id}/modifier-groups")
     suspend fun getProductModifierGroups(
         @Path("product_id") productId: String
-    ): List<ProductModifierAssignmentResponse>
+    ): ProductModifierGroupsResponse
 
     @POST("products/{product_id}/modifier-groups")
     suspend fun assignModifierGroup(
         @Path("product_id") productId: String,
         @Body request: AssignModifierGroupRequest
-    ): ProductModifierAssignmentResponse
+    ): ProductModifierGroupsResponse
 
     @PATCH("products/{product_id}/modifier-groups/{group_id}")
     suspend fun updateModifierGroupAssignment(
         @Path("product_id") productId: String,
         @Path("group_id") groupId: String,
         @Body request: AssignModifierGroupRequest
-    ): ProductModifierAssignmentResponse
+    ): ProductModifierGroupsResponse
 
     @DELETE("products/{product_id}/modifier-groups/{group_id}")
     suspend fun removeModifierGroup(
@@ -62,5 +62,5 @@ interface ProductApi {
     suspend fun replaceModifierGroups(
         @Path("product_id") productId: String,
         @Body request: JsonObject
-    ): List<ProductModifierAssignmentResponse>
+    ): ProductModifierGroupsResponse
 }

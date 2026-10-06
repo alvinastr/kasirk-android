@@ -3,11 +3,11 @@ package com.kasirkita.pos.data.model
 import com.google.gson.annotations.SerializedName
 
 data class ProductModifierAssignmentResponse(
-    @SerializedName("product_id")
-    val productId: String,
+    @SerializedName("id")
+    val id: String,
 
-    @SerializedName("modifier_group_id")
-    val modifierGroupId: String,
+    @SerializedName("name")
+    val name: String,
 
     @SerializedName("required")
     val required: Boolean,
@@ -16,5 +16,8 @@ data class ProductModifierAssignmentResponse(
     val selectionType: String,
 
     @SerializedName("display_order")
-    val displayOrder: Int
+    val displayOrder: Int,
+
+    @SerializedName("options")
+    val options: List<ModifierOptionResponse>
 )
