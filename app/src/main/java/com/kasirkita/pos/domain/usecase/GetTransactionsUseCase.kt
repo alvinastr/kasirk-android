@@ -7,6 +7,9 @@ import javax.inject.Inject
 class GetTransactionsUseCase @Inject constructor(
     private val repository: TransactionRepository,
 ) {
-    suspend operator fun invoke(): Result<List<Transaction>> =
-        repository.getTransactions()
+    suspend operator fun invoke(
+        from: String? = null,
+        to: String? = null,
+    ): Result<List<Transaction>> =
+        repository.getTransactions(from, to)
 }

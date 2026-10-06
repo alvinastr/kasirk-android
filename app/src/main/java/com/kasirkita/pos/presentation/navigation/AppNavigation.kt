@@ -28,8 +28,10 @@ import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.presentation.cart.CartScreen
 import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
+import com.kasirkita.pos.presentation.modifier.ModifierGroupScreen
 import com.kasirkita.pos.presentation.offline.OfflineRecoveryScreen
 import com.kasirkita.pos.presentation.outlet.OutletScreen
+import com.kasirkita.pos.presentation.product.CategoryManagementScreen
 import com.kasirkita.pos.presentation.product.CreateProductScreen
 import com.kasirkita.pos.presentation.product.EditProductScreen
 import com.kasirkita.pos.presentation.product.ProductManagementScreen
@@ -69,6 +71,9 @@ fun AppNavigation(
             val productManagementRoute = authenticatedSession
                 ?.role
                 ?.let(::productManagementRouteFor)
+            val categoryManagementRoute = authenticatedSession
+                ?.role
+                ?.let(::categoryManagementRouteFor)
             val productCreateRoute = authenticatedSession
                 ?.role
                 ?.let(::productCreateRouteFor)
@@ -150,7 +155,7 @@ fun AppNavigation(
                                 ?.userName,
                             autoNavigateToHome = isGateEntry,
                             onShiftOpen = {
-                                navController.navigate(Screen.Home.route) {
+                                navController.navigate(Screen.Products.route) {
                                     popUpTo(Screen.Shift.route) { inclusive = true }
                                     launchSingleTop = true
                                 }
@@ -220,11 +225,13 @@ fun AppNavigation(
                 val createRoute = productCreateRoute
                 val editRoute = productEditRoute
                 val stockRoute = stockAdjustmentRoute
+                val categoryManageRoute = categoryManagementRoute
                 if (
                     manageRoute != null &&
                     createRoute != null &&
                     editRoute != null &&
-                    stockRoute != null
+                    stockRoute != null &&
+                    categoryManageRoute != null
                 ) {
                     composable(manageRoute) { backStackEntry ->
                         val productCreated by backStackEntry
@@ -254,6 +261,13 @@ fun AppNavigation(
                                     Screen.StockAdjustment.createRoute(product.id),
                                 )
                             },
+                            onManageModifiers = {
+                                navController.navigate(Screen.ModifierGroups.route)
+                            },
+                            onManageCategories = {
+                                navController.navigate(categoryManageRoute)
+                            },
+                            onNavigateBack = navController::popBackStack,
                             productCreated = productCreated,
                             onProductCreatedHandled = {
                                 backStackEntry.savedStateHandle[
@@ -275,6 +289,10 @@ fun AppNavigation(
                         )
                     }
 
+                    composable(categoryManageRoute) {
+                        CategoryManagementScreen(onNavigateBack = navController::popBackStack)
+                    }
+
                     composable(createRoute) {
                         CreateProductScreen(
                             onCancel = navController::popBackStack,
@@ -284,6 +302,12 @@ fun AppNavigation(
                                     ?.set(PRODUCT_CREATED_RESULT_KEY, true)
                                 navController.popBackStack()
                             },
+                        )
+                    }
+
+                    composable(Screen.ModifierGroups.route) {
+                        ModifierGroupScreen(
+                            onNavigateBack = navController::popBackStack,
                         )
                     }
 
@@ -432,6 +456,13 @@ internal fun productManagementRouteFor(role: UserRole): String? = when (role) {
     UserRole.OWNER,
     UserRole.ADMIN,
     -> Screen.ProductManagement.route
+    UserRole.CASHIER -> null
+}
+
+internal fun categoryManagementRouteFor(role: UserRole): String? = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    -> Screen.CategoryManagement.route
     UserRole.CASHIER -> null
 }
 

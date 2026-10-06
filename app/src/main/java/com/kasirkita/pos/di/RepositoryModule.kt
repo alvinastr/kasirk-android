@@ -3,6 +3,7 @@ package com.kasirkita.pos.di
 import com.kasirkita.pos.data.repository.AuthV2RepositoryImpl
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.data.repository.CategoryRepositoryImpl
+import com.kasirkita.pos.data.repository.ModifierRepositoryImpl
 import com.kasirkita.pos.data.repository.OutletRepositoryImpl
 import com.kasirkita.pos.data.repository.OfflineSyncRepositoryImpl
 import com.kasirkita.pos.data.repository.ProductRepositoryImpl
@@ -14,6 +15,7 @@ import com.kasirkita.pos.data.repository.TransactionRepositoryImpl
 import com.kasirkita.pos.domain.repository.AuthV2Repository
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.CategoryRepository
+import com.kasirkita.pos.domain.repository.ModifierRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import com.kasirkita.pos.domain.repository.ProductRepository
@@ -43,6 +45,12 @@ abstract class RepositoryModule {
     abstract fun bindCategoryRepository(
         implementation: CategoryRepositoryImpl,
     ): CategoryRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindModifierRepository(
+        implementation: ModifierRepositoryImpl,
+    ): ModifierRepository
 
     @Binds
     @Singleton

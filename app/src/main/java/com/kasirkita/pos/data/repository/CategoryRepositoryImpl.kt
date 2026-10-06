@@ -5,9 +5,14 @@ import com.kasirkita.pos.core.database.entity.CategoryEntity
 import com.kasirkita.pos.core.database.entity.toDomain
 import com.kasirkita.pos.data.api.CategoryApi
 import com.kasirkita.pos.data.local.CategoryLocalDataSource
+import com.kasirkita.pos.data.model.CategoryResponse
+import com.kasirkita.pos.data.model.CreateCategoryRequest
+import com.kasirkita.pos.data.model.UpdateCategoryRequest
 import com.kasirkita.pos.data.model.toDomain
 import com.kasirkita.pos.domain.model.Category
 import com.kasirkita.pos.domain.repository.CategoryRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,6 +44,54 @@ class CategoryRepositoryImpl @Inject constructor(
                 throw error
             }
         }
+    }
+
+    override suspend fun createCategory(name: String): Result<Category> = runCatching {
+        val tenantId = requireTenantId()
+        val response = withContext(Dispatchers.IO) {
+            categoryApi.createCategory(CreateCategoryRequest(name = name))
+        }
+        if (!response.isSuccessful) {
+            throw RuntimeException("Failed to create category: ${response.code()} ${response.message()}")
+        }
+        val categoryResponse = response.body()!!
+        val entity = CategoryEntity(
+            id = categoryResponse.id,
+            tenantId = categoryResponse.tenantId,
+            name = categoryResponse.name,
+        )
+        localDataSource.saveCategory(tenantId, entity)
+        categoryResponse.toDomain()
+    }
+
+    override suspend fun updateCategory(id: String, name: String): Result<Category> = runCatching {
+        val tenantId = requireTenantId()
+        val response = withContext(Dispatchers.IO) {
+            categoryApi.updateCategory(id, UpdateCategoryRequest(name = name))
+        }
+        if (!response.isSuccessful) {
+            throw RuntimeException("Failed to update category: ${response.code()} ${response.message()}")
+        }
+        val categoryResponse = response.body()!!
+        val entity = CategoryEntity(
+            id = categoryResponse.id,
+            tenantId = categoryResponse.tenantId,
+            name = categoryResponse.name,
+        )
+        localDataSource.saveCategory(tenantId, entity)
+        categoryResponse.toDomain()
+    }
+
+    override suspend fun deleteCategory(id: String): Result<Unit> = runCatching {
+        val tenantId = requireTenantId()
+        val response = withContext(Dispatchers.IO) {
+            categoryApi.deleteCategory(id)
+        }
+        if (!response.isSuccessful) {
+            throw RuntimeException("Failed to delete category: ${response.code()} ${response.message()}")
+        }
+        localDataSource.deleteCategory(tenantId, id)
+        Unit
     }
 
     private suspend fun requireTenantId(): String = authSessionDataStore

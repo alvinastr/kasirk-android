@@ -13,6 +13,11 @@ sealed class Screen(val route: String) {
     data object StockAdjustment : Screen("products/manage/{productId}/stock") {
         fun createRoute(productId: String): String = "products/manage/$productId/stock"
     }
+    data object CategoryManagement : Screen("categories")
+    data object ModifierGroups : Screen("modifiers")
+    data object ModifierGroupDetail : Screen("modifiers/{groupId}") {
+        fun createRoute(groupId: String): String = "modifiers/$groupId"
+    }
     data object Cart : Screen("cart")
     data object Checkout : Screen("checkout")
     data object Receipt : Screen("receipt/{transactionId}") {

@@ -51,6 +51,14 @@ class ProductCatalogViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private fun fakeCategoryRepo() = object : com.kasirkita.pos.domain.repository.CategoryRepository {
+        override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
+            Result.success(emptyList())
+        override suspend fun createCategory(name: String): Result<com.kasirkita.pos.domain.model.Category> = Result.failure(UnsupportedOperationException("Not implemented"))
+        override suspend fun updateCategory(id: String, name: String): Result<com.kasirkita.pos.domain.model.Category> = Result.failure(UnsupportedOperationException("Not implemented"))
+        override suspend fun deleteCategory(id: String): Result<Unit> = Result.failure(UnsupportedOperationException("Not implemented"))
+    }
+
     @Test
     fun cachedProductsRemainAvailableWhenStockAndRefreshAreOffline() {
         val releaseRefresh = CompletableDeferred<Unit>()
@@ -65,12 +73,7 @@ class ProductCatalogViewModelTest {
         val cartRepository = CartRepositoryImpl()
         val viewModel = ProductCatalogViewModel(
             getProductsUseCase = GetProductsUseCase(productRepository),
-            getCategoriesUseCase = com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            getCategoriesUseCase = com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             getStocksUseCase = GetStocksUseCase(stockRepository),
             productRepository = productRepository,
             outletRepository = FakeOutletRepository(),
@@ -101,12 +104,7 @@ class ProductCatalogViewModelTest {
         val cart = CartRepositoryImpl()
         val vm = ProductCatalogViewModel(
             GetProductsUseCase(directRepo),
-            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             GetStocksUseCase(FakeStockRepository(Result.failure(IOException("offline")))),
             directRepo, FakeOutletRepository(), AddToCartUseCase(cart),
         )
@@ -127,12 +125,7 @@ class ProductCatalogViewModelTest {
         val cart = CartRepositoryImpl()
         val vm = ProductCatalogViewModel(
             GetProductsUseCase(directRepo),
-            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             GetStocksUseCase(FakeStockRepository(Result.failure(IOException("offline")))),
             directRepo, FakeOutletRepository(), AddToCartUseCase(cart),
         )
@@ -172,12 +165,7 @@ class ProductCatalogViewModelTest {
         val cart = CartRepositoryImpl()
         val vm = ProductCatalogViewModel(
             GetProductsUseCase(directRepo),
-            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             GetStocksUseCase(FakeStockRepository(Result.failure(IOException("offline")))),
             directRepo, FakeOutletRepository(), AddToCartUseCase(cart),
         )
@@ -206,12 +194,7 @@ class ProductCatalogViewModelTest {
         val cart = CartRepositoryImpl()
         val vm = ProductCatalogViewModel(
             GetProductsUseCase(unknownRepo),
-            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             GetStocksUseCase(FakeStockRepository(Result.failure(IOException("offline")))),
             unknownRepo, FakeOutletRepository(), AddToCartUseCase(cart),
         )
@@ -232,12 +215,7 @@ class ProductCatalogViewModelTest {
         val cart = CartRepositoryImpl()
         val vm = ProductCatalogViewModel(
             GetProductsUseCase(unavailableRepo),
-            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             GetStocksUseCase(FakeStockRepository(Result.failure(IOException("offline")))),
             unavailableRepo, FakeOutletRepository(), AddToCartUseCase(cart),
         )
@@ -324,12 +302,7 @@ class ProductCatalogViewModelTest {
         }
         val vm = ProductCatalogViewModel(
             GetProductsUseCase(FakeProductRepository(listOf(configured), Result.failure(IOException("offline")))),
-            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             GetStocksUseCase(FakeStockRepository(Result.failure(IOException("offline")))),
             FakeProductRepository(listOf(configured), Result.failure(IOException("offline"))),
             FakeOutletRepository(),
@@ -371,12 +344,7 @@ class ProductCatalogViewModelTest {
         }
         val vm = ProductCatalogViewModel(
             GetProductsUseCase(FakeProductRepository(listOf(configured), Result.failure(IOException("offline")))),
-            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             GetStocksUseCase(FakeStockRepository(Result.failure(IOException("offline")))),
             FakeProductRepository(listOf(configured), Result.failure(IOException("offline"))),
             FakeOutletRepository(),
@@ -426,12 +394,7 @@ class ProductCatalogViewModelTest {
         }
         val vm = ProductCatalogViewModel(
             GetProductsUseCase(FakeProductRepository(listOf(configured), Result.failure(IOException("offline")))),
-            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             GetStocksUseCase(FakeStockRepository(Result.failure(IOException("offline")))),
             FakeProductRepository(listOf(configured), Result.failure(IOException("offline"))),
             FakeOutletRepository(),
@@ -455,8 +418,8 @@ class ProductCatalogViewModelTest {
             product().copy(modifierGroups = listOf(ModifierGroup(
                 "disc", "tenant", "Discount", true, 0, false, SelectionMode.SINGLE,
                 listOf(ModifierOption("neg", "disc", "Negative", -1_000L, true, 0))
-            )))
-        )
+            ))
+        ))
         val updated = state.toggleOption("neg")
         assertFalse("Negative priceDelta should block add", updated.canAdd)
     }
@@ -467,8 +430,8 @@ class ProductCatalogViewModelTest {
             product().copy(modifierGroups = listOf(ModifierGroup(
                 "grp", "tenant", "Name", true, 0, false, SelectionMode.SINGLE,
                 listOf(ModifierOption("opt", "grp", "Option", 0L, true, 0))
-            )))
-        )
+            ))
+        ))
         val note255 = "a".repeat(255)
         val note256 = "a".repeat(256)
 
@@ -495,12 +458,7 @@ class ProductCatalogViewModelTest {
         }
         val vm = ProductCatalogViewModel(
             GetProductsUseCase(spyRepo),
-            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(
-                object : com.kasirkita.pos.domain.repository.CategoryRepository {
-                    override suspend fun getCategories(): Result<List<com.kasirkita.pos.domain.model.Category>> =
-                        Result.success(emptyList())
-                },
-            ),
+            com.kasirkita.pos.domain.usecase.GetCategoriesUseCase(fakeCategoryRepo()),
             GetStocksUseCase(FakeStockRepository(Result.failure(IOException("offline")))),
             spyRepo, FakeOutletRepository(), AddToCartUseCase(CartRepositoryImpl()),
         )

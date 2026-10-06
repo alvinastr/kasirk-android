@@ -27,6 +27,8 @@ interface TransactionApi {
     suspend fun getTransactions(
         @Query("page") page: Int,
         @Query("limit") limit: Int,
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
     ): TransactionsResponse
 
     @GET("transactions/{id}")

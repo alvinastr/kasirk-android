@@ -5,12 +5,15 @@ import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
 import com.kasirkita.pos.data.api.CategoryApi
 import com.kasirkita.pos.data.local.CategoryLocalDataSource
 import com.kasirkita.pos.data.model.CategoryResponse
+import com.kasirkita.pos.data.model.CreateCategoryRequest
+import com.kasirkita.pos.data.model.UpdateCategoryRequest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.IOException
+import retrofit2.Response
 
 class CategoryRepositoryImplTest {
 
@@ -57,6 +60,15 @@ class CategoryRepositoryImplTest {
             failure?.let { throwable -> throw throwable }
             return response
         }
+
+        override suspend fun createCategory(request: CreateCategoryRequest): Response<CategoryResponse> =
+            Response.success(categoryResponse(id = "new-category-id", name = request.name))
+
+        override suspend fun updateCategory(id: String, request: UpdateCategoryRequest): Response<CategoryResponse> =
+            Response.success(categoryResponse(id = id, name = request.name))
+
+        override suspend fun deleteCategory(id: String): Response<Unit> =
+            Response.success(Unit)
     }
 
     private class FakeCategoryDao : com.kasirkita.pos.core.database.dao.CategoryDao {
@@ -68,6 +80,19 @@ class CategoryRepositoryImplTest {
         override suspend fun insertCategories(categories: List<CategoryEntity>) {
             this.categories.removeAll { existing -> categories.any { it.id == existing.id && it.tenantId == existing.tenantId } }
             this.categories.addAll(categories)
+        }
+
+        override suspend fun insertCategory(category: CategoryEntity) {
+            this.categories.removeAll { it.id == category.id && it.tenantId == category.tenantId }
+            this.categories.add(category)
+        }
+
+        override suspend fun deleteCategory(category: CategoryEntity): Unit {
+            this.categories.removeAll { it.id == category.id && it.tenantId == category.tenantId }
+        }
+
+        override suspend fun deleteCategory(categoryId: String): Unit {
+            this.categories.removeAll { it.id == categoryId }
         }
 
         override suspend fun deleteAll(tenantId: String) {
@@ -96,10 +121,13 @@ class CategoryRepositoryImplTest {
     )
 
     private companion object {
-        fun categoryResponse() = CategoryResponse(
-            id = "category-id",
+        fun categoryResponse(
+            id: String = "category-id",
+            name: String = "Minuman",
+        ) = CategoryResponse(
+            id = id,
             tenantId = "tenant-id",
-            name = "Minuman",
+            name = name,
             createdAt = "2026-09-23T00:00:00.000Z",
         )
     }

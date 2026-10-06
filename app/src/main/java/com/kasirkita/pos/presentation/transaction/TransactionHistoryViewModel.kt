@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.io.IOException
+import java.time.LocalDate
+import java.time.ZoneId
 import javax.inject.Inject
 
 @HiltViewModel
@@ -25,6 +27,12 @@ class TransactionHistoryViewModel @Inject constructor(
     )
     val state: StateFlow<TransactionHistoryState> = _state.asStateFlow()
 
+    // Date filter state - defaults to Today (local calendar day, sent as UTC half-open [from, to))
+    private val _fromDate = MutableStateFlow<String?>(todayStartUtc())
+    private val _toDate = MutableStateFlow<String?>(todayEndExclusiveUtc())
+    val fromDate: StateFlow<String?> = _fromDate.asStateFlow()
+    val toDate: StateFlow<String?> = _toDate.asStateFlow()
+
     init {
         loadTransactions()
     }
@@ -32,9 +40,45 @@ class TransactionHistoryViewModel @Inject constructor(
     fun loadTransactions() {
         viewModelScope.launch {
             _state.value = TransactionHistoryState.Loading
-            _state.value = transactionHistoryState(getTransactions())
+            _state.value = transactionHistoryState(
+                getTransactions(_fromDate.value, _toDate.value)
+            )
         }
     }
+
+    fun setDateFilter(from: String?, to: String?) {
+        _fromDate.value = from
+        _toDate.value = to
+        loadTransactions()
+    }
+
+    fun setLocalDateFilter(from: String?, to: String?) {
+        val zone = ZoneId.systemDefault()
+        _fromDate.value = from?.let { LocalDate.parse(it).atStartOfDay(zone).toInstant().toString() }
+        _toDate.value = to?.let { LocalDate.parse(it).plusDays(1).atStartOfDay(zone).toInstant().toString() }
+        loadTransactions()
+    }
+
+    fun clearDateFilter() {
+        _fromDate.value = null
+        _toDate.value = null
+        loadTransactions()
+    }
+
+    /** Returns the start of today in the device timezone as an ISO-8601 UTC instant. */
+    private fun todayStartUtc(): String =
+        localDateToUtcRange(LocalDate.now(), ZoneId.systemDefault()).first
+
+    /** Returns the start of tomorrow in the device timezone as an ISO-8601 UTC instant (exclusive upper bound). */
+    private fun todayEndExclusiveUtc(): String =
+        localDateToUtcRange(LocalDate.now(), ZoneId.systemDefault()).second
+}
+
+/** Converts a local calendar date to canonical half-open UTC instant range [from, to). */
+internal fun localDateToUtcRange(localDate: LocalDate, zoneId: ZoneId): Pair<String, String> {
+    val from = localDate.atStartOfDay(zoneId).toInstant().toString()
+    val toExclusive = localDate.plusDays(1).atStartOfDay(zoneId).toInstant().toString()
+    return from to toExclusive
 }
 
 @HiltViewModel

@@ -20,7 +20,9 @@ import com.kasirkita.pos.data.api.ProductApi
 import com.kasirkita.pos.data.local.CategoryLocalDataSource
 import com.kasirkita.pos.data.local.ModifierLocalDataSource
 import com.kasirkita.pos.data.local.ProductLocalDataSource
+import com.kasirkita.pos.data.model.AssignModifierGroupRequest
 import com.kasirkita.pos.data.model.CreateProductRequest
+import com.kasirkita.pos.data.model.ProductModifierAssignmentResponse
 import com.kasirkita.pos.data.model.ProductResponse
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.UserRole
@@ -291,6 +293,31 @@ class ProductRepositoryImplTest {
             updateFailure?.let { throwable -> throw throwable }
             return requireNotNull(updateResponse)
         }
+
+        override suspend fun getProductModifierGroups(
+            productId: String
+        ): List<ProductModifierAssignmentResponse> = emptyList()
+
+        override suspend fun assignModifierGroup(
+            productId: String,
+            request: AssignModifierGroupRequest
+        ): ProductModifierAssignmentResponse = throw UnsupportedOperationException("Not stubbed")
+
+        override suspend fun updateModifierGroupAssignment(
+            productId: String,
+            groupId: String,
+            request: AssignModifierGroupRequest
+        ): ProductModifierAssignmentResponse = throw UnsupportedOperationException("Not stubbed")
+
+        override suspend fun removeModifierGroup(
+            productId: String,
+            groupId: String
+        ): Unit = Unit
+
+        override suspend fun replaceModifierGroups(
+            productId: String,
+            request: JsonObject
+        ): List<ProductModifierAssignmentResponse> = emptyList()
     }
 
     private class FakeProductDao : ProductDao {
@@ -324,6 +351,19 @@ class ProductRepositoryImplTest {
 
         override suspend fun insertCategories(categories: List<CategoryEntity>) {
             this.categories.addAll(categories)
+        }
+
+        override suspend fun insertCategory(category: CategoryEntity) {
+            this.categories.removeAll { it.id == category.id && it.tenantId == category.tenantId }
+            this.categories.add(category)
+        }
+
+        override suspend fun deleteCategory(category: CategoryEntity): Unit {
+            this.categories.removeAll { it.id == category.id && it.tenantId == category.tenantId }
+        }
+
+        override suspend fun deleteCategory(categoryId: String): Unit {
+            this.categories.removeAll { it.id == categoryId }
         }
 
         override suspend fun deleteAll(tenantId: String) {

@@ -12,6 +12,7 @@ import com.kasirkita.pos.core.network.AuthV2TokenProvider
 import com.kasirkita.pos.core.network.RefreshClient
 import com.kasirkita.pos.data.api.AuthV2Api
 import com.kasirkita.pos.data.api.CategoryApi
+import com.kasirkita.pos.data.api.ModifierGroupApi
 import com.kasirkita.pos.data.api.OutletApi
 import com.kasirkita.pos.data.api.ProductApi
 import com.kasirkita.pos.data.api.ReportApi
@@ -131,6 +132,10 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideProductApi(retrofit: Retrofit): ProductApi = retrofit.create(ProductApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideModifierGroupApi(retrofit: Retrofit): ModifierGroupApi = retrofit.create(ModifierGroupApi::class.java)
 
     @Provides
     @Singleton

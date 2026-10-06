@@ -5,7 +5,10 @@ import com.kasirkita.pos.domain.model.Transaction
 import com.kasirkita.pos.domain.model.V1TransactionRequest
 
 interface TransactionRepository {
-    suspend fun getTransactions(): Result<List<Transaction>>
+    suspend fun getTransactions(
+        from: String? = null,
+        to: String? = null,
+    ): Result<List<Transaction>>
 
     suspend fun getTransactionDetail(transactionId: String): Result<Transaction>
 

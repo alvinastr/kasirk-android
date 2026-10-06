@@ -11,9 +11,13 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
@@ -41,6 +45,9 @@ fun ProductManagementScreen(
     onAddProduct: () -> Unit,
     onEditProduct: (Product) -> Unit,
     onAdjustStock: (Product) -> Unit,
+    onManageModifiers: () -> Unit = {},
+    onManageCategories: () -> Unit = {},
+    onNavigateBack: () -> Unit = {},
     productCreated: Boolean = false,
     onProductCreatedHandled: () -> Unit = {},
     productUpdated: Boolean = false,
@@ -92,24 +99,56 @@ fun ProductManagementScreen(
                     .fillMaxSize()
                     .padding(horizontal = 16.dp, vertical = 20.dp),
             ) {
-                Text(
-                    text = "Kelola Produk",
-                    style = MaterialTheme.typography.headlineSmall,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Kembali ke POS",
+                        )
+                    }
+                    Text(
+                        text = "Kelola Produk",
+                        style = MaterialTheme.typography.headlineSmall,
+                    )
+                }
                 Text(
                     text = "Periksa harga jual dan pengaturan stok.",
                     modifier = Modifier.padding(top = 4.dp),
                     style = MaterialTheme.typography.bodyMedium,
                 )
 
-                Button(
-                    onClick = onAddProduct,
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 16.dp)
-                        .heightIn(min = 48.dp),
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("Tambah Produk")
+                    Button(
+                        onClick = onAddProduct,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                    ) {
+                        Text("Tambah Produk")
+                    }
+                    OutlinedButton(
+                        onClick = onManageModifiers,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                    ) {
+                        Text("Kelola Modifier")
+                    }
+                    OutlinedButton(
+                        onClick = onManageCategories,
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 48.dp),
+                    ) {
+                        Text("Kelola Kategori")
+                    }
                 }
 
                 if (stockState.stockLoadError != null) {

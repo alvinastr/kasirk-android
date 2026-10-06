@@ -74,6 +74,8 @@ class TransactionHistoryRepositoryTest {
     ) : TransactionApi {
         var lastPage: Int? = null
         var lastLimit: Int? = null
+        var lastFrom: String? = null
+        var lastTo: String? = null
 
         override suspend fun createTransaction(
             request: CreateTransactionRequest,
@@ -82,9 +84,13 @@ class TransactionHistoryRepositoryTest {
         override suspend fun getTransactions(
             page: Int,
             limit: Int,
+            from: String?,
+            to: String?,
         ): TransactionsResponse {
             lastPage = page
             lastLimit = limit
+            lastFrom = from
+            lastTo = to
             transactionsFailure?.let { throw it }
             return transactionsResponse
         }

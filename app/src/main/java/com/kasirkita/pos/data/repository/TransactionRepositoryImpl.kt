@@ -19,10 +19,15 @@ class TransactionRepositoryImpl @Inject constructor(
     private val transactionApi: TransactionApi,
 ) : TransactionRepository {
 
-    override suspend fun getTransactions(): Result<List<Transaction>> = runCatching {
+    override suspend fun getTransactions(
+        from: String?,
+        to: String?,
+    ): Result<List<Transaction>> = runCatching {
         transactionApi.getTransactions(
             page = FIRST_PAGE,
             limit = HISTORY_PAGE_SIZE,
+            from = from,
+            to = to,
         ).data.map { response -> response.toDomain() }
     }
 

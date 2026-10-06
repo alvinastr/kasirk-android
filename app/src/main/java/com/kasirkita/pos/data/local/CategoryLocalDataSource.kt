@@ -15,4 +15,12 @@ class CategoryLocalDataSource @Inject constructor(
     suspend fun saveCategories(tenantId: String, categories: List<CategoryEntity>) {
         categoryDao.replaceCategories(tenantId, categories)
     }
+
+    suspend fun saveCategory(tenantId: String, category: CategoryEntity) {
+        categoryDao.insertCategory(category)
+    }
+
+    suspend fun deleteCategory(tenantId: String, categoryId: String) {
+        categoryDao.deleteCategory(categoryId)
+    }
 }

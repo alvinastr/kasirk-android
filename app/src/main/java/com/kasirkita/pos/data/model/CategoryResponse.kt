@@ -18,3 +18,11 @@ fun CategoryResponse.toDomain(): Category = Category(
     name = name,
     createdAt = createdAt,
 )
+
+data class CreateCategoryRequest(
+    val name: String,
+)
+
+data class UpdateCategoryRequest(
+    val name: String,
+)

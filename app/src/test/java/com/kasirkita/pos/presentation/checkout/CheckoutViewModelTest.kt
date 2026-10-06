@@ -380,7 +380,10 @@ class CheckoutViewModelTest {
             return pending!!.await()
         }
         fun complete(result: Result<Transaction>) { pending!!.complete(result) }
-        override suspend fun getTransactions(): Result<List<Transaction>> = error("Unused")
+        override suspend fun getTransactions(
+            from: String?,
+            to: String?,
+        ): Result<List<Transaction>> = error("Unused")
         override suspend fun getTransactionDetail(transactionId: String): Result<Transaction> = error("Unused")
         override suspend fun createTransaction(clientTransactionId: String, outletId: String,
             customerId: String?, items: List<CartItem>, paymentAmount: Long): Result<Transaction> = error("Legacy path used")
