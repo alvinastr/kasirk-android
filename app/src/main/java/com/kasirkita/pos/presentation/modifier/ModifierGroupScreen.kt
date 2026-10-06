@@ -66,6 +66,7 @@ fun ModifierGroupScreen(
         when (val state = actionState) {
             is ModifierGroupActionState.Success -> {
                 snackbarHostState.showSnackbar(state.message)
+                showCreateGroupDialog = false
                 viewModel.resetActionState()
             }
             is ModifierGroupActionState.Error -> {
@@ -198,7 +199,6 @@ fun ModifierGroupScreen(
             onDismiss = { showCreateGroupDialog = false },
             onConfirm = { name, displayOrder ->
                 viewModel.createModifierGroup(name, displayOrder)
-                showCreateGroupDialog = false
             }
         )
     }

@@ -23,5 +23,20 @@ data class ProductResponse(
     val stock: Int? = null,
     val category: CategoryResponse? = null,
     @SerializedName("modifier_groups")
-    val modifierGroups: List<ModifierGroupResponse>? = null
+    val modifierGroups: List<ProductModifierGroupResponse>? = null
+)
+
+data class ProductModifierGroupResponse(
+    @SerializedName("id")
+    val id: String,
+    @SerializedName("name")
+    val name: String,
+    @SerializedName("required")
+    val required: Boolean,
+    @SerializedName("selection_type")
+    val selectionType: String,
+    @SerializedName("display_order")
+    val displayOrder: Int,
+    @SerializedName("options")
+    val options: List<ModifierOptionResponse>
 )

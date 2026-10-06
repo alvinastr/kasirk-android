@@ -166,7 +166,7 @@ class ProductRepositoryImpl @Inject constructor(
                     id = group.id,
                     tenantId = tenantId,
                     name = group.name,
-                    isActive = group.isActive,
+                    isActive = true,
                 )
                 group.options.forEach { option ->
                     modifierOptions += ModifierOptionEntity(

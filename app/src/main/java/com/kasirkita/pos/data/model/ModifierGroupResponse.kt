@@ -15,10 +15,6 @@ data class ModifierGroupResponse(
     val isActive: Boolean,
     @SerializedName("display_order")
     val displayOrder: Int,
-    @SerializedName("required")
-    val required: Boolean,
-    @SerializedName("selection_type")
-    val selectionType: String,
     @SerializedName("options")
     val options: List<ModifierOptionResponse>
 )
@@ -30,6 +26,17 @@ fun ModifierGroupResponse.toDomain(parentTenantId: String? = null): ModifierGrou
     },
     name = name,
     isActive = isActive,
+    displayOrder = displayOrder,
+    required = false,
+    selectionType = SelectionMode.SINGLE,
+    options = options.map { it.toDomain(id) }
+)
+
+fun ProductModifierGroupResponse.toDomain(parentTenantId: String): ModifierGroup = ModifierGroup(
+    id = id,
+    tenantId = parentTenantId,
+    name = name,
+    isActive = true,
     displayOrder = displayOrder,
     required = required,
     selectionType = SelectionMode.valueOf(selectionType),

@@ -63,7 +63,7 @@ class ModifierViewModel @Inject constructor(
                 },
                 onFailure = { throwable ->
                     _actionState.value = ModifierGroupActionState.Error(
-                        throwable.message ?: "Gagal membuat grup modifier"
+                        modifierGroupCreateErrorMessage(throwable)
                     )
                 }
             )
