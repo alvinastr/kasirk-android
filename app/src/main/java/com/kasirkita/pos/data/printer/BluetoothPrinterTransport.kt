@@ -7,7 +7,9 @@ import android.bluetooth.BluetoothSocket
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
+import com.kasirkita.pos.BuildConfig
 import com.kasirkita.pos.domain.model.PrinterError
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -123,19 +125,31 @@ class BluetoothPrinterTransport @Inject constructor(
                         PrinterException(PrinterError.DEVICE_NOT_FOUND),
                     )
 
-                // Create RFCOMM socket using SPP UUID
+                val totalStartedNanos = System.nanoTime()
+
+                // Create RFCOMM socket using SPP UUID.
+                val connectStartedNanos = System.nanoTime()
                 socket = withTimeout(CONNECTION_TIMEOUT_MS) {
                     device.createRfcommSocketToServiceRecord(SPP_UUID).apply {
                         connect()
                     }
                 }
+                if (BuildConfig.DEBUG) {
+                    debugLog("bluetooth_connect_ms=${millisSince(connectStartedNanos)}")
+                }
 
-                // Write data with timeout
+                // Write data with timeout.
+                val writeStartedNanos = System.nanoTime()
                 withTimeout(WRITE_TIMEOUT_MS) {
                     socket.outputStream.apply {
                         write(data)
                         flush()
                     }
+                }
+                if (BuildConfig.DEBUG) {
+                    debugLog(
+                        "bluetooth_write_flush_ms=${millisSince(writeStartedNanos)} bluetooth_total_ms=${millisSince(totalStartedNanos)}",
+                    )
                 }
 
                 Result.success(Unit)
@@ -153,6 +167,17 @@ class BluetoothPrinterTransport @Inject constructor(
                 }
             }
         }
+
+    private fun debugLog(message: String) {
+        runCatching { Log.d(PRINT_TIMING_TAG, message) }
+    }
+
+    private fun millisSince(startedNanos: Long): Long =
+        (System.nanoTime() - startedNanos) / 1_000_000
+
+    private companion object {
+        const val PRINT_TIMING_TAG = "PrintTiming"
+    }
 }
 
 /**

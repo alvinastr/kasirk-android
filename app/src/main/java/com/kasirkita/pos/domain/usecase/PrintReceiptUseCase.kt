@@ -1,5 +1,7 @@
 package com.kasirkita.pos.domain.usecase
 
+import android.util.Log
+import com.kasirkita.pos.BuildConfig
 import com.kasirkita.pos.data.datastore.PrinterConfigDataStore
 import com.kasirkita.pos.data.printer.BluetoothPrinterTransport
 import com.kasirkita.pos.data.printer.EscPosReceiptFormatter
@@ -24,16 +26,37 @@ open class PrintReceiptUseCase @Inject constructor(
     protected constructor() : this(null, null, null)
 
     open suspend operator fun invoke(receipt: Receipt): Result<Unit> {
+        val totalStartedNanos = System.nanoTime()
         val config = configDataStore?.configFlow?.first()
             ?: return Result.failure(Exception("Printer belum dikonfigurasi"))
 
         val deviceAddress = config.deviceAddress
             ?: return Result.failure(Exception("Printer belum dikonfigurasi"))
 
+        val formatStartedNanos = System.nanoTime()
         val data = formatter?.formatReceipt(receipt, config.paperWidthMm)
             ?: return Result.failure(Exception("Formatter unavailable"))
+        if (BuildConfig.DEBUG) {
+            debugLog("format_ms=${millisSince(formatStartedNanos)}")
+        }
 
-        return transport?.print(deviceAddress, data)
-            ?: Result.failure(Exception("Transport unavailable"))
+        val result = transport?.print(deviceAddress, data)
+            ?: return Result.failure(Exception("Transport unavailable"))
+
+        if (BuildConfig.DEBUG) {
+            debugLog("total_ms=${millisSince(totalStartedNanos)} success=${result.isSuccess}")
+        }
+        return result
+    }
+
+    private fun debugLog(message: String) {
+        runCatching { Log.d(PRINT_TIMING_TAG, message) }
+    }
+
+    private fun millisSince(startedNanos: Long): Long =
+        (System.nanoTime() - startedNanos) / 1_000_000
+
+    private companion object {
+        const val PRINT_TIMING_TAG = "PrintTiming"
     }
 }

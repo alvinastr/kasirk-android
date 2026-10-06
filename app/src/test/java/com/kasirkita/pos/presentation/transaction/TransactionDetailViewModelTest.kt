@@ -58,6 +58,57 @@ class TransactionDetailViewModelTest {
 
         assertEquals(listOf("server-transaction"), receipts.requestedIds)
         assertEquals(listOf(receipt()), printer.receipts)
+        assertEquals(1, printer.invocations)
+        assertEquals(TransactionPrintState.Success, viewModel.printState.value)
+    }
+
+    @Test
+    fun printReceiptImmediatelyTransitionsToLoading() = runTest(dispatcher) {
+        transactions.detail = Result.success(transaction(status = "completed"))
+        receipts.suspendLoad = true
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.printReceipt()
+        runCurrent()
+
+        assertEquals(TransactionPrintState.Loading, viewModel.printState.value)
+        assertEquals(listOf("server-transaction"), receipts.requestedIds)
+        assertEquals(0, printer.invocations)
+    }
+
+    @Test
+    fun retryAfterFailureStartsExactlyOneNewPrint() = runTest(dispatcher) {
+        transactions.detail = Result.success(transaction(status = "completed"))
+        receipts.result = Result.success(receipt())
+        printer.result = Result.failure(IOException("printer off"))
+        val viewModel = viewModel()
+        advanceUntilIdle()
+        viewModel.printReceipt()
+        advanceUntilIdle()
+        assertEquals(TransactionPrintState.Error("printer off"), viewModel.printState.value)
+        assertEquals(1, printer.invocations)
+
+        viewModel.dismissPrintError()
+        printer.result = Result.success(Unit)
+        viewModel.printReceipt()
+        advanceUntilIdle()
+
+        assertEquals(2, printer.invocations)
+        assertEquals(TransactionPrintState.Success, viewModel.printState.value)
+    }
+
+    @Test
+    fun completedStatusIsCaseInsensitiveForReprint() = runTest(dispatcher) {
+        receipts.result = Result.success(receipt())
+        transactions.detail = Result.success(transaction(status = "COMPLETED"))
+        val viewModel = viewModel()
+        advanceUntilIdle()
+
+        viewModel.printReceipt()
+        advanceUntilIdle()
+
+        assertEquals(1, printer.invocations)
         assertEquals(TransactionPrintState.Success, viewModel.printState.value)
     }
 
@@ -197,8 +248,10 @@ class TransactionDetailViewModelTest {
     private class FakePrinter : PrintReceiptUseCase() {
         val receipts = mutableListOf<Receipt>()
         var result: Result<Unit> = Result.success(Unit)
+        var invocations = 0
 
         override suspend fun invoke(receipt: Receipt): Result<Unit> {
+            invocations += 1
             receipts += receipt
             return result
         }

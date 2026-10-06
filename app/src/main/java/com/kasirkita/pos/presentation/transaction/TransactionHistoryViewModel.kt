@@ -116,7 +116,7 @@ class TransactionDetailViewModel @Inject internal constructor(
     fun printReceipt() {
         if (_printState.value is TransactionPrintState.Loading) return
         val transaction = (_state.value as? TransactionDetailState.Success)?.transaction ?: return
-        if (transaction.status != "completed") return
+        if (!transaction.canReprintReceipt()) return
 
         _printState.value = TransactionPrintState.Loading
         viewModelScope.launch {
@@ -180,5 +180,11 @@ internal fun transactionHistoryErrorMessage(throwable: Throwable): String = when
         "Transaksi tidak ditemukan."
     else -> "Riwayat transaksi tidak dapat dimuat. Coba lagi."
 }
+
+internal fun displayTransactionIdentifier(transaction: Transaction): String =
+    transaction.clientTransactionId.takeLast(9).uppercase()
+
+internal fun Transaction.canReprintReceipt(): Boolean =
+    status.equals("completed", ignoreCase = true)
 
 internal const val TRANSACTION_ID_ARGUMENT = "transactionId"

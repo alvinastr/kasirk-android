@@ -170,11 +170,8 @@ private fun TransactionDetailSuccessContent(
                     style = MaterialTheme.typography.titleMedium,
                 )
                 Text(
-                    text = "ID: ${transaction.id}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+                    text = "Referensi: ${displayTransactionIdentifier(transaction)}",
+                    style = MaterialTheme.typography.bodyMedium,
                 )
                 Text("Status: ${transaction.status}")
                 Text(
@@ -185,7 +182,7 @@ private fun TransactionDetailSuccessContent(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (transaction.status == "completed") {
+            if (transaction.canReprintReceipt()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -198,30 +195,37 @@ private fun TransactionDetailSuccessContent(
                         modifier = Modifier.weight(1f),
                     )
                     KasirPrimaryButton(
-                        text = "Cetak Struk",
+                        text = if (printState.isPrintInFlight()) "Mencetak..." else "Cetak Ulang Struk",
                         onClick = onPrintReceipt,
                         modifier = Modifier.weight(1f),
                         enabled = !printState.isPrintInFlight(),
-                        isLoading = printState.isPrintInFlight(),
                     )
                 }
                 when (printState) {
                     is TransactionPrintState.Error -> {
                         Text(
-                            text = "Gagal cetak: ${printState.message}",
+                            text = "Gagal mencetak struk: ${printState.message}",
                             color = MaterialTheme.colorScheme.error,
                         )
-                        KasirTextButton(
-                            text = "Tutup",
-                            onClick = onDismissPrintError,
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(KasirSpacing.Small)) {
+                            KasirSecondaryButton(
+                                text = "Coba Lagi",
+                                onClick = onPrintReceipt,
+                                enabled = !printState.isPrintInFlight(),
+                            )
+                            KasirTextButton(
+                                text = "Tutup",
+                                onClick = onDismissPrintError,
+                            )
+                        }
                     }
                     TransactionPrintState.Success -> {
-                        Text(text = "Cetak struk berhasil")
+                        Text(text = "Struk berhasil dicetak")
                     }
-                    TransactionPrintState.Idle,
-                    TransactionPrintState.Loading,
-                    -> Unit
+                    TransactionPrintState.Loading -> {
+                        Text(text = "Mencetak...")
+                    }
+                    TransactionPrintState.Idle -> Unit
                 }
             }
             HorizontalDivider(modifier = Modifier.padding(top = KasirSpacing.Large))
@@ -283,12 +287,25 @@ private fun TransactionItemRow(
         verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
     ) {
         Text(
-            text = "Produk: ${item.productId}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
+            text = item.productNameSnapshot ?: item.productName ?: "Produk ${item.productId.takeLast(8)}",
+            style = MaterialTheme.typography.bodyMedium,
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis,
         )
+        item.skuSnapshot?.takeIf { it.isNotBlank() }?.let { sku ->
+            Text(
+                text = "SKU: $sku",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        item.modifierSnapshots.forEach { modifier ->
+            Text(
+                text = "- ${modifier.groupName}: ${modifier.optionName}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -26,11 +25,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Transaction
+import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirErrorState
 import com.kasirkita.pos.ui.components.KasirLoadingState
 import com.kasirkita.pos.ui.components.KasirPrimaryButton
 import com.kasirkita.pos.ui.components.KasirSecondaryButton
 import com.kasirkita.pos.ui.components.KasirTextButton
+import com.kasirkita.pos.ui.components.StatusBadge
+import com.kasirkita.pos.ui.components.StatusBadgeTone
 import com.kasirkita.pos.ui.theme.KasirSpacing
 import java.text.NumberFormat
 import java.time.Instant
@@ -50,7 +52,6 @@ fun TransactionHistoryScreen(
     val fromDate by viewModel.fromDate.collectAsState()
     val toDate by viewModel.toDate.collectAsState()
     var showDatePicker by remember { mutableStateOf(false) }
-    val context = LocalContext.current
 
     TransactionHistoryContent(
         state = state,
@@ -256,34 +257,62 @@ private fun TransactionHistoryRow(
     formattedTotal: String,
     onClick: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = KasirSpacing.XSmall),
-        verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
+    KasirCard(
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(
-            text = formattedDate,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = formattedTotal,
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
-        transaction.payments.firstOrNull()?.method?.let { method ->
-            Text(
-                text = "Pembayaran: $method",
-                style = MaterialTheme.typography.bodyMedium,
-            )
-        }
-        KasirPrimaryButton(
-            text = "Lihat Transaksi",
-            onClick = onClick,
+        Row(
             modifier = Modifier.fillMaxWidth(),
-        )
-        HorizontalDivider(modifier = Modifier.padding(top = KasirSpacing.Small))
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
+            ) {
+                Text(
+                    text = displayTransactionIdentifier(transaction),
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    text = formattedDate,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    transaction.payments.firstOrNull()?.method?.let { method ->
+                        Text(
+                            text = method,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    StatusBadge(
+                        text = transaction.status,
+                        tone = when (transaction.status.lowercase()) {
+                            "completed" -> StatusBadgeTone.Success
+                            "pending" -> StatusBadgeTone.Warning
+                            else -> StatusBadgeTone.Error
+                        },
+                    )
+                }
+            }
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
+            ) {
+                Text(
+                    text = formattedTotal,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                KasirPrimaryButton(
+                    text = "Lihat Transaksi",
+                    onClick = onClick,
+                )
+            }
+        }
     }
 }
 

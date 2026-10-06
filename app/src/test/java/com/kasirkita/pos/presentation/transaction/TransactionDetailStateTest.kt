@@ -20,6 +20,26 @@ class TransactionDetailStateTest {
     }
 
     @Test
+    fun displayTransactionIdentifier_usesClientTransactionSuffix() {
+        val transaction = transaction().copy(clientTransactionId = "client-transaction-id")
+
+        assertEquals("ACTION-ID", displayTransactionIdentifier(transaction))
+    }
+
+    @Test
+    fun displayTransactionIdentifier_handlesShortClientTransactionId() {
+        val transaction = transaction().copy(clientTransactionId = "abc")
+
+        assertEquals("ABC", displayTransactionIdentifier(transaction))
+    }
+
+    @Test
+    fun canReprintReceipt_acceptsCompletedStatusIgnoringCase() {
+        assertTrue(transaction().copy(status = "COMPLETED").canReprintReceipt())
+        assertTrue(transaction().copy(status = "completed").canReprintReceipt())
+    }
+
+    @Test
     fun successfulDetail_rendersItemsPaymentTotalAndChange() {
         val transaction = transaction()
 
