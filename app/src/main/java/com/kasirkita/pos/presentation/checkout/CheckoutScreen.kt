@@ -48,8 +48,10 @@ fun CheckoutScreen(
     val transaction = state.transaction
     val queuedClientTransactionId = state.offlineQueuedClientTransactionId
 
-    LaunchedEffect(transaction?.id) {
-        transaction?.id?.let(onCheckoutSuccess)
+    LaunchedEffect(transaction?.id, state.printerWarning) {
+        if (transaction != null && state.printerWarning == null) {
+            onCheckoutSuccess(transaction.id)
+        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -69,7 +71,12 @@ fun CheckoutScreen(
 
             if (transaction != null) {
                 item {
-                    CheckoutSuccessContent(transaction = transaction, numberFormat = numberFormat)
+                    CheckoutSuccessContent(
+                        transaction = transaction,
+                        numberFormat = numberFormat,
+                        printerWarning = state.printerWarning,
+                        onViewReceipt = { onCheckoutSuccess(transaction.id) },
+                    )
                 }
                 return@LazyColumn
             }
@@ -143,6 +150,8 @@ fun CheckoutScreen(
 private fun CheckoutSuccessContent(
     transaction: com.kasirkita.pos.domain.model.Transaction,
     numberFormat: NumberFormat,
+    printerWarning: String? = null,
+    onViewReceipt: () -> Unit = {},
 ) {
     KasirCard(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -158,6 +167,13 @@ private fun CheckoutSuccessContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+        printerWarning?.let {
+            Text(
+                text = "Transaksi berhasil, tetapi struk gagal dicetak.",
+                style = MaterialTheme.typography.body,
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
         Text(
             text = "ID: ${transaction.id}",
             style = MaterialTheme.typography.supporting,
@@ -165,6 +181,13 @@ private fun CheckoutSuccessContent(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        if (printerWarning != null) {
+            KasirPrimaryButton(
+                text = "Lihat Struk",
+                onClick = onViewReceipt,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

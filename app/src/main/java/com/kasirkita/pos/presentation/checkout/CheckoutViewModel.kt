@@ -171,11 +171,25 @@ class CheckoutViewModel @Inject constructor(
                 val receipt = receiptResult.getOrNull()
                 if (receipt != null) {
                     val paymentMethod = snapshot.payment.method.name // "CASH" or "QRIS"
-                    printAfterCheckoutUseCase(
+                    val printResult = printAfterCheckoutUseCase(
                         receipt = receipt,
                         paymentMethod = paymentMethod,
                         isOriginalOnlineCheckout = true,
                     )
+                    val printerWarning = when (printResult) {
+                        is PrintAfterCheckoutUseCase.Result.Failure ->
+                            printResult.printError ?: "Transaksi berhasil, tetapi struk gagal dicetak."
+                        is PrintAfterCheckoutUseCase.Result.Success -> null
+                    }
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            transaction = transaction,
+                            errorMessage = null,
+                            printerWarning = printerWarning,
+                        )
+                    }
+                    return@launch
                 }
 
                 _state.update {
@@ -183,6 +197,7 @@ class CheckoutViewModel @Inject constructor(
                         isLoading = false,
                         transaction = transaction,
                         errorMessage = null,
+                        printerWarning = null,
                     )
                 }
                 return@launch

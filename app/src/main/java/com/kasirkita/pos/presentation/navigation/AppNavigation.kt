@@ -530,6 +530,9 @@ internal fun posWorkspaceRailDestinationsFor(role: UserRole): List<PosWorkspaceR
     if (reportsRouteFor(role) != null) {
         add(PosWorkspaceRailDestination(Screen.Reports.route, "Laporan", selected = false))
     }
+    if (printerSettingsRouteFor(role) != null) {
+        add(PosWorkspaceRailDestination(Screen.PrinterSettings.route, "Printer", selected = false))
+    }
 }
 
 internal fun posWorkspaceShowsRail(layoutMode: com.kasirkita.pos.presentation.product.PosLayoutMode): Boolean =

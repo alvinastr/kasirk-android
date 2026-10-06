@@ -15,4 +15,5 @@ data class CheckoutState(
     val offlineQueuedClientTransactionId: String? = null,
     val persistedTotal: Long = 0L,
     val errorMessage: String? = null,
+    val printerWarning: String? = null,
 )

@@ -36,11 +36,18 @@ class CheckoutViewModelTest {
     private val cart = CartRepositoryImpl()
     private val online = FakeTransactions()
     private val offline = FakeQueue()
+    private val receiptRepository = FakeReceiptRepository()
+    private val printAfterCheckout = FakePrintAfterCheckoutUseCase()
     private val handle = SavedStateHandle(mapOf(CheckoutTransactionIdentity.KEY to "sale-id"))
     private val outlet = Outlet("selected-outlet", "tenant", "Outlet", null, true, "now")
     private val shift = Shift("active-shift", outlet.id, "cashier", null, null, null, null, "OPEN", "now", null)
 
-    @Before fun setup() { Dispatchers.setMain(dispatcher) }
+    @Before fun setup() {
+        Dispatchers.setMain(dispatcher)
+        receiptRepository.requestedIds.clear()
+        printAfterCheckout.invocations.clear()
+        printAfterCheckout.result = PrintAfterCheckoutUseCase.Result.Success(printed = true, drawerOpened = true)
+    }
     @After fun teardown() { Dispatchers.resetMain() }
 
     private fun item() = CartItem(
@@ -64,8 +71,8 @@ class CheckoutViewModelTest {
             cart,
             FakeOutlet(outlet),
             FakeShift(shift),
-            GetReceiptUseCase(FakeReceiptRepository()),
-            FakePrintAfterCheckoutUseCase(),
+            GetReceiptUseCase(receiptRepository),
+            printAfterCheckout,
             handle
         )
     }
@@ -82,10 +89,44 @@ class CheckoutViewModelTest {
             cart,
             FakeOutlet(outlet),
             FakeShift(shift),
-            GetReceiptUseCase(FakeReceiptRepository()),
-            FakePrintAfterCheckoutUseCase(),
+            GetReceiptUseCase(receiptRepository),
+            printAfterCheckout,
             handle
         )
+    }
+
+    @Test fun successfulCheckoutInvokesAutoPrintWithCanonicalReceipt() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+        vm.checkout(60_000)
+        runCurrent()
+        online.complete(Result.success(transaction()))
+        advanceUntilIdle()
+
+        assertEquals(listOf("server-id"), receiptRepository.requestedIds)
+        assertEquals(1, printAfterCheckout.invocations.size)
+        assertEquals("server-id", printAfterCheckout.invocations.single().receipt.transactionId)
+        assertEquals("CASH", printAfterCheckout.invocations.single().paymentMethod)
+        assertTrue(printAfterCheckout.invocations.single().isOriginalOnlineCheckout)
+        assertNull(vm.state.value.printerWarning)
+    }
+
+    @Test fun autoPrintFailureKeepsTransactionSuccessfulAndSurfacesWarning() = runTest(dispatcher) {
+        printAfterCheckout.result = PrintAfterCheckoutUseCase.Result.Failure(
+            transactionSuccessful = true,
+            printError = "Printer offline",
+            drawerError = null,
+        )
+        val vm = viewModel()
+        runCurrent()
+        vm.checkout(60_000)
+        runCurrent()
+        online.complete(Result.success(transaction()))
+        advanceUntilIdle()
+
+        assertEquals("sale-id", vm.state.value.transaction?.clientTransactionId)
+        assertEquals("Printer offline", vm.state.value.printerWarning)
+        assertNull(vm.state.value.errorMessage)
     }
 
     @Test fun onlineRequestUsesOutletShiftModifiersNoteAndTenderWithoutEarlyClear() = runTest(dispatcher) {
@@ -445,7 +486,9 @@ class CheckoutViewModelTest {
     }
 
     private class FakeReceiptRepository : ReceiptRepository {
+        val requestedIds = mutableListOf<String>()
         override suspend fun getReceipt(transactionId: String): Result<Receipt> {
+            requestedIds += transactionId
             return Result.success(Receipt(
                 transactionId = transactionId,
                 clientTransactionId = "sale-id",
@@ -475,10 +518,22 @@ class CheckoutViewModelTest {
     }
 
     private class FakePrintAfterCheckoutUseCase : PrintAfterCheckoutUseCase() {
+        data class Invocation(
+            val receipt: Receipt,
+            val paymentMethod: String,
+            val isOriginalOnlineCheckout: Boolean,
+        )
+
+        val invocations = mutableListOf<Invocation>()
+        var result: Result = Result.Success(printed = true, drawerOpened = true)
+
         override suspend fun invoke(
             receipt: Receipt,
             paymentMethod: String,
             isOriginalOnlineCheckout: Boolean,
-        ): Result = Result.Success(printed = true, drawerOpened = true)
+        ): Result {
+            invocations += Invocation(receipt, paymentMethod, isOriginalOnlineCheckout)
+            return result
+        }
     }
 }

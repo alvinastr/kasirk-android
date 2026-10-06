@@ -3,9 +3,12 @@ package com.kasirkita.pos.presentation.transaction
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.domain.model.Transaction
+import com.kasirkita.pos.domain.usecase.GetReceiptUseCase
 import com.kasirkita.pos.domain.usecase.GetTransactionDetailUseCase
 import com.kasirkita.pos.domain.usecase.GetTransactionsUseCase
+import com.kasirkita.pos.domain.usecase.PrintReceiptUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -82,9 +85,11 @@ internal fun localDateToUtcRange(localDate: LocalDate, zoneId: ZoneId): Pair<Str
 }
 
 @HiltViewModel
-class TransactionDetailViewModel @Inject constructor(
+class TransactionDetailViewModel @Inject internal constructor(
     savedStateHandle: SavedStateHandle,
     private val getTransactionDetail: GetTransactionDetailUseCase,
+    private val getReceipt: GetReceiptUseCase,
+    private val printReceipt: PrintReceiptUseCase,
 ) : ViewModel() {
 
     private val transactionId = requireNotNull(
@@ -94,6 +99,8 @@ class TransactionDetailViewModel @Inject constructor(
         TransactionDetailState.Loading,
     )
     val state: StateFlow<TransactionDetailState> = _state.asStateFlow()
+    private val _printState = MutableStateFlow<TransactionPrintState>(TransactionPrintState.Idle)
+    val printState: StateFlow<TransactionPrintState> = _printState.asStateFlow()
 
     init {
         loadTransaction()
@@ -103,6 +110,37 @@ class TransactionDetailViewModel @Inject constructor(
         viewModelScope.launch {
             _state.value = TransactionDetailState.Loading
             _state.value = transactionDetailState(getTransactionDetail(transactionId))
+        }
+    }
+
+    fun printReceipt() {
+        if (_printState.value is TransactionPrintState.Loading) return
+        val transaction = (_state.value as? TransactionDetailState.Success)?.transaction ?: return
+        if (transaction.status != "completed") return
+
+        _printState.value = TransactionPrintState.Loading
+        viewModelScope.launch {
+            val receiptResult = getReceipt(transaction.id)
+            val receipt = receiptResult.getOrNull()
+            if (receipt == null) {
+                _printState.value = TransactionPrintState.Error("Struk tidak dapat dimuat. Coba lagi.")
+                return@launch
+            }
+
+            printReceipt(receipt).fold(
+                onSuccess = { _printState.value = TransactionPrintState.Success },
+                onFailure = { error ->
+                    _printState.value = TransactionPrintState.Error(
+                        error.message ?: "Struk gagal dicetak.",
+                    )
+                },
+            )
+        }
+    }
+
+    fun dismissPrintError() {
+        if (_printState.value is TransactionPrintState.Error) {
+            _printState.value = TransactionPrintState.Idle
         }
     }
 }

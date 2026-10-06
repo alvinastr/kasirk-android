@@ -26,6 +26,8 @@ import com.kasirkita.pos.domain.model.TransactionItem
 import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirErrorState
 import com.kasirkita.pos.ui.components.KasirLoadingState
+import com.kasirkita.pos.ui.components.KasirPrimaryButton
+import com.kasirkita.pos.ui.components.KasirSecondaryButton
 import com.kasirkita.pos.ui.components.KasirTextButton
 import com.kasirkita.pos.ui.components.PriceText
 import com.kasirkita.pos.ui.theme.KasirSpacing
@@ -40,21 +42,28 @@ fun TransactionDetailScreen(
     viewModel: TransactionDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val printState by viewModel.printState.collectAsState()
 
     TransactionDetailContent(
         state = state,
+        printState = printState,
         onBack = onBack,
         onRetry = viewModel::loadTransaction,
         onViewReceipt = onViewReceipt,
+        onPrintReceipt = viewModel::printReceipt,
+        onDismissPrintError = viewModel::dismissPrintError,
     )
 }
 
 @Composable
 internal fun TransactionDetailContent(
     state: TransactionDetailState,
+    printState: TransactionPrintState = TransactionPrintState.Idle,
     onBack: () -> Unit,
     onRetry: () -> Unit,
     onViewReceipt: (String) -> Unit,
+    onPrintReceipt: () -> Unit = {},
+    onDismissPrintError: () -> Unit = {},
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -79,8 +88,11 @@ internal fun TransactionDetailContent(
 
             is TransactionDetailState.Success -> TransactionDetailSuccessContent(
                 transaction = currentState.transaction,
+                printState = printState,
                 onBack = onBack,
                 onViewReceipt = onViewReceipt,
+                onPrintReceipt = onPrintReceipt,
+                onDismissPrintError = onDismissPrintError,
             )
         }
     }
@@ -111,8 +123,11 @@ private fun TransactionDetailMessage(
 @Composable
 private fun TransactionDetailSuccessContent(
     transaction: Transaction,
+    printState: TransactionPrintState,
     onBack: () -> Unit,
     onViewReceipt: (String) -> Unit,
+    onPrintReceipt: () -> Unit,
+    onDismissPrintError: () -> Unit,
 ) {
     val numberFormat = remember {
         NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
@@ -171,13 +186,45 @@ private fun TransactionDetailSuccessContent(
                 )
             }
             if (transaction.status == "completed") {
-            KasirTextButton(
-                text = "Lihat Struk",
-                onClick = { onViewReceipt(transaction.id) },
-                modifier = Modifier.padding(top = KasirSpacing.Large),
-            )
-        }
-        HorizontalDivider(modifier = Modifier.padding(top = KasirSpacing.Large))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = KasirSpacing.Large),
+                    horizontalArrangement = Arrangement.spacedBy(KasirSpacing.Small),
+                ) {
+                    KasirSecondaryButton(
+                        text = "Lihat Struk",
+                        onClick = { onViewReceipt(transaction.id) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    KasirPrimaryButton(
+                        text = "Cetak Struk",
+                        onClick = onPrintReceipt,
+                        modifier = Modifier.weight(1f),
+                        enabled = !printState.isPrintInFlight(),
+                        isLoading = printState.isPrintInFlight(),
+                    )
+                }
+                when (printState) {
+                    is TransactionPrintState.Error -> {
+                        Text(
+                            text = "Gagal cetak: ${printState.message}",
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        KasirTextButton(
+                            text = "Tutup",
+                            onClick = onDismissPrintError,
+                        )
+                    }
+                    TransactionPrintState.Success -> {
+                        Text(text = "Cetak struk berhasil")
+                    }
+                    TransactionPrintState.Idle,
+                    TransactionPrintState.Loading,
+                    -> Unit
+                }
+            }
+            HorizontalDivider(modifier = Modifier.padding(top = KasirSpacing.Large))
             Text(
                 text = "Item",
                 style = MaterialTheme.typography.titleMedium,

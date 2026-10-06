@@ -34,6 +34,7 @@ class PosWorkspaceRailNavigationTest {
                 Screen.Transactions.route,
                 Screen.ProductManagement.route,
                 Screen.Reports.route,
+                Screen.PrinterSettings.route,
             ),
             destinations.map { it.route },
         )
@@ -49,6 +50,7 @@ class PosWorkspaceRailNavigationTest {
                 Screen.Transactions.route,
                 Screen.ProductManagement.route,
                 Screen.Reports.route,
+                Screen.PrinterSettings.route,
             ),
             destinations.map { it.route },
         )
