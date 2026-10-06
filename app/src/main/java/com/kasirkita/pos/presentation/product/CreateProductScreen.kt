@@ -14,6 +14,11 @@ fun CreateProductScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val categoryState by viewModel.categoryState.collectAsState()
+    val modifierState by viewModel.modifierState.collectAsState()
+
+    LaunchedEffect(Unit) {
+        viewModel.loadModifierGroupsForCreate()
+    }
 
     LaunchedEffect(state) {
         if (state is ProductManagementState.Success) {
@@ -27,10 +32,15 @@ fun CreateProductScreen(
         submitLabel = "Simpan Produk",
         initialValues = ProductFormInitialValues(),
         categoryState = categoryState,
+        modifierState = modifierState,
         isLoading = state is ProductManagementState.Loading,
         errorMessage = (state as? ProductManagementState.Error)?.message,
         onInputChanged = viewModel::clearError,
         onRetryCategories = viewModel::loadCategories,
+        onRetryModifiers = { viewModel.retryModifierLoad(null) },
+        onToggleModifierGroup = viewModel::toggleModifierGroup,
+        onModifierRequiredChanged = viewModel::setModifierGroupRequired,
+        onModifierSelectionTypeChanged = viewModel::setModifierGroupSelectionType,
         onSubmit = { product ->
             viewModel.createProduct(
                 name = product.name,

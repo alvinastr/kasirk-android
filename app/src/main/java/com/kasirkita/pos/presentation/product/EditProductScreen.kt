@@ -35,11 +35,16 @@ fun EditProductScreen(
     val productState by productViewModel.state.collectAsState()
     val managementState by managementViewModel.state.collectAsState()
     val categoryState by managementViewModel.categoryState.collectAsState()
+    val modifierState by managementViewModel.modifierState.collectAsState()
 
     LaunchedEffect(managementState) {
         if (managementState is ProductManagementState.Success) {
             onProductUpdated()
         }
+    }
+
+    LaunchedEffect(productId) {
+        managementViewModel.loadModifierGroupsForEdit(productId)
     }
 
     when (val currentState = productState) {
@@ -62,9 +67,16 @@ fun EditProductScreen(
                     product = product,
                     managementState = managementState,
                     categoryState = categoryState,
+                    modifierState = modifierState,
                     onInputChanged = managementViewModel::clearError,
                     onRetryCategories = managementViewModel::loadCategories,
+                    onRetryModifiers = { managementViewModel.retryModifierLoad(product.id) },
+                    onToggleModifierGroup = managementViewModel::toggleModifierGroup,
+                    onModifierRequiredChanged = managementViewModel::setModifierGroupRequired,
+                    onModifierSelectionTypeChanged = managementViewModel::setModifierGroupSelectionType,
+                    onModifierAssignmentsChanged = managementViewModel::modifierAssignmentsChanged,
                     onSubmit = { changes ->
+                        val modifierChanged = managementViewModel.modifierAssignmentsChanged()
                         managementViewModel.updateProduct(
                             productId = product.id,
                             name = changes.name,
@@ -75,6 +87,8 @@ fun EditProductScreen(
                             cost = changes.cost,
                             minimumStock = changes.minimumStock,
                             trackStock = changes.trackStock,
+                            modifierAssignmentsChanged = modifierChanged,
+                            existingProduct = product,
                         )
                     },
                     onCancel = onCancel,
@@ -89,8 +103,14 @@ private fun EditProductForm(
     product: Product,
     managementState: ProductManagementState,
     categoryState: CategoryState,
+    modifierState: ProductModifierSectionState,
     onInputChanged: () -> Unit,
     onRetryCategories: () -> Unit,
+    onRetryModifiers: () -> Unit,
+    onToggleModifierGroup: (String) -> Unit,
+    onModifierRequiredChanged: (String, Boolean) -> Unit,
+    onModifierSelectionTypeChanged: (String, com.kasirkita.pos.domain.model.SelectionMode) -> Unit,
+    onModifierAssignmentsChanged: () -> Boolean,
     onSubmit: (ProductUpdateChanges) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -105,6 +125,7 @@ private fun EditProductForm(
         submitLabel = "Simpan Perubahan",
         initialValues = initialValues,
         categoryState = categoryState,
+        modifierState = modifierState,
         isLoading = managementState is ProductManagementState.Loading,
         errorMessage = localError ?: (managementState as? ProductManagementState.Error)?.message,
         onInputChanged = {
@@ -112,9 +133,15 @@ private fun EditProductForm(
             onInputChanged()
         },
         onRetryCategories = onRetryCategories,
+        onRetryModifiers = onRetryModifiers,
+        onToggleModifierGroup = onToggleModifierGroup,
+        onModifierRequiredChanged = onModifierRequiredChanged,
+        onModifierSelectionTypeChanged = onModifierSelectionTypeChanged,
         onSubmit = { editedProduct ->
             val changes = editedProduct.changesFrom(product)
-            if (changes.hasChanges) {
+            val modifierChanged = modifierState.assignmentsKnown &&
+                onModifierAssignmentsChanged()
+            if (changes.hasChanges || modifierChanged) {
                 localError = null
                 onSubmit(changes)
             } else {

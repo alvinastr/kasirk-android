@@ -15,12 +15,14 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -37,6 +39,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.kasirkita.pos.domain.model.Category
 import com.kasirkita.pos.domain.model.Product
+import com.kasirkita.pos.domain.model.SelectionMode
 
 internal data class CategoryOption(
     val id: String?,
@@ -85,10 +88,15 @@ internal fun ProductForm(
     submitLabel: String,
     initialValues: ProductFormInitialValues,
     categoryState: CategoryState,
+    modifierState: ProductModifierSectionState,
     isLoading: Boolean,
     errorMessage: String?,
     onInputChanged: () -> Unit,
     onRetryCategories: () -> Unit,
+    onRetryModifiers: () -> Unit,
+    onToggleModifierGroup: (String) -> Unit,
+    onModifierRequiredChanged: (String, Boolean) -> Unit,
+    onModifierSelectionTypeChanged: (String, SelectionMode) -> Unit,
     onSubmit: (ValidatedCreateProduct) -> Unit,
     onCancel: () -> Unit,
 ) {
@@ -339,6 +347,24 @@ internal fun ProductForm(
                 )
             }
 
+            ModifierAssignmentSection(
+                state = modifierState,
+                enabled = !isLoading,
+                onRetry = onRetryModifiers,
+                onToggleGroup = {
+                    onToggleModifierGroup(it)
+                    onInputChanged()
+                },
+                onRequiredChanged = { groupId, required ->
+                    onModifierRequiredChanged(groupId, required)
+                    onInputChanged()
+                },
+                onSelectionTypeChanged = { groupId, selectionType ->
+                    onModifierSelectionTypeChanged(groupId, selectionType)
+                    onInputChanged()
+                },
+            )
+
             if (errorMessage != null) {
                 Text(
                     text = errorMessage,
@@ -399,5 +425,215 @@ internal fun ProductForm(
                 Text("Batal")
             }
         }
+    }
+}
+
+@Composable
+private fun ModifierAssignmentSection(
+    state: ProductModifierSectionState,
+    enabled: Boolean,
+    onRetry: () -> Unit,
+    onToggleGroup: (String) -> Unit,
+    onRequiredChanged: (String, Boolean) -> Unit,
+    onSelectionTypeChanged: (String, SelectionMode) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = "Modifier / Add-on",
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = "Pilih modifier global yang berlaku untuk produk ini.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+
+        when {
+            state.loading -> Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                )
+                Text(
+                    text = "Memuat modifier...",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            state.loadError != null -> {
+                Text(
+                    text = state.loadError,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedButton(
+                    onClick = onRetry,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 48.dp),
+                    enabled = enabled,
+                ) {
+                    Text("Coba Muat Modifier")
+                }
+            }
+            state.rows.isEmpty() -> Text(
+                text = "Belum ada modifier aktif. Produk tetap dapat disimpan tanpa modifier.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+            else -> state.rows.forEach { row ->
+                ModifierAssignmentRow(
+                    row = row,
+                    enabled = enabled && state.assignmentsKnown,
+                    onToggleGroup = onToggleGroup,
+                    onRequiredChanged = onRequiredChanged,
+                    onSelectionTypeChanged = onSelectionTypeChanged,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModifierAssignmentRow(
+    row: ProductModifierGroupRow,
+    enabled: Boolean,
+    onToggleGroup: (String) -> Unit,
+    onRequiredChanged: (String, Boolean) -> Unit,
+    onSelectionTypeChanged: (String, SelectionMode) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 48.dp)
+                .toggleable(
+                    value = row.selected,
+                    enabled = enabled,
+                    role = Role.Checkbox,
+                    onValueChange = { onToggleGroup(row.groupId) },
+                ),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = row.selected,
+                onCheckedChange = null,
+                enabled = enabled,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = row.name,
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = if (row.selected) "Terpasang" else "Tidak dipakai",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+
+        if (row.selected) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                RequiredOption(
+                    label = "Opsional",
+                    selected = !row.required,
+                    enabled = enabled,
+                    onClick = { onRequiredChanged(row.groupId, false) },
+                )
+                RequiredOption(
+                    label = "Wajib",
+                    selected = row.required,
+                    enabled = enabled,
+                    onClick = { onRequiredChanged(row.groupId, true) },
+                )
+            }
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SelectionTypeOption(
+                    label = "Satu pilihan",
+                    selected = row.selectionType == SelectionMode.SINGLE,
+                    enabled = enabled,
+                    onClick = { onSelectionTypeChanged(row.groupId, SelectionMode.SINGLE) },
+                )
+                SelectionTypeOption(
+                    label = "Banyak pilihan",
+                    selected = row.selectionType == SelectionMode.MULTIPLE,
+                    enabled = enabled,
+                    onClick = { onSelectionTypeChanged(row.groupId, SelectionMode.MULTIPLE) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RequiredOption(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .heightIn(min = 44.dp)
+            .toggleable(
+                value = selected,
+                enabled = enabled,
+                role = Role.RadioButton,
+                onValueChange = { onClick() },
+            )
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = null,
+            enabled = enabled,
+        )
+        Text(label)
+    }
+}
+
+@Composable
+private fun SelectionTypeOption(
+    label: String,
+    selected: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .heightIn(min = 44.dp)
+            .toggleable(
+                value = selected,
+                enabled = enabled,
+                role = Role.RadioButton,
+                onValueChange = { onClick() },
+            )
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(
+            selected = selected,
+            onClick = null,
+            enabled = enabled,
+        )
+        Text(label)
     }
 }
