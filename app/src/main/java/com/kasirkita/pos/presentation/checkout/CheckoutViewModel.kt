@@ -7,6 +7,7 @@ import com.kasirkita.pos.data.model.buildV1TransactionRequest
 import com.kasirkita.pos.domain.error.HeldOrderError
 import com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest
 import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
+import com.kasirkita.pos.domain.model.Transaction
 import com.kasirkita.pos.domain.model.V1Payment
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.HeldOrderRepository
@@ -201,42 +202,12 @@ class CheckoutViewModel @Inject constructor(
 
             val transaction = onlineResult.getOrNull()
             if (transaction != null) {
-                cartRepository.clearCart()
-
-                // Fetch canonical server receipt and trigger auto-print/drawer
-                val receiptResult = getReceiptUseCase(transaction.id)
-                val receipt = receiptResult.getOrNull()
-                if (receipt != null) {
-                    val paymentMethod = snapshot.payment.method.name // "CASH" or "QRIS"
-                    val printResult = printAfterCheckoutUseCase(
-                        receipt = receipt,
-                        paymentMethod = paymentMethod,
-                        isOriginalOnlineCheckout = true,
-                    )
-                    val printerWarning = when (printResult) {
-                        is PrintAfterCheckoutUseCase.Result.Failure ->
-                            printResult.printError ?: "Transaksi berhasil, tetapi struk gagal dicetak."
-                        is PrintAfterCheckoutUseCase.Result.Success -> null
-                    }
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            transaction = transaction,
-                            errorMessage = null,
-                            printerWarning = printerWarning,
-                        )
-                    }
-                    return@launch
-                }
-
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        transaction = transaction,
-                        errorMessage = null,
-                        printerWarning = null,
-                    )
-                }
+                completeAuthoritativeOnlineCheckout(
+                    transaction = transaction,
+                    paymentMethod = snapshot.payment.method.name,
+                    runAutomaticPhysicalEffects = true,
+                    receiptFailureWarning = null,
+                )
                 return@launch
             }
 
@@ -366,21 +337,11 @@ class CheckoutViewModel @Inject constructor(
 
             val checkoutResult = result.getOrNull()
             if (checkoutResult != null) {
-                // Success: clear pending metadata, detach identity, clear cart
-                pendingHeldOrder.clear()
-                cartRepository.detachHeldOrderIdentity()
-                cartRepository.clearCart()
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        transaction = checkoutResult.transaction,
-                        heldOrderReplayed = checkoutResult.replayed,
-                        reconciliationNeeded = false,
-                        reconciliationMessage = null,
-                        errorMessage = null,
-                        printerWarning = null,
-                    )
-                }
+                completeHeldOrderCheckoutSuccess(
+                    transaction = checkoutResult.transaction,
+                    replayed = checkoutResult.replayed,
+                    paymentMethod = paymentMethod,
+                )
                 return@launch
             }
 
@@ -491,21 +452,11 @@ class CheckoutViewModel @Inject constructor(
 
             val checkoutResult = result.getOrNull()
             if (checkoutResult != null) {
-                // Success on retry (both replayed=true and replayed=false)
-                pendingHeldOrder.clear()
-                cartRepository.detachHeldOrderIdentity()
-                cartRepository.clearCart()
-                _state.update {
-                    it.copy(
-                        isLoading = false,
-                        transaction = checkoutResult.transaction,
-                        heldOrderReplayed = checkoutResult.replayed,
-                        reconciliationNeeded = false,
-                        reconciliationMessage = null,
-                        errorMessage = null,
-                        printerWarning = null,
-                    )
-                }
+                completeHeldOrderCheckoutSuccess(
+                    transaction = checkoutResult.transaction,
+                    replayed = checkoutResult.replayed,
+                    paymentMethod = pending.paymentMethod,
+                )
                 return@launch
             }
 
@@ -533,6 +484,86 @@ class CheckoutViewModel @Inject constructor(
                     errorMessage = heldOrderCheckoutErrorMessage(throwable),
                 )
             }
+        }
+    }
+
+    private suspend fun completeHeldOrderCheckoutSuccess(
+        transaction: Transaction,
+        replayed: Boolean,
+        paymentMethod: String,
+    ) {
+        pendingHeldOrder.clear()
+        cartRepository.detachHeldOrderIdentity()
+        completeAuthoritativeOnlineCheckout(
+            transaction = transaction,
+            paymentMethod = transaction.payments.firstOrNull()?.method ?: paymentMethod,
+            runAutomaticPhysicalEffects = !replayed,
+            receiptFailureWarning = "Transaksi berhasil, tetapi struk gagal dimuat.",
+            heldOrderReplayed = replayed,
+        )
+    }
+
+    private suspend fun completeAuthoritativeOnlineCheckout(
+        transaction: Transaction,
+        paymentMethod: String,
+        runAutomaticPhysicalEffects: Boolean,
+        receiptFailureWarning: String?,
+        heldOrderReplayed: Boolean? = null,
+    ) {
+        cartRepository.clearCart()
+
+        if (!runAutomaticPhysicalEffects) {
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    transaction = transaction,
+                    heldOrderReplayed = heldOrderReplayed,
+                    reconciliationNeeded = false,
+                    reconciliationMessage = null,
+                    errorMessage = null,
+                    printerWarning = null,
+                )
+            }
+            return
+        }
+
+        val receiptResult = getReceiptUseCase(transaction.id)
+        val receipt = receiptResult.getOrNull()
+        if (receipt == null) {
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    transaction = transaction,
+                    heldOrderReplayed = heldOrderReplayed,
+                    reconciliationNeeded = false,
+                    reconciliationMessage = null,
+                    errorMessage = null,
+                    printerWarning = receiptFailureWarning,
+                )
+            }
+            return
+        }
+
+        val printResult = printAfterCheckoutUseCase(
+            receipt = receipt,
+            paymentMethod = paymentMethod,
+            isOriginalOnlineCheckout = true,
+        )
+        val printerWarning = when (printResult) {
+            is PrintAfterCheckoutUseCase.Result.Failure ->
+                printResult.printError ?: printResult.drawerError ?: "Transaksi berhasil, tetapi struk gagal dicetak."
+            is PrintAfterCheckoutUseCase.Result.Success -> null
+        }
+        _state.update {
+            it.copy(
+                isLoading = false,
+                transaction = transaction,
+                heldOrderReplayed = heldOrderReplayed,
+                reconciliationNeeded = false,
+                reconciliationMessage = null,
+                errorMessage = null,
+                printerWarning = printerWarning,
+            )
         }
     }
 

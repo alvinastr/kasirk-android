@@ -399,7 +399,8 @@ class CheckoutViewModelTest {
         assertEquals(3, heldOrders.checkoutCalls.single().expectedVersion)
         assertTrue(online.requests.isEmpty())
         assertTrue(offline.requests.isEmpty())
-        assertTrue(printAfterCheckout.invocations.isEmpty())
+        assertEquals(1, printAfterCheckout.invocations.size)
+        assertTrue(printAfterCheckout.invocations.single().isOriginalOnlineCheckout)
         assertNull(cart.getHeldOrderIdentity().value)
     }
 

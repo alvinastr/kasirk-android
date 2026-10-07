@@ -134,7 +134,10 @@ class CheckoutViewModelHeldOrderReconciliationTest {
             savedStateHandle = handle,
         )
 
-    private fun canonicalTransaction(id: String = "server-tx-1"): Transaction = Transaction(
+    private fun canonicalTransaction(
+        id: String = "server-tx-1",
+        paymentMethod: String = "CASH",
+    ): Transaction = Transaction(
         id = id,
         clientTransactionId = clientTxId,
         outletId = outlet.id,
@@ -148,7 +151,17 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         tax = 0,
         total = cartTotal,
         items = emptyList(),
-        payments = listOf(Payment("pay-1", "CASH", "COMPLETED", cartTotal, "now", cartTotal, 0)),
+        payments = listOf(
+            Payment(
+                "pay-1",
+                paymentMethod,
+                "COMPLETED",
+                cartTotal,
+                "now",
+                if (paymentMethod == "CASH") cartTotal else null,
+                0,
+            ),
+        ),
         change = 0,
         createdAt = "now",
     )
@@ -543,7 +556,11 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         assertEquals(false, vm.state.value.heldOrderReplayed)
         assertTrue(cart.getCart().value.items.isEmpty())
         assertNull(cart.getHeldOrderIdentity().value)
-        assertEquals(0, printUseCase.invocations.size)
+        // M16G-S3: replayed=false is an original authoritative online conversion,
+        // so it enters the existing print/drawer policy.
+        assertEquals(listOf("server-tx-1"), receipts.requestedIds)
+        assertEquals(1, printUseCase.invocations.size)
+        assertTrue(printUseCase.invocations.single().isOriginalOnlineCheckout)
     }
 
     // ---------------------------------------------------------------------
@@ -569,7 +586,9 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         assertFalse(PendingHeldOrderCheckoutContext(handle).reconciliationNeeded)
         assertNull(PendingHeldOrderCheckoutContext(handle).clientTransactionId)
         assertEquals("server-tx-1", vm.state.value.transaction?.id)
-        assertEquals(0, printUseCase.invocations.size)
+        assertEquals(listOf("server-tx-1"), receipts.requestedIds)
+        assertEquals(1, printUseCase.invocations.size)
+        assertTrue(printUseCase.invocations.single().isOriginalOnlineCheckout)
     }
 
     // ---------------------------------------------------------------------
@@ -761,10 +780,6 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         vm.confirmPayment()
         advanceUntilIdle()
 
-        if (transactions.createV1Calls.isEmpty()) {
-            println("VM error: ${vm.state.value.errorMessage}, payment: ${vm.state.value.payment}, cart: ${vm.state.value.cart}")
-        }
-
         assertEquals(1, transactions.createV1Calls.size)
         assertEquals(0, heldOrders.checkoutCalls.size)
         assertEquals(clientTxId, transactions.createV1Calls.single().clientTransactionId)
@@ -805,6 +820,198 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         assertEquals(0, heldOrders.checkoutCalls.size)
         assertEquals(clientTxId, vm.state.value.offlineQueuedClientTransactionId)
         assertFalse(vm.state.value.reconciliationNeeded)
+    }
+
+
+    @Test
+    fun freshHeldCashReplayedFalse_invokesOriginalOnlinePrintPolicy() = runTest(dispatcher) {
+        seedCart()
+        val vm = viewModel()
+        runCurrent()
+        heldOrders.checkoutResult = Result.success(
+            HeldOrderCheckoutResult(canonicalTransaction(), replayed = false),
+        )
+
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        assertEquals("server-tx-1", vm.state.value.transaction?.id)
+        assertEquals(false, vm.state.value.heldOrderReplayed)
+        assertEquals(listOf("server-tx-1"), receipts.requestedIds)
+        assertEquals(1, printUseCase.invocations.size)
+        assertEquals("CASH", printUseCase.invocations.single().paymentMethod)
+        assertTrue(printUseCase.invocations.single().isOriginalOnlineCheckout)
+    }
+
+    @Test
+    fun freshHeldQrisReplayedFalse_invokesOriginalOnlinePrintPolicyWithQrisDrawerForbidden() = runTest(dispatcher) {
+        seedCart()
+        val vm = viewModel()
+        runCurrent()
+        heldOrders.checkoutResult = Result.success(
+            HeldOrderCheckoutResult(canonicalTransaction(paymentMethod = "QRIS"), replayed = false),
+        )
+
+        vm.selectPaymentMethod(CheckoutPaymentMethod.QRIS)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        assertEquals(listOf("server-tx-1"), receipts.requestedIds)
+        assertEquals(1, printUseCase.invocations.size)
+        assertEquals("QRIS", printUseCase.invocations.single().paymentMethod)
+        assertTrue(printUseCase.invocations.single().isOriginalOnlineCheckout)
+    }
+
+    @Test
+    fun freshHeldReplayedTrue_skipsReceiptFetchPrintAndDrawer() = runTest(dispatcher) {
+        seedCart()
+        val handle = freshHandle()
+        val vm = viewModel(handle)
+        runCurrent()
+        heldOrders.checkoutResult = Result.success(
+            HeldOrderCheckoutResult(canonicalTransaction(), replayed = true),
+        )
+
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        assertEquals("server-tx-1", vm.state.value.transaction?.id)
+        assertEquals(true, vm.state.value.heldOrderReplayed)
+        assertTrue(cart.getCart().value.items.isEmpty())
+        assertNull(cart.getHeldOrderIdentity().value)
+        assertNull(PendingHeldOrderCheckoutContext(handle).getPending())
+        assertEquals(0, receipts.requestedIds.size)
+        assertEquals(0, printUseCase.invocations.size)
+    }
+
+    @Test
+    fun retryReplayedFalseQris_invokesPrintPolicyWithQrisDrawerForbidden() = runTest(dispatcher) {
+        seedCart()
+        val handle = freshHandle()
+        val vm = viewModel(handle)
+        runCurrent()
+
+        heldOrders.checkoutResult = Result.failure(IOException("lost before commit"))
+        vm.selectPaymentMethod(CheckoutPaymentMethod.QRIS)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        heldOrders.checkoutResult = Result.success(
+            HeldOrderCheckoutResult(canonicalTransaction(paymentMethod = "QRIS"), replayed = false),
+        )
+        vm.retryHeldOrderCheckout()
+        advanceUntilIdle()
+
+        assertEquals("server-tx-1", vm.state.value.transaction?.id)
+        assertFalse(vm.state.value.reconciliationNeeded)
+        assertEquals(listOf("server-tx-1"), receipts.requestedIds)
+        assertEquals(1, printUseCase.invocations.size)
+        assertEquals("QRIS", printUseCase.invocations.single().paymentMethod)
+        assertTrue(printUseCase.invocations.single().isOriginalOnlineCheckout)
+        assertNull(PendingHeldOrderCheckoutContext(handle).getPending())
+    }
+
+    @Test
+    fun receiptFetchFailureAfterFreshHeldSuccess_preservesCommittedSuccessAndSurfacesWarning() = runTest(dispatcher) {
+        seedCart()
+        receipts.result = Result.failure(IOException("receipt unavailable"))
+        val handle = freshHandle()
+        val vm = viewModel(handle)
+        runCurrent()
+        heldOrders.checkoutResult = Result.success(
+            HeldOrderCheckoutResult(canonicalTransaction(), replayed = false),
+        )
+
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        assertEquals("server-tx-1", vm.state.value.transaction?.id)
+        assertTrue(cart.getCart().value.items.isEmpty())
+        assertNull(cart.getHeldOrderIdentity().value)
+        assertNull(PendingHeldOrderCheckoutContext(handle).getPending())
+        assertEquals("Transaksi berhasil, tetapi struk gagal dimuat.", vm.state.value.printerWarning)
+        assertEquals(listOf("server-tx-1"), receipts.requestedIds)
+        assertEquals(0, printUseCase.invocations.size)
+        assertEquals(1, heldOrders.checkoutCalls.size)
+        assertEquals(0, offlineQueue.queueCalls.size)
+    }
+
+    @Test
+    fun printerFailureAfterFreshHeldSuccess_preservesCommittedSuccessAndSurfacesWarning() = runTest(dispatcher) {
+        seedCart()
+        printUseCase.result = PrintAfterCheckoutUseCase.Result.Failure(
+            transactionSuccessful = true,
+            printError = "Printer offline",
+            drawerError = null,
+        )
+        val vm = viewModel()
+        runCurrent()
+        heldOrders.checkoutResult = Result.success(
+            HeldOrderCheckoutResult(canonicalTransaction(), replayed = false),
+        )
+
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        assertEquals("server-tx-1", vm.state.value.transaction?.id)
+        assertTrue(cart.getCart().value.items.isEmpty())
+        assertNull(cart.getHeldOrderIdentity().value)
+        assertEquals("Printer offline", vm.state.value.printerWarning)
+        assertEquals(1, printUseCase.invocations.size)
+        assertEquals(1, heldOrders.checkoutCalls.size)
+        assertEquals(0, offlineQueue.queueCalls.size)
+    }
+
+    @Test
+    fun duplicateConfirm_invokesOneCheckoutAndOnePhysicalSideEffectMaximum() = runTest(dispatcher) {
+        seedCart()
+        val vm = viewModel()
+        runCurrent()
+        heldOrders.suspendUntilComplete = true
+
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        vm.confirmPayment()
+        vm.confirmPayment()
+        runCurrent()
+
+        assertEquals(1, heldOrders.checkoutCalls.size)
+        heldOrders.complete(Result.success(HeldOrderCheckoutResult(canonicalTransaction(), replayed = false)))
+        advanceUntilIdle()
+
+        assertEquals(1, heldOrders.checkoutCalls.size)
+        assertEquals(1, receipts.requestedIds.size)
+        assertEquals(1, printUseCase.invocations.size)
+    }
+
+    @Test
+    fun duplicateRetryReplayedFalse_invokesOneCheckoutAndOnePhysicalSideEffectMaximum() = runTest(dispatcher) {
+        seedCart()
+        val vm = viewModel()
+        runCurrent()
+        heldOrders.checkoutResult = Result.failure(IOException("lost response"))
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+        assertTrue(vm.state.value.reconciliationNeeded)
+
+        heldOrders.suspendUntilComplete = true
+        vm.retryHeldOrderCheckout()
+        vm.retryHeldOrderCheckout()
+        vm.retryHeldOrderCheckout()
+        runCurrent()
+
+        assertEquals(2, heldOrders.checkoutCalls.size)
+        heldOrders.complete(Result.success(HeldOrderCheckoutResult(canonicalTransaction(), replayed = false)))
+        advanceUntilIdle()
+
+        assertEquals(2, heldOrders.checkoutCalls.size)
+        assertEquals(1, receipts.requestedIds.size)
+        assertEquals(1, printUseCase.invocations.size)
     }
 
     // --- Fakes ---
@@ -925,9 +1132,10 @@ class CheckoutViewModelHeldOrderReconciliationTest {
 
     private class RecordingReceiptRepository : ReceiptRepository {
         val requestedIds = mutableListOf<String>()
+        var result: Result<Receipt>? = null
         override suspend fun getReceipt(transactionId: String): Result<Receipt> {
             requestedIds += transactionId
-            return Result.success(
+            return result ?: Result.success(
                 Receipt(
                     transactionId = transactionId,
                     clientTransactionId = "client-tx-1",
@@ -956,9 +1164,10 @@ class CheckoutViewModelHeldOrderReconciliationTest {
             val isOriginalOnlineCheckout: Boolean,
         )
         val invocations = mutableListOf<Invocation>()
+        var result: Result = Result.Success(printed = true, drawerOpened = true)
         override suspend fun invoke(receipt: Receipt, paymentMethod: String, isOriginalOnlineCheckout: Boolean): Result {
             invocations += Invocation(receipt, paymentMethod, isOriginalOnlineCheckout)
-            return Result.Success(printed = true, drawerOpened = true)
+            return result
         }
     }
 }

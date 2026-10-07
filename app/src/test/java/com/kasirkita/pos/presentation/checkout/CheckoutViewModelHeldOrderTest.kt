@@ -216,7 +216,7 @@ class CheckoutViewModelHeldOrderTest {
         assertNull(req.payment.amountReceived)
     }
 
-    // 6. Successful original response: canonical tx, identity detached, cart cleared, no offline, no print, no drawer
+    // 6. Fresh authoritative response: canonical tx, lifecycle cleanup, existing physical-side-effect policy
     @Test
     fun successfulOriginalResponse_fullS1SuccessLifecycle() = runTest(dispatcher) {
         seedCart(price = 20_000)
@@ -249,9 +249,11 @@ class CheckoutViewModelHeldOrderTest {
         // 4. no offline queue
         assertEquals(0, offlineQueue.queueCalls.size)
 
-        // 5. no auto-print, no drawer
-        assertEquals(0, receipts.requestedIds.size)
-        assertEquals(0, printUseCase.invocations.size)
+        // 5. canonical receipt enters the same original-online policy as normal checkout
+        assertEquals(listOf(serverTx.id), receipts.requestedIds)
+        assertEquals(1, printUseCase.invocations.size)
+        assertEquals("CASH", printUseCase.invocations.single().paymentMethod)
+        assertTrue(printUseCase.invocations.single().isOriginalOnlineCheckout)
     }
 
     // 7. Successful replay response: same S1 lifecycle, no auto-print, no drawer
