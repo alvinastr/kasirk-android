@@ -17,6 +17,7 @@ import com.kasirkita.pos.data.api.OutletApi
 import com.kasirkita.pos.data.api.ProductApi
 import com.kasirkita.pos.data.api.ReportApi
 import com.kasirkita.pos.data.api.ReceiptApi
+import com.kasirkita.pos.data.api.HeldOrderApi
 import com.kasirkita.pos.data.api.ShiftApi
 import com.kasirkita.pos.data.api.SyncApi
 import com.kasirkita.pos.data.api.StockApi
@@ -161,6 +162,11 @@ object NetworkModule {
     @Singleton
     fun provideTransactionApi(retrofit: Retrofit): TransactionApi =
         retrofit.create(TransactionApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideHeldOrderApi(retrofit: Retrofit): HeldOrderApi =
+        retrofit.create(HeldOrderApi::class.java)
 
     private const val NETWORK_TIMEOUT_SECONDS = 30L
 }

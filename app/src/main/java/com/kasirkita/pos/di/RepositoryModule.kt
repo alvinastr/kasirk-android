@@ -8,10 +8,12 @@ import com.kasirkita.pos.data.repository.OutletRepositoryImpl
 import com.kasirkita.pos.data.repository.OfflineSyncRepositoryImpl
 import com.kasirkita.pos.data.repository.ProductRepositoryImpl
 import com.kasirkita.pos.data.repository.ReportRepositoryImpl
+import com.kasirkita.pos.data.repository.HeldOrderRepositoryImpl
 import com.kasirkita.pos.data.repository.ReceiptRepositoryImpl
 import com.kasirkita.pos.data.repository.ShiftRepositoryImpl
 import com.kasirkita.pos.data.repository.StockRepositoryImpl
 import com.kasirkita.pos.data.repository.TransactionRepositoryImpl
+import com.kasirkita.pos.domain.repository.HeldOrderRepository
 import com.kasirkita.pos.domain.repository.AuthV2Repository
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.CategoryRepository
@@ -99,6 +101,12 @@ abstract class RepositoryModule {
     abstract fun bindStockRepository(
         implementation: StockRepositoryImpl,
     ): StockRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindHeldOrderRepository(
+        implementation: HeldOrderRepositoryImpl,
+    ): HeldOrderRepository
 
     @Binds
     @Singleton
