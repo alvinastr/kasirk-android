@@ -38,6 +38,7 @@ class CheckoutViewModelTest {
     private val offline = FakeQueue()
     private val receiptRepository = FakeReceiptRepository()
     private val printAfterCheckout = FakePrintAfterCheckoutUseCase()
+    private val heldOrders = ConfigurableHeldOrders()
     private val handle = SavedStateHandle(mapOf(CheckoutTransactionIdentity.KEY to "sale-id"))
     private val outlet = Outlet("selected-outlet", "tenant", "Outlet", null, true, "now")
     private val shift = Shift("active-shift", outlet.id, "cashier", null, null, null, null, "OPEN", "now", null)
@@ -69,6 +70,7 @@ class CheckoutViewModelTest {
             online,
             QueueOfflineTransactionUseCase(offline),
             cart,
+            heldOrders,
             FakeOutlet(outlet),
             FakeShift(shift),
             GetReceiptUseCase(receiptRepository),
@@ -87,6 +89,7 @@ class CheckoutViewModelTest {
             online,
             QueueOfflineTransactionUseCase(offline),
             cart,
+            heldOrders,
             FakeOutlet(outlet),
             FakeShift(shift),
             GetReceiptUseCase(receiptRepository),
@@ -375,35 +378,40 @@ class CheckoutViewModelTest {
         assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
     }
 
-    @Test fun heldOrderAttachmentBlocksNormalCheckoutBeforeAnySideEffect() = runTest(dispatcher) {
+    /**
+     * M16G-S1: an attached cart routes to the Held Order endpoint, so the normal
+     * transaction path, the offline queue and hardware stay untouched.
+     */
+    @Test fun heldOrderAttachmentRoutesToHeldOrderCheckoutBeforeAnyNormalSideEffect() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()
         cart.attachHeldOrderIdentity("held-1", 3, "Meja 3")
+        heldOrders.checkoutResult = Result.success(
+            HeldOrderCheckoutResult(transaction(), replayed = false),
+        )
 
         vm.selectExactCash()
         vm.confirmPayment()
-        runCurrent()
         advanceUntilIdle()
 
+        assertEquals(1, heldOrders.checkoutCalls.size)
+        assertEquals("held-1", heldOrders.checkoutCalls.single().id)
+        assertEquals(3, heldOrders.checkoutCalls.single().expectedVersion)
         assertTrue(online.requests.isEmpty())
         assertTrue(offline.requests.isEmpty())
         assertTrue(printAfterCheckout.invocations.isEmpty())
-        assertEquals(1, cart.getCart().value.items.size)
-        assertEquals(
-            "Pembayaran order tersimpan akan tersedia setelah proses checkout order.",
-            vm.state.value.errorMessage,
-        )
-        assertFalse(vm.state.value.isLoading)
+        assertNull(cart.getHeldOrderIdentity().value)
     }
 
     @Test fun heldOrderDetachmentRestoresNormalCheckout() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()
         cart.attachHeldOrderIdentity("held-1", 3, "Meja 3")
-        vm.selectExactCash()
-        vm.confirmPayment()
-        runCurrent()
+
+        // Detaching without checking out must hand the cart back to the normal
+        // online path; the held-order endpoint is never reached.
         cart.detachHeldOrderIdentity()
+        assertFalse(cart.isAttachedToHeldOrder())
 
         vm.selectExactCash()
         vm.confirmPayment()
@@ -413,6 +421,7 @@ class CheckoutViewModelTest {
 
         assertEquals(1, online.requests.size)
         assertEquals(1, printAfterCheckout.invocations.size)
+        assertTrue(heldOrders.checkoutCalls.isEmpty())
     }
 
     @Test fun offlineQueueSuccessClearsCartOnlyAfterQueuePersistenceCompletes() = runTest(dispatcher) {
@@ -505,6 +514,28 @@ class CheckoutViewModelTest {
         override suspend fun deleteFailedTransaction(clientTransactionId: String): Result<Unit> = error("Unused")
         override suspend fun acknowledgeReconciliation(clientTransactionId: String): Result<Unit> = error("Unused")
         override suspend fun retryFailedTransactions(): Result<SyncOutcome> = error("Unused")
+    }
+
+    /**
+     * M16G-S1: the normal (non-held-order) checkout path must never reach the
+     * Held Order endpoint. `checkoutCalls` stays empty for those tests.
+     */
+    private class ConfigurableHeldOrders : HeldOrderRepository {
+        val checkoutCalls = mutableListOf<HeldOrderCheckoutRequest>()
+
+        /** `null` means "this test must never reach the Held Order endpoint". */
+        var checkoutResult: Result<HeldOrderCheckoutResult>? = null
+
+        override suspend fun checkout(request: HeldOrderCheckoutRequest): Result<HeldOrderCheckoutResult> {
+            checkoutCalls += request
+            return checkoutResult ?: error("checkout must not be called in this test")
+        }
+
+        override suspend fun create(request: HeldOrderCreateRequest): Result<HeldOrder> = error("Unused")
+        override suspend fun list(outletId: String?, status: String, page: Int, limit: Int): Result<List<HeldOrder>> = error("Unused")
+        override suspend fun get(id: String): Result<HeldOrder> = error("Unused")
+        override suspend fun update(request: HeldOrderUpdateRequest): Result<HeldOrder> = error("Unused")
+        override suspend fun cancel(id: String, expectedVersion: Int): Result<HeldOrder> = error("Unused")
     }
 
     private class FakeOutlet(outlet: Outlet) : OutletRepository {

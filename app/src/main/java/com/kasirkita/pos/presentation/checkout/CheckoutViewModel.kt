@@ -4,8 +4,11 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.data.model.buildV1TransactionRequest
+import com.kasirkita.pos.domain.error.HeldOrderError
+import com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest
 import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
 import com.kasirkita.pos.domain.repository.CartRepository
+import com.kasirkita.pos.domain.repository.HeldOrderRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.domain.repository.TransactionRepository
@@ -30,6 +33,7 @@ class CheckoutViewModel @Inject constructor(
     private val transactionRepository: TransactionRepository,
     private val queueOfflineTransaction: QueueOfflineTransactionUseCase,
     private val cartRepository: CartRepository,
+    private val heldOrderRepository: HeldOrderRepository,
     outletRepository: OutletRepository,
     shiftRepository: ShiftRepository,
     private val getReceiptUseCase: GetReceiptUseCase,
@@ -110,21 +114,21 @@ class CheckoutViewModel @Inject constructor(
             return
         }
 
-        if (cartRepository.isAttachedToHeldOrder()) {
-            _state.update {
-                it.copy(
-                    errorMessage = "Pembayaran order tersimpan akan tersedia setelah proses checkout order.",
-                )
-            }
-            return
-        }
-
         if (!snapshot.payment.canSubmit) {
             val error = when (snapshot.payment.method) {
                 CheckoutPaymentMethod.CASH -> "Jumlah pembayaran kurang dari total belanja"
                 CheckoutPaymentMethod.QRIS -> "Pembayaran QRIS tidak valid"
             }
             _state.update { it.copy(errorMessage = error) }
+            return
+        }
+
+        // M16G-S1: a cart attached to an OPEN Held Order must settle
+        // authoritatively through the Held Order endpoint. It must never go
+        // through TransactionRepository nor the offline queue, because the
+        // server owns the held order's items, prices and version.
+        if (cartRepository.isAttachedToHeldOrder()) {
+            confirmHeldOrderPayment(snapshot)
             return
         }
 
@@ -259,6 +263,92 @@ class CheckoutViewModel @Inject constructor(
     }
 
     /**
+     * M16G-S1: authoritative checkout for a cart attached to an OPEN Held Order.
+     *
+     * The Held Order endpoint owns the price truth, so nothing derived from the
+     * local cart snapshot (prices, computed total) is transmitted and there is no
+     * offline fallback: an offline queue entry could never convert a held order.
+     *
+     * Deliberately inert in S1: success triggers neither the receipt print nor
+     * the cash drawer, for both `replayed` values. A later slice owns those
+     * replay-aware physical side effects.
+     */
+    private fun confirmHeldOrderPayment(snapshot: CheckoutState) {
+        // CartRepository stays the single owner of the attached identity; this
+        // ViewModel only reads it for the request it has to build.
+        val attachedIdentity = cartRepository.getHeldOrderIdentity().value
+        val outlet = snapshot.selectedOutlet
+        val shift = snapshot.currentShift
+
+        val contextError = when {
+            attachedIdentity == null -> "Order tersimpan tidak ditemukan"
+            outlet == null -> "Outlet belum dipilih"
+            shift == null || !shift.status.equals(OPEN_STATUS, ignoreCase = true) ->
+                "Tidak ada shift aktif"
+            shift.outletId != outlet.id -> "Shift aktif tidak sesuai dengan outlet yang dipilih"
+            else -> null
+        }
+
+        if (contextError != null) {
+            _state.update { it.copy(errorMessage = contextError) }
+            return
+        }
+
+        val identity = checkNotNull(attachedIdentity)
+
+        // Same stable identity as the normal path: minted once, then never
+        // regenerated, so a retry after an unresolved failure keeps the same
+        // client_transaction_id and therefore stays idempotent.
+        val clientTransactionId = transactionIdentity.getOrCreate()
+
+        // Mark submitting synchronously so a duplicate confirmPayment() before the
+        // coroutine resumes is guarded by isLoading rather than launching twice.
+        _state.update {
+            it.copy(
+                isLoading = true,
+                errorMessage = null,
+            )
+        }
+
+        viewModelScope.launch {
+            val result = heldOrderRepository.checkout(
+                HeldOrderCheckoutRequest(
+                    id = identity.heldOrderId,
+                    expectedVersion = identity.expectedVersion,
+                    clientTransactionId = clientTransactionId,
+                    payment = snapshot.payment.toPayment(),
+                ),
+            )
+
+            val checkoutResult = result.getOrNull()
+            if (checkoutResult == null) {
+                // Conservative for S1: an IOException is an unresolved outcome,
+                // not a confirmed failure. Cart, identity and client transaction
+                // id are all preserved so reconciliation can decide later.
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        errorMessage = heldOrderCheckoutErrorMessage(result.exceptionOrNull()),
+                    )
+                }
+                return@launch
+            }
+
+            cartRepository.detachHeldOrderIdentity()
+            cartRepository.clearCart()
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    transaction = checkoutResult.transaction,
+                    heldOrderReplayed = checkoutResult.replayed,
+                    errorMessage = null,
+                    printerWarning = null,
+                )
+            }
+        }
+    }
+
+    /**
      * Backward-compatible CASH-only adapter for callers using the pre-M12 API.
      * QRIS always uses [confirmPayment], so this method cannot create a QRIS
      * request with a cash tender amount.
@@ -296,6 +386,14 @@ internal class CheckoutTransactionIdentity(
 
     internal companion object {
         const val KEY = "activeClientTransactionId"
+    }
+}
+
+internal fun heldOrderCheckoutErrorMessage(throwable: Throwable?): String {
+    return when (throwable) {
+        is HeldOrderError -> throwable.message.ifBlank { "Gagal memproses order tersimpan" }
+        is IOException -> throwable.message ?: "Koneksi terputus saat memproses order tersimpan"
+        else -> throwable?.message ?: "Checkout order tersimpan gagal"
     }
 }
 

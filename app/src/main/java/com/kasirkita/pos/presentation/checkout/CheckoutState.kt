@@ -16,4 +16,13 @@ data class CheckoutState(
     val persistedTotal: Long = 0L,
     val errorMessage: String? = null,
     val printerWarning: String? = null,
+    /**
+     * M16G-S1: the authoritative `replayed` flag of a Held Order checkout result.
+     *
+     * Recorded so a later slice can make physical side effects replay-aware, but
+     * deliberately inert in S1: it must never gate printing or the cash drawer.
+     * `null` means the current [transaction] did not come from a Held Order
+     * checkout, so the normal (non-held-order) checkout path stays unchanged.
+     */
+    val heldOrderReplayed: Boolean? = null,
 )
