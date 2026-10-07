@@ -135,6 +135,34 @@ fun CheckoutScreen(
                     }
                 }
             }
+
+            // M16G-S2: reconciliation banner. Payment editing stays visible but the
+            // pending payload is frozen, so an explicit retry action is the only way
+            // to settle an unresolved Held Order checkout.
+            if (state.reconciliationNeeded) {
+                item {
+                    KasirCard(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = state.reconciliationMessage
+                                ?: "Status pembayaran belum dapat dipastikan. Silakan lakukan konfirmasi ulang.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.supporting,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (state.reconciliationNeeded) {
+            KasirPrimaryButton(
+                text = if (state.isLoading) "Mengonfirmasi..." else "Konfirmasi Ulang Pembayaran",
+                onClick = viewModel::retryHeldOrderCheckout,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = KasirSpacing.CompactScreenPadding, vertical = KasirSpacing.ItemGap),
+                enabled = !state.isLoading,
+            )
+            return@Column
         }
 
         SubmitPaymentSection(

@@ -25,4 +25,19 @@ data class CheckoutState(
      * checkout, so the normal (non-held-order) checkout path stays unchanged.
      */
     val heldOrderReplayed: Boolean? = null,
+
+    // M16G-S2: Held Order reconciliation / unknown-outcome recovery state
+    /**
+     * True when a Held Order checkout has been attempted but the client cannot
+     * determine whether the server committed it (IOException / transport failure).
+     * In this state the pending request metadata is frozen and must be replayed
+     * exactly via [retryHeldOrderCheckout()].
+     */
+    val reconciliationNeeded: Boolean = false,
+
+    /**
+     * Human-readable message shown when [reconciliationNeeded] is true.
+     * Explains that the payment status is unknown and an explicit retry is required.
+     */
+    val reconciliationMessage: String? = null,
 )
