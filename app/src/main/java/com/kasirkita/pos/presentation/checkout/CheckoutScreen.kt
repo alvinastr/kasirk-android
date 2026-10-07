@@ -1,5 +1,6 @@
 package com.kasirkita.pos.presentation.checkout
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -9,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +41,7 @@ import java.util.Locale
 @Composable
 fun CheckoutScreen(
     onCheckoutSuccess: (String) -> Unit = {},
+    onBackToHeldOrders: () -> Unit = {},
     viewModel: CheckoutViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
@@ -52,6 +55,58 @@ fun CheckoutScreen(
         if (transaction != null && state.printerWarning == null) {
             onCheckoutSuccess(transaction.id)
         }
+    }
+
+    BackHandler(
+        enabled = state.heldOrderCheckoutSubmitting ||
+            state.reconciliationNeeded ||
+            state.heldOrderConflict.requiresExplicitExit,
+    ) {
+        viewModel.leaveHeldOrderConflict()
+        if (!state.heldOrderCheckoutSubmitting && !state.reconciliationNeeded) {
+            onBackToHeldOrders()
+        }
+    }
+
+    if (state.showUnresolvedReconciliationLeaveConfirmation) {
+        AlertDialog(
+            onDismissRequest = viewModel::dismissUnresolvedReconciliationLeaveConfirmation,
+            title = {
+                Text(
+                    if (state.heldOrderCheckoutSubmitting) {
+                        "Pembayaran sedang diproses"
+                    } else {
+                        "Tinggalkan konfirmasi pembayaran?"
+                    },
+                )
+            },
+            text = {
+                Text(
+                    if (state.heldOrderCheckoutSubmitting) {
+                        "Tunggu hasil dari server. Order tidak dapat ditinggalkan selama status pembayaran masih diproses."
+                    } else {
+                        "Status transaksi ini belum pasti. Tinggalkan hanya jika kasir sudah memahami bahwa transaksi mungkin sudah tercatat di server."
+                    },
+                )
+            },
+            confirmButton = {
+                if (!state.heldOrderCheckoutSubmitting) {
+                    KasirPrimaryButton(
+                        text = "Saya mengerti, kembali",
+                        onClick = {
+                            viewModel.acknowledgeAndLeaveUnresolvedReconciliation()
+                            onBackToHeldOrders()
+                        },
+                    )
+                }
+            },
+            dismissButton = {
+                KasirSecondaryButton(
+                    text = "Tetap di sini",
+                    onClick = viewModel::dismissUnresolvedReconciliationLeaveConfirmation,
+                )
+            },
+        )
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
@@ -136,6 +191,19 @@ fun CheckoutScreen(
                 }
             }
 
+            if (state.heldOrderConflict != HeldOrderCheckoutConflict.NONE) {
+                item {
+                    HeldOrderConflictCard(
+                        conflict = state.heldOrderConflict,
+                        reconciliationNeeded = state.reconciliationNeeded,
+                        onBackToHeldOrders = {
+                            viewModel.leaveHeldOrderConflict()
+                            if (!state.reconciliationNeeded) onBackToHeldOrders()
+                        },
+                    )
+                }
+            }
+
             // M16G-S2: reconciliation banner. Payment editing stays visible but the
             // pending payload is frozen, so an explicit retry action is the only way
             // to settle an unresolved Held Order checkout.
@@ -168,9 +236,65 @@ fun CheckoutScreen(
         SubmitPaymentSection(
             payment = state.payment,
             isLoading = state.isLoading,
-            isEnabled = state.cart.items.isNotEmpty(),
+            isEnabled = state.cart.items.isNotEmpty() && !state.heldOrderConflict.requiresExplicitExit,
             onSubmit = viewModel::confirmPayment,
         )
+    }
+}
+
+@Composable
+private fun HeldOrderConflictCard(
+    conflict: HeldOrderCheckoutConflict,
+    reconciliationNeeded: Boolean,
+    onBackToHeldOrders: () -> Unit,
+) {
+    val title = when (conflict) {
+        HeldOrderCheckoutConflict.VERSION_CONFLICT -> "Order tersimpan sudah berubah"
+        HeldOrderCheckoutConflict.NOT_OPEN -> "Order tersimpan tidak lagi terbuka"
+        HeldOrderCheckoutConflict.IDEMPOTENCY_MISMATCH -> "Status pembayaran perlu perhatian"
+        HeldOrderCheckoutConflict.SESSION_INVALID -> "Shift aktif diperlukan"
+        HeldOrderCheckoutConflict.STOCK_CHANGED -> "Stok berubah"
+        HeldOrderCheckoutConflict.GENERIC -> "Order tersimpan perlu diperiksa"
+        HeldOrderCheckoutConflict.NONE -> return
+    }
+    val detail = if (reconciliationNeeded) {
+        "Jangan mulai transaksi baru dengan ID berbeda. Konfirmasi ulang pembayaran atau tinggalkan dengan persetujuan kasir."
+    } else {
+        when (conflict) {
+            HeldOrderCheckoutConflict.VERSION_CONFLICT ->
+                "Keranjang lokal masih memakai versi lama. Kembali ke daftar order tersimpan lalu buka versi terbaru dari server."
+            HeldOrderCheckoutConflict.NOT_OPEN ->
+                "Order mungkin sudah dibayar atau dibatalkan di perangkat lain. Kembali ke daftar order tersimpan untuk memeriksa status terbaru."
+            HeldOrderCheckoutConflict.IDEMPOTENCY_MISMATCH ->
+                "Percobaan pembayaran ini tidak dapat dikirim ulang dengan data pembayaran yang berbeda."
+            HeldOrderCheckoutConflict.SESSION_INVALID ->
+                "Buka shift yang valid sebelum memproses order tersimpan."
+            HeldOrderCheckoutConflict.STOCK_CHANGED ->
+                "Periksa jumlah produk sebelum mencoba lagi."
+            HeldOrderCheckoutConflict.GENERIC ->
+                "Periksa order tersimpan sebelum mencoba lagi."
+            HeldOrderCheckoutConflict.NONE -> ""
+        }
+    }
+
+    KasirCard(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.error,
+        )
+        Text(
+            text = detail,
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (conflict.requiresExplicitExit || reconciliationNeeded) {
+            KasirSecondaryButton(
+                text = "Kembali ke order tersimpan",
+                onClick = onBackToHeldOrders,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
     }
 }
 

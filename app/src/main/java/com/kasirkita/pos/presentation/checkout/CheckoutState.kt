@@ -5,6 +5,21 @@ import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.model.Shift
 import com.kasirkita.pos.domain.model.Transaction
 
+enum class HeldOrderCheckoutConflict {
+    NONE,
+    VERSION_CONFLICT,
+    NOT_OPEN,
+    IDEMPOTENCY_MISMATCH,
+    SESSION_INVALID,
+    STOCK_CHANGED,
+    GENERIC,
+}
+
+val HeldOrderCheckoutConflict.requiresExplicitExit: Boolean
+    get() = this == HeldOrderCheckoutConflict.VERSION_CONFLICT ||
+        this == HeldOrderCheckoutConflict.NOT_OPEN ||
+        this == HeldOrderCheckoutConflict.IDEMPOTENCY_MISMATCH
+
 data class CheckoutState(
     val cart: Cart = Cart(),
     val selectedOutlet: Outlet? = null,
@@ -16,6 +31,10 @@ data class CheckoutState(
     val persistedTotal: Long = 0L,
     val errorMessage: String? = null,
     val printerWarning: String? = null,
+    val heldOrderConflict: HeldOrderCheckoutConflict = HeldOrderCheckoutConflict.NONE,
+    val showUnresolvedReconciliationLeaveConfirmation: Boolean = false,
+    /** True while a Held Order checkout request is in flight. Prevents leaving without acknowledgement. */
+    val heldOrderCheckoutSubmitting: Boolean = false,
     /**
      * M16G-S1: the authoritative `replayed` flag of a Held Order checkout result.
      *

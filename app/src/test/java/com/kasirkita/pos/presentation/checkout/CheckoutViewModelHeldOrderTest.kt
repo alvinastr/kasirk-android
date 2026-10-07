@@ -307,7 +307,8 @@ class CheckoutViewModelHeldOrderTest {
         // 1. Error surfaced
         assertFalse(vm.state.value.isLoading)
         assertNull(vm.state.value.transaction)
-        assertEquals("Versi order telah berubah", vm.state.value.errorMessage)
+        assertEquals(HeldOrderCheckoutConflict.VERSION_CONFLICT, vm.state.value.heldOrderConflict)
+        assertTrue(vm.state.value.errorMessage!!.contains("versi terbaru"))
 
         // 2. Cart & identity preserved
         assertEquals(1, cart.getCart().value.items.size)

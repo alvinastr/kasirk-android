@@ -383,6 +383,12 @@ fun AppNavigation(
                                 launchSingleTop = true
                             }
                         },
+                        onBackToHeldOrders = {
+                            navController.navigate(Screen.HeldOrders.route) {
+                                popUpTo(Screen.Checkout.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
+                        },
                     )
                 }
 

@@ -614,7 +614,8 @@ class CheckoutViewModelHeldOrderReconciliationTest {
 
         assertFalse(vm.state.value.reconciliationNeeded)
         assertNull(vm.state.value.reconciliationMessage)
-        assertEquals("Held order version is stale", vm.state.value.errorMessage)
+        assertEquals(HeldOrderCheckoutConflict.VERSION_CONFLICT, vm.state.value.heldOrderConflict)
+        assertTrue(vm.state.value.errorMessage!!.contains("versi terbaru"))
         assertNull(PendingHeldOrderCheckoutContext(handle).getPending())
         assertFalse(PendingHeldOrderCheckoutContext(handle).reconciliationNeeded)
         assertEquals(1, cart.getCart().value.items.size)
@@ -622,13 +623,16 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         assertEquals(0, offlineQueue.queueCalls.size)
         assertEquals(0, printUseCase.invocations.size)
 
-        // The cashier can still correct and resubmit a brand new checkout.
+        // A stale deterministic request cannot be submitted again from this screen.
         heldOrders.checkoutResult = Result.success(
             HeldOrderCheckoutResult(canonicalTransaction(), replayed = false),
         )
         vm.confirmPayment()
         advanceUntilIdle()
-        assertEquals(2, heldOrders.checkoutCalls.size)
+        assertEquals(1, heldOrders.checkoutCalls.size)
+        vm.checkout(cartTotal)
+        advanceUntilIdle()
+        assertEquals(1, heldOrders.checkoutCalls.size)
     }
 
     // ---------------------------------------------------------------------
@@ -669,6 +673,7 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         assertEquals(heldOrderId, cart.getHeldOrderIdentity().value?.heldOrderId)
         assertEquals(pendingBefore, PendingHeldOrderCheckoutContext(handle).getPending())
         assertTrue(vm.state.value.reconciliationNeeded)
+        assertEquals(HeldOrderCheckoutConflict.IDEMPOTENCY_MISMATCH, vm.state.value.heldOrderConflict)
         assertNotNull(vm.state.value.errorMessage)
 
         assertEquals(0, offlineQueue.queueCalls.size)
@@ -1012,6 +1017,229 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         assertEquals(2, heldOrders.checkoutCalls.size)
         assertEquals(1, receipts.requestedIds.size)
         assertEquals(1, printUseCase.invocations.size)
+    }
+
+    @Test
+    fun initialNotOpen_exposesLifecycleConflictAndBlocksNewAttempt() = runTest(dispatcher) {
+        seedCart()
+        val vm = viewModel()
+        runCurrent()
+        heldOrders.checkoutResult = Result.failure(
+            HeldOrderError(409, "HELD_ORDER_NOT_OPEN", "raw backend text"),
+        )
+
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        assertEquals(HeldOrderCheckoutConflict.NOT_OPEN, vm.state.value.heldOrderConflict)
+        assertFalse(vm.state.value.reconciliationNeeded)
+        assertEquals(1, heldOrders.checkoutCalls.size)
+        val originalId = heldOrders.checkoutCalls.single().clientTransactionId
+        vm.confirmPayment()
+        advanceUntilIdle()
+        assertEquals(1, heldOrders.checkoutCalls.size)
+        assertEquals(originalId, heldOrders.checkoutCalls.single().clientTransactionId)
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNotNull(cart.getHeldOrderIdentity().value)
+    }
+
+    @Test
+    fun initialInvalidSession_exposesActionableErrorWithoutReconciliation() = runTest(dispatcher) {
+        seedCart()
+        val vm = viewModel()
+        runCurrent()
+        heldOrders.checkoutResult = Result.failure(
+            HeldOrderError(409, "INVALID_CASHIER_SESSION", "raw backend text"),
+        )
+
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        assertEquals(HeldOrderCheckoutConflict.SESSION_INVALID, vm.state.value.heldOrderConflict)
+        assertTrue(vm.state.value.errorMessage!!.contains("Shift aktif"))
+        assertFalse(vm.state.value.reconciliationNeeded)
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNotNull(cart.getHeldOrderIdentity().value)
+        assertEquals(0, offlineQueue.queueCalls.size)
+        assertEquals(0, printUseCase.invocations.size)
+    }
+
+    @Test
+    fun initialInsufficientStock_exposesActionableErrorWithoutReconciliation() = runTest(dispatcher) {
+        seedCart()
+        val vm = viewModel()
+        runCurrent()
+        heldOrders.checkoutResult = Result.failure(
+            HeldOrderError(409, "INSUFFICIENT_STOCK", "raw backend text"),
+        )
+
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        assertEquals(HeldOrderCheckoutConflict.STOCK_CHANGED, vm.state.value.heldOrderConflict)
+        assertTrue(vm.state.value.errorMessage!!.contains("Stok tidak mencukupi"))
+        assertFalse(vm.state.value.reconciliationNeeded)
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNotNull(cart.getHeldOrderIdentity().value)
+        assertEquals(0, offlineQueue.queueCalls.size)
+        assertEquals(0, printUseCase.invocations.size)
+    }
+
+    @Test
+    fun reconciliationInvalidSession_preservesFrozenPendingContext() = runTest(dispatcher) {
+        seedCart()
+        val handle = freshHandle()
+        val vm = viewModel(handle)
+        runCurrent()
+        heldOrders.checkoutResult = Result.failure(IOException("lost response"))
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+        val pendingBefore = PendingHeldOrderCheckoutContext(handle).getPending()
+
+        heldOrders.checkoutResult = Result.failure(
+            HeldOrderError(409, "INVALID_CASHIER_SESSION", "raw backend text"),
+        )
+        vm.retryHeldOrderCheckout()
+        advanceUntilIdle()
+
+        assertEquals(HeldOrderCheckoutConflict.SESSION_INVALID, vm.state.value.heldOrderConflict)
+        assertTrue(vm.state.value.reconciliationNeeded)
+        assertEquals(pendingBefore, PendingHeldOrderCheckoutContext(handle).getPending())
+        assertEquals(heldOrders.checkoutCalls[0], heldOrders.checkoutCalls[1])
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNotNull(cart.getHeldOrderIdentity().value)
+        assertEquals(0, printUseCase.invocations.size)
+    }
+
+    @Test
+    fun deterministicConflictLeave_clearsOnlyAfterExplicitActionAndMakesNoCheckoutCall() = runTest(dispatcher) {
+        seedCart()
+        val vm = viewModel()
+        runCurrent()
+        heldOrders.checkoutResult = Result.failure(
+            HeldOrderError(409, "HELD_ORDER_VERSION_CONFLICT", "raw backend text"),
+        )
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+        val callsBeforeLeave = heldOrders.checkoutCalls.size
+
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNotNull(cart.getHeldOrderIdentity().value)
+        vm.leaveHeldOrderConflict()
+
+        assertTrue(cart.getCart().value.items.isEmpty())
+        assertNull(cart.getHeldOrderIdentity().value)
+        assertEquals(HeldOrderCheckoutConflict.NONE, vm.state.value.heldOrderConflict)
+        assertEquals(callsBeforeLeave, heldOrders.checkoutCalls.size)
+    }
+
+    @Test
+    fun unresolvedLeave_requiresAcknowledgementAndDoesNotSilentlyDiscardState() = runTest(dispatcher) {
+        seedCart()
+        val handle = freshHandle()
+        val vm = viewModel(handle)
+        runCurrent()
+        heldOrders.checkoutResult = Result.failure(IOException("lost response"))
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+        val pendingBefore = PendingHeldOrderCheckoutContext(handle).getPending()
+
+        vm.leaveHeldOrderConflict()
+
+        assertTrue(vm.state.value.showUnresolvedReconciliationLeaveConfirmation)
+        assertEquals(pendingBefore, PendingHeldOrderCheckoutContext(handle).getPending())
+        assertTrue(vm.state.value.reconciliationNeeded)
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNotNull(cart.getHeldOrderIdentity().value)
+
+        vm.dismissUnresolvedReconciliationLeaveConfirmation()
+        assertFalse(vm.state.value.showUnresolvedReconciliationLeaveConfirmation)
+        assertEquals(pendingBefore, PendingHeldOrderCheckoutContext(handle).getPending())
+
+        vm.leaveHeldOrderConflict()
+        vm.acknowledgeAndLeaveUnresolvedReconciliation()
+        assertNull(PendingHeldOrderCheckoutContext(handle).getPending())
+        assertFalse(vm.state.value.reconciliationNeeded)
+        assertTrue(cart.getCart().value.items.isEmpty())
+        assertNull(cart.getHeldOrderIdentity().value)
+    }
+
+    @Test
+    fun processRecreation_restoresDeterministicConflictState() = runTest(dispatcher) {
+        seedCart()
+        val handle = freshHandle()
+        val vm = viewModel(handle)
+        runCurrent()
+        heldOrders.checkoutResult = Result.failure(
+            HeldOrderError(409, "HELD_ORDER_VERSION_CONFLICT", "raw backend text"),
+        )
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        val recreated = viewModel(handle)
+        runCurrent()
+
+        assertEquals(HeldOrderCheckoutConflict.VERSION_CONFLICT, recreated.state.value.heldOrderConflict)
+        assertFalse(recreated.state.value.reconciliationNeeded)
+        recreated.confirmPayment()
+        advanceUntilIdle()
+        assertEquals(1, heldOrders.checkoutCalls.size)
+    }
+
+    @Test
+    fun inFlightCheckoutLeave_requiresAcknowledgementAndKeepsRecoveryContext() = runTest(dispatcher) {
+        seedCart()
+        val handle = freshHandle()
+        val vm = viewModel(handle)
+        runCurrent()
+        heldOrders.checkoutResult = Result.failure(IOException("lost response"))
+        heldOrders.suspendUntilComplete = true
+
+        vm.selectQuickTender(cartTotal)
+        vm.confirmPayment()
+        runCurrent()
+
+        assertTrue(vm.state.value.heldOrderCheckoutSubmitting)
+        assertNotNull(PendingHeldOrderCheckoutContext(handle).getPending())
+        val clientTransactionId = heldOrders.checkoutCalls.single().clientTransactionId
+
+        vm.leaveHeldOrderConflict()
+
+        assertTrue(vm.state.value.showUnresolvedReconciliationLeaveConfirmation)
+        assertNotNull(PendingHeldOrderCheckoutContext(handle).getPending())
+        assertEquals(clientTransactionId, PendingHeldOrderCheckoutContext(handle).getPending()?.clientTransactionId)
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNotNull(cart.getHeldOrderIdentity().value)
+        assertEquals(0, offlineQueue.queueCalls.size)
+        assertEquals(0, printUseCase.invocations.size)
+
+        vm.dismissUnresolvedReconciliationLeaveConfirmation()
+        assertFalse(vm.state.value.showUnresolvedReconciliationLeaveConfirmation)
+        assertNotNull(PendingHeldOrderCheckoutContext(handle).getPending())
+
+        heldOrders.complete(Result.failure(IOException("lost response")))
+        advanceUntilIdle()
+
+        assertFalse(vm.state.value.heldOrderCheckoutSubmitting)
+        assertTrue(vm.state.value.reconciliationNeeded)
+        assertNotNull(PendingHeldOrderCheckoutContext(handle).getPending())
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNotNull(cart.getHeldOrderIdentity().value)
+
+        vm.leaveHeldOrderConflict()
+        vm.acknowledgeAndLeaveUnresolvedReconciliation()
+
+        assertNull(PendingHeldOrderCheckoutContext(handle).getPending())
+        assertFalse(vm.state.value.reconciliationNeeded)
+        assertTrue(cart.getCart().value.items.isEmpty())
+        assertNull(cart.getHeldOrderIdentity().value)
     }
 
     // --- Fakes ---

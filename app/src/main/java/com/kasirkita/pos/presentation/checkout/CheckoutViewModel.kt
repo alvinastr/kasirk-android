@@ -45,9 +45,11 @@ class CheckoutViewModel @Inject constructor(
 
     private val transactionIdentity = CheckoutTransactionIdentity(savedStateHandle)
     private val pendingHeldOrder = PendingHeldOrderCheckoutContext(savedStateHandle)
+    private val conflictContext = HeldOrderCheckoutConflictContext(savedStateHandle)
 
     private val _state = MutableStateFlow(
         CheckoutState(
+            heldOrderConflict = conflictContext.conflict,
             reconciliationNeeded = pendingHeldOrder.reconciliationNeeded,
             reconciliationMessage = if (pendingHeldOrder.reconciliationNeeded) {
                 RECONCILIATION_REQUIRED_MESSAGE
@@ -123,7 +125,8 @@ class CheckoutViewModel @Inject constructor(
         if (
             snapshot.isLoading ||
             snapshot.transaction != null ||
-            snapshot.offlineQueuedClientTransactionId != null
+            snapshot.offlineQueuedClientTransactionId != null ||
+            snapshot.heldOrderConflict.requiresExplicitExit
         ) {
             return
         }
@@ -320,6 +323,7 @@ class CheckoutViewModel @Inject constructor(
         _state.update {
             it.copy(
                 isLoading = true,
+                heldOrderCheckoutSubmitting = true,
                 errorMessage = null,
                 reconciliationMessage = null,
             )
@@ -352,6 +356,7 @@ class CheckoutViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         isLoading = false,
+                        heldOrderCheckoutSubmitting = false,
                         reconciliationNeeded = true,
                         reconciliationMessage = RECONCILIATION_REQUIRED_MESSAGE,
                         errorMessage = heldOrderCheckoutErrorMessage(throwable),
@@ -362,12 +367,16 @@ class CheckoutViewModel @Inject constructor(
 
             // Deterministic failure on initial request:
             // Server definitively rejected request -> no unknown outcome -> clear pending metadata
+            val conflict = classifyHeldOrderConflict(throwable)
             pendingHeldOrder.clear()
+            conflictContext.conflict = conflict
             _state.update {
                 it.copy(
                     isLoading = false,
+                    heldOrderCheckoutSubmitting = false,
                     reconciliationNeeded = false,
                     reconciliationMessage = null,
+                    heldOrderConflict = conflict,
                     errorMessage = heldOrderCheckoutErrorMessage(throwable),
                 )
             }
@@ -381,6 +390,42 @@ class CheckoutViewModel @Inject constructor(
      * strictly from the frozen pending metadata in SavedStateHandle. The request
      * is completely immune to any UI payment changes.
      */
+    fun leaveHeldOrderConflict() {
+        val snapshot = _state.value
+        if (snapshot.reconciliationNeeded || snapshot.heldOrderCheckoutSubmitting) {
+            _state.update { it.copy(showUnresolvedReconciliationLeaveConfirmation = true) }
+            return
+        }
+        clearHeldOrderCheckoutContext()
+    }
+
+    fun dismissUnresolvedReconciliationLeaveConfirmation() {
+        _state.update { it.copy(showUnresolvedReconciliationLeaveConfirmation = false) }
+    }
+
+    fun acknowledgeAndLeaveUnresolvedReconciliation() {
+        pendingHeldOrder.clear()
+        clearHeldOrderCheckoutContext()
+    }
+
+    private fun clearHeldOrderCheckoutContext() {
+        transactionIdentity.clear()
+        conflictContext.clear()
+        cartRepository.detachHeldOrderIdentity()
+        cartRepository.clearCart()
+        _state.update {
+            it.copy(
+                isLoading = false,
+                heldOrderCheckoutSubmitting = false,
+                errorMessage = null,
+                heldOrderConflict = HeldOrderCheckoutConflict.NONE,
+                reconciliationNeeded = false,
+                reconciliationMessage = null,
+                showUnresolvedReconciliationLeaveConfirmation = false,
+            )
+        }
+    }
+
     fun retryHeldOrderCheckout() {
         val snapshot = _state.value
         if (snapshot.isLoading || !pendingHeldOrder.reconciliationNeeded) {
@@ -466,6 +511,7 @@ class CheckoutViewModel @Inject constructor(
                 _state.update {
                     it.copy(
                         isLoading = false,
+                        heldOrderCheckoutSubmitting = false,
                         reconciliationNeeded = true,
                         reconciliationMessage = RECONCILIATION_REQUIRED_MESSAGE,
                         errorMessage = heldOrderCheckoutErrorMessage(throwable),
@@ -476,11 +522,15 @@ class CheckoutViewModel @Inject constructor(
 
             // Server returned error during reconciliation (e.g. IDEMPOTENCY_PAYLOAD_MISMATCH, HELD_ORDER_NOT_OPEN, etc.)
             // Retain reconciliation state safely, cart/identity preserved, pending metadata retained, no hardware
+            val conflict = classifyHeldOrderConflict(throwable)
+            conflictContext.conflict = conflict
             _state.update {
                 it.copy(
                     isLoading = false,
+                    heldOrderCheckoutSubmitting = false,
                     reconciliationNeeded = true,
                     reconciliationMessage = RECONCILIATION_REQUIRED_MESSAGE,
+                    heldOrderConflict = conflict,
                     errorMessage = heldOrderCheckoutErrorMessage(throwable),
                 )
             }
@@ -493,6 +543,7 @@ class CheckoutViewModel @Inject constructor(
         paymentMethod: String,
     ) {
         pendingHeldOrder.clear()
+        conflictContext.clear()
         cartRepository.detachHeldOrderIdentity()
         completeAuthoritativeOnlineCheckout(
             transaction = transaction,
@@ -516,10 +567,12 @@ class CheckoutViewModel @Inject constructor(
             _state.update {
                 it.copy(
                     isLoading = false,
+                    heldOrderCheckoutSubmitting = false,
                     transaction = transaction,
                     heldOrderReplayed = heldOrderReplayed,
                     reconciliationNeeded = false,
                     reconciliationMessage = null,
+                    heldOrderConflict = HeldOrderCheckoutConflict.NONE,
                     errorMessage = null,
                     printerWarning = null,
                 )
@@ -533,10 +586,12 @@ class CheckoutViewModel @Inject constructor(
             _state.update {
                 it.copy(
                     isLoading = false,
+                    heldOrderCheckoutSubmitting = false,
                     transaction = transaction,
                     heldOrderReplayed = heldOrderReplayed,
                     reconciliationNeeded = false,
                     reconciliationMessage = null,
+                    heldOrderConflict = HeldOrderCheckoutConflict.NONE,
                     errorMessage = null,
                     printerWarning = receiptFailureWarning,
                 )
@@ -557,10 +612,12 @@ class CheckoutViewModel @Inject constructor(
         _state.update {
             it.copy(
                 isLoading = false,
+                heldOrderCheckoutSubmitting = false,
                 transaction = transaction,
                 heldOrderReplayed = heldOrderReplayed,
                 reconciliationNeeded = false,
                 reconciliationMessage = null,
+                heldOrderConflict = HeldOrderCheckoutConflict.NONE,
                 errorMessage = null,
                 printerWarning = printerWarning,
             )
@@ -578,7 +635,8 @@ class CheckoutViewModel @Inject constructor(
             snapshot.isLoading ||
             snapshot.transaction != null ||
             snapshot.offlineQueuedClientTransactionId != null ||
-            snapshot.reconciliationNeeded
+            snapshot.reconciliationNeeded ||
+            snapshot.heldOrderConflict.requiresExplicitExit
         ) {
             return
         }
@@ -605,6 +663,10 @@ internal class CheckoutTransactionIdentity(
 ) {
     fun getOrCreate(): String = savedStateHandle[KEY]
         ?: createId().also { generatedId -> savedStateHandle[KEY] = generatedId }
+
+    fun clear() {
+        savedStateHandle.remove<String>(KEY)
+    }
 
     internal companion object {
         const val KEY = "activeClientTransactionId"
@@ -737,11 +799,60 @@ internal class PendingHeldOrderCheckoutContext(
     }
 }
 
+internal class HeldOrderCheckoutConflictContext(
+    private val savedStateHandle: SavedStateHandle,
+) {
+    var conflict: HeldOrderCheckoutConflict
+        get() = savedStateHandle.get<String>(KEY)
+            ?.let { value -> runCatching { HeldOrderCheckoutConflict.valueOf(value) }.getOrNull() }
+            ?: HeldOrderCheckoutConflict.NONE
+        set(value) {
+            if (value == HeldOrderCheckoutConflict.NONE) {
+                savedStateHandle.remove<String>(KEY)
+            } else {
+                savedStateHandle[KEY] = value.name
+            }
+        }
+
+    fun clear() {
+        conflict = HeldOrderCheckoutConflict.NONE
+    }
+
+    internal companion object {
+        const val KEY = "heldOrderCheckoutConflict"
+    }
+}
+
+internal fun classifyHeldOrderConflict(throwable: Throwable?): HeldOrderCheckoutConflict =
+    when ((throwable as? HeldOrderError)?.errorCode) {
+        "HELD_ORDER_VERSION_CONFLICT" -> HeldOrderCheckoutConflict.VERSION_CONFLICT
+        "HELD_ORDER_NOT_OPEN" -> HeldOrderCheckoutConflict.NOT_OPEN
+        "IDEMPOTENCY_PAYLOAD_MISMATCH" -> HeldOrderCheckoutConflict.IDEMPOTENCY_MISMATCH
+        "INVALID_CASHIER_SESSION" -> HeldOrderCheckoutConflict.SESSION_INVALID
+        "INSUFFICIENT_STOCK" -> HeldOrderCheckoutConflict.STOCK_CHANGED
+        null -> HeldOrderCheckoutConflict.GENERIC
+        else -> HeldOrderCheckoutConflict.GENERIC
+    }
+
 internal fun heldOrderCheckoutErrorMessage(throwable: Throwable?): String {
-    return when (throwable) {
-        is HeldOrderError -> throwable.message.ifBlank { "Gagal memproses order tersimpan" }
-        is IOException -> throwable.message ?: "Koneksi terputus saat memproses order tersimpan"
-        else -> throwable?.message ?: "Checkout order tersimpan gagal"
+    return when ((throwable as? HeldOrderError)?.errorCode) {
+        "HELD_ORDER_VERSION_CONFLICT" ->
+            "Order tersimpan telah berubah. Kembali ke daftar order tersimpan untuk memuat versi terbaru."
+        "HELD_ORDER_NOT_OPEN" ->
+            "Order tersimpan ini tidak lagi terbuka. Periksa kembali daftar order tersimpan."
+        "IDEMPOTENCY_PAYLOAD_MISMATCH" ->
+            "Percobaan pembayaran sebelumnya tidak dapat dikirim ulang dengan data pembayaran yang berbeda. Status memerlukan perhatian."
+        "INVALID_CASHIER_SESSION" ->
+            "Shift aktif yang valid diperlukan untuk memproses order tersimpan."
+        "INSUFFICIENT_STOCK" ->
+            "Stok tidak mencukupi. Periksa jumlah produk sebelum mencoba lagi."
+        "CASH_UNDERPAYMENT" ->
+            "Jumlah pembayaran tunai kurang dari total transaksi."
+        else -> when (throwable) {
+            is HeldOrderError -> "Order tersimpan tidak dapat diproses. Periksa kembali sebelum mencoba lagi."
+            is IOException -> throwable.message ?: "Koneksi terputus saat memproses order tersimpan"
+            else -> throwable?.message ?: "Checkout order tersimpan gagal"
+        }
     }
 }
 
