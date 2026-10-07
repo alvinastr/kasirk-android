@@ -24,6 +24,9 @@ class SessionBoundaryCleaner @Inject constructor(
         }
 
         attempt { cartRepository.clearCart() }
+        // The Held Order identity is bound to the cashier session that created it,
+        // so it must never survive a logout/tenant switch or checkout stays blocked.
+        attempt { cartRepository.detachHeldOrderIdentity() }
         attempt { outletRepository.clearSelectedOutlet(tenantId, userId) }
         attempt { shiftRepository.clearCurrentShift(tenantId, userId) }
 

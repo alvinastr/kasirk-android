@@ -110,6 +110,15 @@ class CheckoutViewModel @Inject constructor(
             return
         }
 
+        if (cartRepository.isAttachedToHeldOrder()) {
+            _state.update {
+                it.copy(
+                    errorMessage = "Pembayaran order tersimpan akan tersedia setelah proses checkout order.",
+                )
+            }
+            return
+        }
+
         if (!snapshot.payment.canSubmit) {
             val error = when (snapshot.payment.method) {
                 CheckoutPaymentMethod.CASH -> "Jumlah pembayaran kurang dari total belanja"

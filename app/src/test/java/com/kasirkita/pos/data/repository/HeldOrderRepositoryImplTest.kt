@@ -10,7 +10,7 @@ import com.kasirkita.pos.data.model.HeldOrdersMetaResponse
 import com.kasirkita.pos.data.model.HeldOrdersResponse
 import com.kasirkita.pos.data.model.UpdateHeldOrderRequest
 import com.kasirkita.pos.data.model.V1PaymentRequest
-import com.kasirkita.pos.data.repository.HeldOrderRepositoryImpl.HeldOrderHttpError
+import com.kasirkita.pos.domain.error.HeldOrderError
 import com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest
 import com.kasirkita.pos.domain.model.HeldOrderCreateRequest
 import com.kasirkita.pos.domain.model.HeldOrderUpdateRequest
@@ -150,9 +150,10 @@ class HeldOrderRepositoryImplTest {
 
         val failure = repository.update(updateRequest()).exceptionOrNull()
 
-        assertTrue(failure is HeldOrderHttpError)
-        assertEquals(409, (failure as HeldOrderHttpError).httpCode)
+        assertTrue(failure is HeldOrderError)
+        assertEquals(409, (failure as HeldOrderError).httpCode)
         assertEquals("HELD_ORDER_VERSION_CONFLICT", failure.errorCode)
+        assertEquals("Held order version is stale", failure.message)
     }
 
     @Test
@@ -167,8 +168,69 @@ class HeldOrderRepositoryImplTest {
 
         val failure = repository.cancel(HELD_ORDER_ID, VERSION).exceptionOrNull()
 
-        assertTrue(failure is HeldOrderHttpError)
-        assertEquals("HELD_ORDER_NOT_OPEN", (failure as HeldOrderHttpError).errorCode)
+        assertTrue(failure is HeldOrderError)
+        assertEquals("HELD_ORDER_NOT_OPEN", (failure as HeldOrderError).errorCode)
+        assertEquals("Held order is not open", failure.message)
+    }
+
+    @Test
+    fun malformedBody_isHandledSafelyAndPreservesStatus() = runBlocking {
+        val api = FakeHeldOrderApi(
+            updateResponse = Response.error(
+                500,
+                "not-json-at-all".toResponseBody("application/json".toMediaType()),
+            ),
+        )
+        val repository = HeldOrderRepositoryImpl(api)
+
+        val failure = repository.update(updateRequest()).exceptionOrNull()
+
+        assertTrue(failure is HeldOrderError)
+        failure as HeldOrderError
+        assertEquals(500, failure.httpCode)
+        assertNull(failure.errorCode)
+        // Body could not be parsed, so the Retrofit HTTP message is used verbatim
+        // rather than an empty string or an invented value.
+        assertEquals("Response.error()", failure.message)
+    }
+
+    @Test
+    fun emptyJsonBody_yieldsNullErrorCodeAndNullMessage() = runBlocking {
+        val api = FakeHeldOrderApi(
+            cancelResponse = Response.error(
+                404,
+                "{}".toResponseBody("application/json".toMediaType()),
+            ),
+        )
+        val repository = HeldOrderRepositoryImpl(api)
+
+        val failure = repository.cancel(HELD_ORDER_ID, VERSION).exceptionOrNull()
+
+        assertTrue(failure is HeldOrderError)
+        failure as HeldOrderError
+        assertEquals(404, failure.httpCode)
+        assertNull(failure.errorCode)
+        assertEquals("Response.error()", failure.message)
+    }
+
+    @Test
+    fun arrayMessage_isJoinedSafely() = runBlocking {
+        val api = FakeHeldOrderApi(
+            updateResponse = Response.error(
+                422,
+                "{\"error_code\":\"HELD_ORDER_NOT_OPEN\",\"message\":[\"first\",\"second\"]}"
+                    .toResponseBody("application/json".toMediaType()),
+            ),
+        )
+        val repository = HeldOrderRepositoryImpl(api)
+
+        val failure = repository.update(updateRequest()).exceptionOrNull()
+
+        assertTrue(failure is HeldOrderError)
+        failure as HeldOrderError
+        assertEquals(422, failure.httpCode)
+        assertEquals("HELD_ORDER_NOT_OPEN", failure.errorCode)
+        assertEquals("first, second", failure.message)
     }
 
     @Test

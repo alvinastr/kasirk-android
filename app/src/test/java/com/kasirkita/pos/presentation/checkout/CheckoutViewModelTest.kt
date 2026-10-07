@@ -375,6 +375,46 @@ class CheckoutViewModelTest {
         assertEquals(idBefore, handle.get<String>(CheckoutTransactionIdentity.KEY))
     }
 
+    @Test fun heldOrderAttachmentBlocksNormalCheckoutBeforeAnySideEffect() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+        cart.attachHeldOrderIdentity("held-1", 3, "Meja 3")
+
+        vm.selectExactCash()
+        vm.confirmPayment()
+        runCurrent()
+        advanceUntilIdle()
+
+        assertTrue(online.requests.isEmpty())
+        assertTrue(offline.requests.isEmpty())
+        assertTrue(printAfterCheckout.invocations.isEmpty())
+        assertEquals(1, cart.getCart().value.items.size)
+        assertEquals(
+            "Pembayaran order tersimpan akan tersedia setelah proses checkout order.",
+            vm.state.value.errorMessage,
+        )
+        assertFalse(vm.state.value.isLoading)
+    }
+
+    @Test fun heldOrderDetachmentRestoresNormalCheckout() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+        cart.attachHeldOrderIdentity("held-1", 3, "Meja 3")
+        vm.selectExactCash()
+        vm.confirmPayment()
+        runCurrent()
+        cart.detachHeldOrderIdentity()
+
+        vm.selectExactCash()
+        vm.confirmPayment()
+        runCurrent()
+        online.complete(Result.success(transaction()))
+        advanceUntilIdle()
+
+        assertEquals(1, online.requests.size)
+        assertEquals(1, printAfterCheckout.invocations.size)
+    }
+
     @Test fun offlineQueueSuccessClearsCartOnlyAfterQueuePersistenceCompletes() = runTest(dispatcher) {
         offline.suspendUntilCompleted = true
         val vm = viewModel()

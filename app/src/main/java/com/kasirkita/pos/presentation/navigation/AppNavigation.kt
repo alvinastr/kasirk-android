@@ -28,6 +28,7 @@ import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.presentation.cart.CartScreen
 import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
+import com.kasirkita.pos.presentation.heldorder.HeldOrdersScreen
 import com.kasirkita.pos.presentation.modifier.ModifierGroupScreen
 import com.kasirkita.pos.presentation.offline.OfflineRecoveryScreen
 import com.kasirkita.pos.presentation.outlet.OutletScreen
@@ -350,6 +351,23 @@ fun AppNavigation(
                     CartScreen(
                         onCheckout = {
                             navController.navigate(Screen.Checkout.route)
+                        },
+                        onHeldOrders = {
+                            navController.navigate(Screen.HeldOrders.route) {
+                                launchSingleTop = true
+                            }
+                        },
+                    )
+                }
+
+                composable(Screen.HeldOrders.route) {
+                    HeldOrdersScreen(
+                        onBack = navController::popBackStack,
+                        onOpened = {
+                            navController.navigate(Screen.Cart.route) {
+                                popUpTo(Screen.HeldOrders.route) { inclusive = true }
+                                launchSingleTop = true
+                            }
                         },
                     )
                 }

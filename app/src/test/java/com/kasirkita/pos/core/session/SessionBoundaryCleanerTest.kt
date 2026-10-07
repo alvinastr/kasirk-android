@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Test
 import retrofit2.Response
@@ -67,11 +68,13 @@ class SessionBoundaryCleanerTest {
         opDataStore.saveShift("tenant-1", "user-1", shift)
 
         val cartRepo = FakeCartRepository()
+        cartRepo.attachHeldOrderIdentity("held-1", 3, "Table")
         val cleaner = SessionBoundaryCleaner(cartRepo, outletRepo, shiftRepo)
         
         cleaner.clear()
         authDataStore.clearSession()
 
+        assertFalse("Held Order identity must not cross session boundaries", cartRepo.isAttachedToHeldOrder())
         val persistedOutlet = opDataStore.getOutlet("tenant-1", "user-1")
         val persistedShift = opDataStore.getShift("tenant-1", "user-1")
         
@@ -172,6 +175,10 @@ class SessionBoundaryCleanerTest {
     }
 
     private class FakeCartRepository : CartRepository {
+        private var attached = false
+        override fun attachHeldOrderIdentity(heldOrderId: String, expectedVersion: Int, label: String?) { attached = true }
+        override fun detachHeldOrderIdentity() { attached = false }
+        override fun isAttachedToHeldOrder(): Boolean = attached
         override fun addProduct(product: Product, availableStock: Int?): CartUpdateResult = CartUpdateResult.UPDATED
         override fun addConfiguredProduct(
             product: Product,
@@ -181,6 +188,7 @@ class SessionBoundaryCleanerTest {
         ): CartUpdateResult = CartUpdateResult.UPDATED
         override fun removeProduct(lineKey: String) = Unit
         override fun updateQuantity(lineKey: String, quantity: Int): CartUpdateResult = CartUpdateResult.UPDATED
+        override fun replaceCart(items: List<com.kasirkita.pos.domain.model.CartItem>): CartUpdateResult = CartUpdateResult.UPDATED
         override fun getCart(): StateFlow<Cart> = MutableStateFlow(Cart(emptyList()))
         override fun clearCart() = Unit
     }

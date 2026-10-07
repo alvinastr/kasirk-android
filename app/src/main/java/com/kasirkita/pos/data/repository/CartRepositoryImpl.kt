@@ -4,6 +4,7 @@ import com.kasirkita.pos.domain.model.Cart
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.domain.model.CartLineKey
 import com.kasirkita.pos.domain.model.CartModifierSelectionSnapshot
+import com.kasirkita.pos.domain.model.HeldOrderCartIdentity
 import com.kasirkita.pos.domain.model.Product
 import com.kasirkita.pos.domain.model.normalizeItemNote
 import com.kasirkita.pos.domain.repository.CartRepository
@@ -18,6 +19,33 @@ import javax.inject.Singleton
 class CartRepositoryImpl @Inject constructor() : CartRepository {
 
     private val cart = MutableStateFlow(Cart())
+
+    private val heldOrderIdentity = MutableStateFlow<HeldOrderCartIdentity?>(null)
+
+    /**
+     * True while the cart is attached to a saved Held Order and therefore
+     * must NOT be processed by the normal checkout path (transaction
+     * creation, offline queue, printing, cash drawer).
+     *
+     * This is the action-level safety net required by M16F: even a direct
+     * checkout invocation cannot process a cart that still belongs to a
+     * saved order. M16G replaces this with an atomic Held Order checkout.
+     */
+    @Synchronized
+    override fun isAttachedToHeldOrder(): Boolean = heldOrderIdentity.value != null
+
+    override fun getHeldOrderIdentity(): StateFlow<HeldOrderCartIdentity?> = heldOrderIdentity.asStateFlow()
+
+    @Synchronized
+    override fun attachHeldOrderIdentity(heldOrderId: String, expectedVersion: Int, label: String?) {
+        require(heldOrderId.isNotBlank()) { "heldOrderId is required" }
+        heldOrderIdentity.value = HeldOrderCartIdentity(heldOrderId, expectedVersion, label)
+    }
+
+    @Synchronized
+    override fun detachHeldOrderIdentity() {
+        heldOrderIdentity.value = null
+    }
 
     override fun addProduct(product: Product, availableStock: Int?): CartUpdateResult =
         addConfiguredProduct(product, emptyList(), null, availableStock)
@@ -96,6 +124,19 @@ class CartRepositoryImpl @Inject constructor() : CartRepository {
         cart.value = currentCart.copy(items = currentCart.items.map { item ->
             if (item.lineKey.value == lineKey) item.copy(quantity = quantity) else item
         })
+        return CartUpdateResult.UPDATED
+    }
+
+    @Synchronized
+    override fun replaceCart(items: List<CartItem>): CartUpdateResult {
+        // Validate entire candidate cart against stock limits BEFORE any mutation
+        for (item in items) {
+            if (item.trackStock && item.availableStock != null && item.quantity > item.availableStock) {
+                return CartUpdateResult.STOCK_LIMIT_REACHED
+            }
+        }
+        // All validations passed - perform atomic replacement
+        cart.value = Cart(items)
         return CartUpdateResult.UPDATED
     }
 

@@ -9,6 +9,7 @@ import com.kasirkita.pos.data.model.HeldOrderItemRequest
 import com.kasirkita.pos.data.model.UpdateHeldOrderRequest
 import com.kasirkita.pos.data.model.V1PaymentRequest
 import com.kasirkita.pos.data.model.toDomain
+import com.kasirkita.pos.domain.error.HeldOrderError
 import com.kasirkita.pos.domain.model.HeldOrder
 import com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest
 import com.kasirkita.pos.domain.model.HeldOrderCreateRequest
@@ -85,7 +86,7 @@ class HeldOrderRepositoryImpl @Inject constructor(
     )
 
     private fun <T> Response<T>.bodyOrThrow(): T {
-        if (isSuccessful) return body() ?: throw HeldOrderHttpError(code(), null, "Empty response body")
+        if (isSuccessful) return body() ?: throw HeldOrderError(code(), null, "Empty response body")
         val raw = errorBody()?.string()
         var errorCode: String? = null
         var message: String? = null
@@ -98,13 +99,8 @@ class HeldOrderRepositoryImpl @Inject constructor(
                     else if (!value.isJsonNull) value.asString else null
                 }
             }
+            // If parsing threw, keep errorCode if we got it, message falls back to Retrofit message
         }
-        throw HeldOrderHttpError(code(), errorCode, message ?: message())
+        throw HeldOrderError(code(), errorCode, message ?: message())
     }
-
-    class HeldOrderHttpError(
-        val httpCode: Int,
-        val errorCode: String?,
-        override val message: String,
-    ) : Exception(message)
 }

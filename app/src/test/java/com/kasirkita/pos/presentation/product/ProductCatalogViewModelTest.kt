@@ -298,6 +298,7 @@ class ProductCatalogViewModelTest {
             }
             override fun removeProduct(lineKey: String) {}
             override fun updateQuantity(lineKey: String, quantity: Int): CartUpdateResult = CartUpdateResult.UPDATED
+            override fun replaceCart(items: List<com.kasirkita.pos.domain.model.CartItem>): CartUpdateResult = CartUpdateResult.UPDATED
             override fun clearCart() {}
         }
         val vm = ProductCatalogViewModel(
@@ -340,6 +341,7 @@ class ProductCatalogViewModelTest {
             }
             override fun removeProduct(lineKey: String) {}
             override fun updateQuantity(lineKey: String, quantity: Int): CartUpdateResult = CartUpdateResult.UPDATED
+            override fun replaceCart(items: List<com.kasirkita.pos.domain.model.CartItem>): CartUpdateResult = CartUpdateResult.UPDATED
             override fun clearCart() {}
         }
         val vm = ProductCatalogViewModel(
@@ -390,6 +392,7 @@ class ProductCatalogViewModelTest {
             ): CartUpdateResult = CartUpdateResult.STOCK_LIMIT_REACHED
             override fun removeProduct(lineKey: String) {}
             override fun updateQuantity(lineKey: String, quantity: Int): CartUpdateResult = CartUpdateResult.UPDATED
+            override fun replaceCart(items: List<com.kasirkita.pos.domain.model.CartItem>): CartUpdateResult = CartUpdateResult.UPDATED
             override fun clearCart() {}
         }
         val vm = ProductCatalogViewModel(

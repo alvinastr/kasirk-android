@@ -12,15 +12,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -32,7 +37,9 @@ import com.kasirkita.pos.domain.model.Cart
 import com.kasirkita.pos.domain.model.CartItem
 import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirEmptyState
+import com.kasirkita.pos.presentation.heldorder.heldOrderErrorMessage
 import com.kasirkita.pos.ui.components.KasirPrimaryButton
+import com.kasirkita.pos.ui.components.KasirSecondaryButton
 import com.kasirkita.pos.ui.components.KasirTopBar
 import com.kasirkita.pos.ui.components.PriceDisplay
 import com.kasirkita.pos.ui.components.PriceText
@@ -48,12 +55,19 @@ import java.util.Locale
 @Composable
 fun CartScreen(
     onCheckout: () -> Unit = {},
+    onHeldOrders: () -> Unit = {},
     embedded: Boolean = false,
     viewModel: CartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
     val numberFormat = remember {
         NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
+    }
+
+    LaunchedEffect(state.selectedOutlet?.id) {
+        if (state.selectedOutlet != null && !state.heldOrdersLoaded) {
+            viewModel.listHeldOrders()
+        }
     }
 
     CartContent(
@@ -63,6 +77,11 @@ fun CartScreen(
         onIncreaseQuantity = viewModel::increaseQuantity,
         onRemoveProduct = viewModel::removeProduct,
         onCheckout = onCheckout,
+        onHeldOrders = onHeldOrders,
+        onSaveHeldOrder = viewModel::saveHeldOrder,
+        onSaveHeldOrderChanges = viewModel::updateHeldOrder,
+        onCancelHeldOrder = viewModel::cancelAttachedHeldOrder,
+        onClearHeldOrderError = viewModel::clearHeldOrderError,
     )
 }
 
@@ -74,8 +93,18 @@ private fun CartContent(
     onIncreaseQuantity: (String) -> Unit,
     onRemoveProduct: (String) -> Unit,
     onCheckout: () -> Unit,
+    onHeldOrders: () -> Unit,
+    onSaveHeldOrder: (String?) -> Unit,
+    onSaveHeldOrderChanges: (String?) -> Unit,
+    onCancelHeldOrder: () -> Unit,
+    onClearHeldOrderError: () -> Unit,
 ) {
     val cart = state.cart
+    var showSaveDialog by remember { mutableStateOf(false) }
+    var showCancelDialog by remember { mutableStateOf(false) }
+    var label by remember(state.heldOrderId, state.heldOrderLabel) {
+        mutableStateOf(state.heldOrderLabel.orEmpty())
+    }
 
     Column(modifier = Modifier.fillMaxSize()) {
         Column(
@@ -86,6 +115,28 @@ private fun CartContent(
             verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
         ) {
             KasirTopBar(title = "Keranjang")
+
+            state.heldOrderId?.let {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Edit: ${state.heldOrderLabel?.takeIf { label -> label.isNotBlank() } ?: "Order tersimpan"}",
+                        style = MaterialTheme.typography.supporting,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    KasirSecondaryButton(
+                        text = "Batalkan Edit",
+                        onClick = onCancelHeldOrder,
+                        enabled = state.heldOrderOperation != HeldOrderOperation.CANCEL,
+                    )
+                }
+            }
 
             Text(
                 text = "${cart.totalItems()} item dalam pesanan",
@@ -132,9 +183,59 @@ private fun CartContent(
 
         OrderSummary(
             cart = cart,
+            state = state,
             numberFormat = numberFormat,
             onCheckout = onCheckout,
+            onHeldOrders = onHeldOrders,
+            onSaveClicked = { showSaveDialog = true },
+            onCancelEditClicked = { showCancelDialog = true },
             modifier = Modifier.fillMaxWidth(),
+        )
+    }
+
+    if (showSaveDialog) {
+        AlertDialog(
+            onDismissRequest = { showSaveDialog = false },
+            title = { Text(if (state.heldOrderId != null) "Simpan perubahan" else "Simpan order") },
+            text = {
+                OutlinedTextField(
+                    value = label,
+                    onValueChange = { label = it },
+                    label = { Text("Nama order (opsional)") },
+                    singleLine = true,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showSaveDialog = false
+                    if (state.heldOrderId != null) onSaveHeldOrderChanges(label) else onSaveHeldOrder(label)
+                }) { Text("Simpan") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showSaveDialog = false
+                    onClearHeldOrderError()
+                }) { Text("Batal") }
+            },
+        )
+    }
+
+    if (showCancelDialog) {
+        AlertDialog(
+            onDismissRequest = { showCancelDialog = false },
+            title = { Text("Batalkan order tersimpan?") },
+            text = {
+                Text(
+                    "Order akan dibatalkan di server dan cart saat ini tetap isi sebagai pesanan biasa.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCancelDialog = false
+                    onCancelHeldOrder()
+                }) { Text("Batalkan Order") }
+            },
+            dismissButton = { TextButton(onClick = { showCancelDialog = false }) { Text("Kembali") } },
         )
     }
 }
@@ -311,8 +412,12 @@ private fun StockPresentation(item: CartItem) {
 @Composable
 private fun OrderSummary(
     cart: Cart,
+    state: CartState,
     numberFormat: NumberFormat,
     onCheckout: () -> Unit,
+    onHeldOrders: () -> Unit,
+    onSaveClicked: () -> Unit,
+    onCancelEditClicked: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -321,37 +426,80 @@ private fun OrderSummary(
         tonalElevation = 8.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(
-            modifier = Modifier.padding(KasirSpacing.Large),
-            verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = "Total ${cart.totalItems()} item",
-                    style = MaterialTheme.typography.supporting,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "Total pembayaran",
-                    style = MaterialTheme.typography.supporting,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Column(
+                    modifier = Modifier.padding(KasirSpacing.Large),
+                    verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+                ) {
+                    if (state.isEditingHeldOrder) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+                        ) {
+                            KasirPrimaryButton(
+                                text = "Simpan Perubahan",
+                                onClick = onSaveClicked,
+                                modifier = Modifier.weight(1f),
+                                enabled = state.heldOrderOperation == null,
+                            )
+                            KasirSecondaryButton(
+                                text = "Batalkan Edit",
+                                onClick = onCancelEditClicked,
+                                modifier = Modifier.weight(1f),
+                                enabled = state.heldOrderOperation != HeldOrderOperation.CANCEL,
+                            )
+                        }
+                        state.heldOrderError?.let { error ->
+                            Text(
+                                text = heldOrderErrorMessage(error),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.supporting,
+                            )
+                        }
+                    } else {
+                        KasirSecondaryButton(
+                            text = "Simpan Order",
+                            onClick = onSaveClicked,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = cart.items.isNotEmpty() && state.heldOrderOperation == null,
+                        )
+                        KasirSecondaryButton(
+                            text = if (state.heldOrdersLoaded) {
+                                "Order Tersimpan (${state.heldOrders.size})"
+                            } else {
+                                "Order Tersimpan"
+                            },
+                            onClick = onHeldOrders,
+                            modifier = Modifier.fillMaxWidth(),
+                            enabled = state.heldOrderOperation == null,
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Total ${cart.totalItems()} item",
+                            style = MaterialTheme.typography.supporting,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = "Total pembayaran",
+                            style = MaterialTheme.typography.supporting,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    PriceText(
+                        text = "Rp${numberFormat.format(cart.totalAmount())}",
+                        modifier = Modifier.align(Alignment.End),
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    KasirPrimaryButton(
+                        text = if (state.isEditingHeldOrder) "Checkout tidak tersedia saat edit order tersimpan" else "Lanjut ke Checkout",
+                        onClick = onCheckout,
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = cart.items.isNotEmpty() && !state.isEditingHeldOrder,
+                    )
+                }
             }
-            PriceText(
-                text = "Rp${numberFormat.format(cart.totalAmount())}",
-                modifier = Modifier.align(Alignment.End),
-                color = MaterialTheme.colorScheme.onSurface,
-            )
-            KasirPrimaryButton(
-                text = "Lanjut ke Checkout",
-                onClick = onCheckout,
-                modifier = Modifier.fillMaxWidth(),
-                enabled = cart.items.isNotEmpty(),
-            )
-        }
-    }
 }
