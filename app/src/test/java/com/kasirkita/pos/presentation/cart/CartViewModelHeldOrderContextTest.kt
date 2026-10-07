@@ -78,7 +78,7 @@ class CartViewModelHeldOrderContextTest {
         override suspend fun get(id: String): Result<com.kasirkita.pos.domain.model.HeldOrder> = Result.failure(java.io.IOException("offline"))
         override suspend fun update(request: com.kasirkita.pos.domain.model.HeldOrderUpdateRequest): Result<com.kasirkita.pos.domain.model.HeldOrder> = TODO()
         override suspend fun cancel(id: String, expectedVersion: Int): Result<com.kasirkita.pos.domain.model.HeldOrder> = TODO()
-        override suspend fun checkout(request: com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest): Result<com.kasirkita.pos.domain.model.Transaction> = TODO()
+        override suspend fun checkout(request: com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest): Result<com.kasirkita.pos.domain.model.HeldOrderCheckoutResult> = TODO()
     }
 
     private class FakeProductRepository : com.kasirkita.pos.domain.repository.ProductRepository {

@@ -4,6 +4,7 @@ import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.google.gson.reflect.TypeToken
 import com.kasirkita.pos.data.model.CreateHeldOrderRequest
+import com.kasirkita.pos.data.model.HeldOrderCheckoutResponse
 import com.kasirkita.pos.data.model.HeldOrderItemModifierResponse
 import com.kasirkita.pos.data.model.HeldOrderItemRequest
 import com.kasirkita.pos.data.model.HeldOrderItemResponse
@@ -15,7 +16,7 @@ import com.kasirkita.pos.data.model.UpdateHeldOrderRequest
 import com.kasirkita.pos.data.model.toDomain
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Type
@@ -123,6 +124,97 @@ class HeldOrderApiTest {
     }
 
     @Test
+    fun checkoutResponse_originalConversion_parsesReplayedFalse() {
+        val json = """
+            {
+              "transaction": ${canonicalTransactionJson()},
+              "replayed": false
+            }
+        """.trimIndent()
+
+        val response = gson.fromJson(json, HeldOrderCheckoutResponse::class.java)
+
+        assertFalse(response.replayed)
+        assertEquals(TRANSACTION_ID, response.transaction.transactionId)
+        assertEquals(CLIENT_TRANSACTION_ID, response.transaction.clientTransactionId)
+        assertEquals(OUTLET_ID, response.transaction.outletId)
+        assertEquals(USER_ID, response.transaction.userId)
+        assertEquals(SESSION_ID, response.transaction.cashierSessionId)
+        assertEquals("COMPLETED", response.transaction.status)
+        assertEquals(50_000L, response.transaction.total)
+        assertEquals(PRODUCT_ID, response.transaction.items.single().productId)
+        assertEquals(MODIFIER_OPTION_ID, response.transaction.items.single().modifiers!!.single().modifierOptionId)
+        assertEquals("CASH", response.transaction.payments.single().method)
+    }
+
+    @Test
+    fun checkoutResponse_replayedConversion_parsesReplayedTrue() {
+        val json = """
+            {
+              "transaction": ${canonicalTransactionJson()},
+              "replayed": true
+            }
+        """.trimIndent()
+
+        val response = gson.fromJson(json, HeldOrderCheckoutResponse::class.java)
+
+        assertTrue(response.replayed)
+        assertEquals(TRANSACTION_ID, response.transaction.transactionId)
+    }
+
+    @Test
+    fun checkoutResponse_mapsToDomainUsingExistingCanonicalMapper() {
+        val json = """
+            {
+              "transaction": ${canonicalTransactionJson()},
+              "replayed": false
+            }
+        """.trimIndent()
+
+        val response = gson.fromJson(json, HeldOrderCheckoutResponse::class.java)
+        val domain = response.transaction.toDomain()
+
+        assertEquals(TRANSACTION_ID, domain.id)
+        assertEquals(CLIENT_TRANSACTION_ID, domain.clientTransactionId)
+        assertEquals(PRODUCT_ID, domain.items.single().productId)
+        assertEquals(MODIFIER_OPTION_ID, domain.items.single().modifierSnapshots.single().modifierOptionId)
+        assertEquals("CASH", domain.payments.single().method)
+    }
+
+    @Test
+    fun checkoutResponse_missingReplayed_doesNotSilentlyBecomeFalse() {
+        val json = """
+            {
+              "transaction": ${canonicalTransactionJson()}
+            }
+        """.trimIndent()
+
+        val parsed = runCatching { gson.fromJson(json, HeldOrderCheckoutResponse::class.java) }
+
+        assertTrue("Missing 'replayed' must fail parsing instead of defaulting to false", parsed.isFailure)
+    }
+
+    @Test
+    fun checkoutResponse_malformedWrapper_failsParsing() {
+        val flatLegacyJson = canonicalTransactionJson()
+
+        val flat = runCatching { gson.fromJson(flatLegacyJson, HeldOrderCheckoutResponse::class.java) }
+
+        assertTrue("A flat canonical transaction must not parse as the checkout envelope", flat.isFailure)
+
+        val wrongTransactionType = """
+            {
+              "transaction": "not-an-object",
+              "replayed": false
+            }
+        """.trimIndent()
+
+        val nested = runCatching { gson.fromJson(wrongTransactionType, HeldOrderCheckoutResponse::class.java) }
+
+        assertTrue("A non-object transaction must fail parsing", nested.isFailure)
+    }
+
+    @Test
     fun listResponse_mapsMetaAndData() {
         val response = HeldOrdersResponse(
             data = listOf(heldOrderResponse()),
@@ -145,6 +237,57 @@ class HeldOrderApiTest {
         const val MODIFIER_GROUP_ID = "modifier-group-id"
         const val HELD_ORDER_ITEM_ID = "held-order-item-id"
         const val HELD_ORDER_MODIFIER_ID = "held-order-modifier-id"
+        const val TRANSACTION_ID = "transaction-id"
+        const val CLIENT_TRANSACTION_ID = "client-transaction-id"
+
+        fun canonicalTransactionJson(): String = """
+            {
+              "transaction_id": "$TRANSACTION_ID",
+              "client_transaction_id": "$CLIENT_TRANSACTION_ID",
+              "outlet_id": "$OUTLET_ID",
+              "user_id": "$USER_ID",
+              "customer_id": null,
+              "cashier_session_id": "$SESSION_ID",
+              "shift_id": null,
+              "status": "COMPLETED",
+              "subtotal": 50000,
+              "discount": 0,
+              "tax": 0,
+              "total": 50000,
+              "items": [
+                {
+                  "id": "item-id",
+                  "product_id": "$PRODUCT_ID",
+                  "quantity": 2,
+                  "unit_price": 25000,
+                  "subtotal": 50000,
+                  "modifiers": [
+                    {
+                      "id": "modifier-id",
+                      "modifier_group_id": "$MODIFIER_GROUP_ID",
+                      "modifier_option_id": "$MODIFIER_OPTION_ID",
+                      "group_name_snapshot": "Group",
+                      "option_name_snapshot": "Option",
+                      "price_delta_snapshot": 3000
+                    }
+                  ]
+                }
+              ],
+              "payments": [
+                {
+                  "id": "payment-id",
+                  "method": "CASH",
+                  "status": "PAID",
+                  "amount": 50000,
+                  "amount_received": 60000,
+                  "change_amount": 10000,
+                  "paid_at": "2026-10-07T10:00:00.000Z"
+                }
+              ],
+              "change": 10000,
+              "created_at": "2026-10-07T10:00:00.000Z"
+            }
+        """.trimIndent()
 
         fun heldOrderResponse() = HeldOrderResponse(
             heldOrderId = HELD_ORDER_ID,

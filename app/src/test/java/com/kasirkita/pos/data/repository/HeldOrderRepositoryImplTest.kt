@@ -4,6 +4,7 @@ import com.kasirkita.pos.data.api.HeldOrderApi
 import com.kasirkita.pos.data.model.CancelHeldOrderRequest
 import com.kasirkita.pos.data.model.CheckoutHeldOrderRequest
 import com.kasirkita.pos.data.model.CreateHeldOrderRequest
+import com.kasirkita.pos.data.model.HeldOrderCheckoutResponse
 import com.kasirkita.pos.data.model.HeldOrderItemRequest
 import com.kasirkita.pos.data.model.HeldOrderResponse
 import com.kasirkita.pos.data.model.HeldOrdersMetaResponse
@@ -12,6 +13,7 @@ import com.kasirkita.pos.data.model.UpdateHeldOrderRequest
 import com.kasirkita.pos.data.model.V1PaymentRequest
 import com.kasirkita.pos.domain.error.HeldOrderError
 import com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest
+import com.kasirkita.pos.domain.model.HeldOrderCheckoutResult
 import com.kasirkita.pos.domain.model.HeldOrderCreateRequest
 import com.kasirkita.pos.domain.model.HeldOrderUpdateRequest
 import com.kasirkita.pos.data.model.PaymentResponse
@@ -109,7 +111,7 @@ class HeldOrderRepositoryImplTest {
 
     @Test
     fun checkout_sendsExpectedVersionClientTransactionIdAndPayment() = runBlocking {
-        val api = FakeHeldOrderApi(checkoutResponse = Response.success(transactionResponse()))
+        val api = FakeHeldOrderApi(checkoutResponse = Response.success(checkoutResponse()))
         val repository = HeldOrderRepositoryImpl(api)
 
         repository.checkout(checkoutRequest()).getOrThrow()
@@ -126,16 +128,66 @@ class HeldOrderRepositoryImplTest {
     }
 
     @Test
-    fun checkout_mapsCanonicalTransactionResponseUsingExistingPath() = runBlocking {
-        val api = FakeHeldOrderApi(checkoutResponse = Response.success(transactionResponse()))
+    fun checkout_freshConversion_mapsReplayedFalseAndCanonicalTransaction() = runBlocking {
+        val api = FakeHeldOrderApi(checkoutResponse = Response.success(checkoutResponse(replayed = false)))
         val repository = HeldOrderRepositoryImpl(api)
 
-        val transaction = repository.checkout(checkoutRequest()).getOrThrow()
+        val result = repository.checkout(checkoutRequest()).getOrThrow()
 
-        assertEquals(TRANSACTION_ID, transaction.id)
-        assertEquals(CLIENT_TRANSACTION_ID, transaction.clientTransactionId)
-        assertEquals(PRODUCT_ID, transaction.items.single().productId)
-        assertEquals("CASH", transaction.payments.single().method)
+        assertEquals(false, result.replayed)
+        assertEquals(TRANSACTION_ID, result.transaction.id)
+        assertEquals(CLIENT_TRANSACTION_ID, result.transaction.clientTransactionId)
+        assertEquals(PRODUCT_ID, result.transaction.items.single().productId)
+        assertEquals("CASH", result.transaction.payments.single().method)
+    }
+
+    @Test
+    fun checkout_replayedConversion_mapsReplayedTrueAndCanonicalTransaction() = runBlocking {
+        val api = FakeHeldOrderApi(checkoutResponse = Response.success(checkoutResponse(replayed = true)))
+        val repository = HeldOrderRepositoryImpl(api)
+
+        val result = repository.checkout(checkoutRequest()).getOrThrow()
+
+        assertEquals(true, result.replayed)
+        assertEquals(TRANSACTION_ID, result.transaction.id)
+        assertEquals(CLIENT_TRANSACTION_ID, result.transaction.clientTransactionId)
+        assertEquals(PRODUCT_ID, result.transaction.items.single().productId)
+        assertEquals("CASH", result.transaction.payments.single().method)
+    }
+
+    @Test
+    fun checkout_networkFailure_returnsResultFailureWithoutSideEffects() = runBlocking {
+        val expected = IOException("connection timeout")
+        val api = FakeHeldOrderApi(checkoutFailure = expected)
+        val repository = HeldOrderRepositoryImpl(api)
+
+        val result = repository.checkout(checkoutRequest())
+
+        assertTrue(result.isFailure)
+        assertSame(expected, result.exceptionOrNull())
+        assertFalse(api.offlineQueueTouched)
+        assertFalse(api.cartTouched)
+        assertFalse(api.printerTouched)
+        assertFalse(api.drawerTouched)
+    }
+
+    @Test
+    fun checkout_structuredError_preservesHeldOrderError() = runBlocking {
+        val api = FakeHeldOrderApi(
+            checkoutResponse = Response.error(
+                409,
+                "{\"error_code\":\"IDEMPOTENCY_PAYLOAD_MISMATCH\",\"message\":\"Payload mismatch\"}".toResponseBody("application/json".toMediaType()),
+            ),
+        )
+        val repository = HeldOrderRepositoryImpl(api)
+
+        val failure = repository.checkout(checkoutRequest()).exceptionOrNull()
+
+        assertTrue(failure is HeldOrderError)
+        failure as HeldOrderError
+        assertEquals(409, failure.httpCode)
+        assertEquals("IDEMPOTENCY_PAYLOAD_MISMATCH", failure.errorCode)
+        assertEquals("Payload mismatch", failure.message)
     }
 
     @Test
@@ -264,8 +316,9 @@ class HeldOrderRepositoryImplTest {
         private val getResponse: HeldOrderResponse = heldOrderResponse(),
         private val updateResponse: Response<HeldOrderResponse> = Response.success(heldOrderResponse()),
         private val cancelResponse: Response<HeldOrderResponse> = Response.success(heldOrderResponse()),
-        private val checkoutResponse: Response<TransactionDetailResponse> = Response.success(transactionResponse()),
+        private val checkoutResponse: Response<HeldOrderCheckoutResponse> = Response.success(checkoutResponse()),
         private val createFailure: Throwable? = null,
+        private val checkoutFailure: Throwable? = null,
     ) : HeldOrderApi {
         var lastCreateRequest: CreateHeldOrderRequest? = null
         var lastListOutletId: String? = null
@@ -320,9 +373,10 @@ class HeldOrderRepositoryImplTest {
             return cancelResponse
         }
 
-        override suspend fun checkoutHeldOrder(id: String, request: CheckoutHeldOrderRequest): Response<TransactionDetailResponse> {
+        override suspend fun checkoutHeldOrder(id: String, request: CheckoutHeldOrderRequest): Response<HeldOrderCheckoutResponse> {
             lastCheckoutId = id
             lastCheckoutRequest = request
+            checkoutFailure?.let { throw it }
             return checkoutResponse
         }
     }
@@ -442,6 +496,11 @@ class HeldOrderRepositoryImplTest {
             payments = listOf(PaymentResponse("payment-id", "CASH", "PAID", 50_000L, 60_000L, 10_000L, "2026-10-07T10:00:00.000Z")),
             change = 10_000L,
             createdAt = "2026-10-07T10:00:00.000Z",
+        )
+
+        fun checkoutResponse(replayed: Boolean = false) = HeldOrderCheckoutResponse(
+            transaction = transactionResponse(),
+            replayed = replayed,
         )
     }
 }

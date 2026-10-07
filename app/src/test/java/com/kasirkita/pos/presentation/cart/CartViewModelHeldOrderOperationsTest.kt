@@ -8,6 +8,7 @@ import com.kasirkita.pos.domain.model.CartLineKey
 import com.kasirkita.pos.domain.model.CartModifierSelectionSnapshot
 import com.kasirkita.pos.domain.model.HeldOrder
 import com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest
+import com.kasirkita.pos.domain.model.HeldOrderCheckoutResult
 import com.kasirkita.pos.domain.model.HeldOrderCreateRequest
 import com.kasirkita.pos.domain.model.HeldOrderItem
 import com.kasirkita.pos.domain.model.HeldOrderItemRequest
@@ -19,7 +20,6 @@ import com.kasirkita.pos.domain.model.Outlet
 import com.kasirkita.pos.domain.model.Product
 import com.kasirkita.pos.domain.model.SelectionMode
 import com.kasirkita.pos.domain.model.Shift
-import com.kasirkita.pos.domain.model.Transaction
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.CartUpdateResult
 import com.kasirkita.pos.domain.repository.HeldOrderRepository
@@ -469,7 +469,7 @@ class CartViewModelHeldOrderOperationsTest {
         }
         override suspend fun update(request: HeldOrderUpdateRequest): Result<HeldOrder> { updateRequests += request; return updateResult }
         override suspend fun cancel(id: String, expectedVersion: Int): Result<HeldOrder> { cancelCalls += id to expectedVersion; return cancelResult }
-        override suspend fun checkout(request: HeldOrderCheckoutRequest): Result<Transaction> = TODO()
+        override suspend fun checkout(request: HeldOrderCheckoutRequest): Result<HeldOrderCheckoutResult> = TODO()
     }
 
     private class FakeProductRepository : ProductRepository {

@@ -3,9 +3,9 @@ package com.kasirkita.pos.data.api
 import com.kasirkita.pos.data.model.CancelHeldOrderRequest
 import com.kasirkita.pos.data.model.CheckoutHeldOrderRequest
 import com.kasirkita.pos.data.model.CreateHeldOrderRequest
+import com.kasirkita.pos.data.model.HeldOrderCheckoutResponse
 import com.kasirkita.pos.data.model.HeldOrderResponse
 import com.kasirkita.pos.data.model.HeldOrdersResponse
-import com.kasirkita.pos.data.model.TransactionDetailResponse
 import com.kasirkita.pos.data.model.UpdateHeldOrderRequest
 import retrofit2.Response
 import retrofit2.http.Body
@@ -47,5 +47,5 @@ interface HeldOrderApi {
     suspend fun checkoutHeldOrder(
         @Path("id") id: String,
         @Body request: CheckoutHeldOrderRequest,
-    ): Response<TransactionDetailResponse>
+    ): Response<HeldOrderCheckoutResponse>
 }

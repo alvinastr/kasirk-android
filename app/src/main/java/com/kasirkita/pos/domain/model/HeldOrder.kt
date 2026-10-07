@@ -76,3 +76,8 @@ data class HeldOrderCheckoutRequest(
     val clientTransactionId: String,
     val payment: V1Payment,
 )
+
+data class HeldOrderCheckoutResult(
+    val transaction: Transaction,
+    val replayed: Boolean,
+)

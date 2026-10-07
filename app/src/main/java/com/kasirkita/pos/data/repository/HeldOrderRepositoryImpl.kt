@@ -12,9 +12,9 @@ import com.kasirkita.pos.data.model.toDomain
 import com.kasirkita.pos.domain.error.HeldOrderError
 import com.kasirkita.pos.domain.model.HeldOrder
 import com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest
+import com.kasirkita.pos.domain.model.HeldOrderCheckoutResult
 import com.kasirkita.pos.domain.model.HeldOrderCreateRequest
 import com.kasirkita.pos.domain.model.HeldOrderUpdateRequest
-import com.kasirkita.pos.domain.model.Transaction
 import com.kasirkita.pos.domain.repository.HeldOrderRepository
 import retrofit2.Response
 import javax.inject.Inject
@@ -64,8 +64,8 @@ class HeldOrderRepositoryImpl @Inject constructor(
         api.cancelHeldOrder(id, CancelHeldOrderRequest(expectedVersion)).bodyOrThrow().toDomain()
     }
 
-    override suspend fun checkout(request: HeldOrderCheckoutRequest): Result<Transaction> = runCatching {
-        api.checkoutHeldOrder(
+    override suspend fun checkout(request: HeldOrderCheckoutRequest): Result<HeldOrderCheckoutResult> = runCatching {
+        val response = api.checkoutHeldOrder(
             request.id,
             CheckoutHeldOrderRequest(
                 expectedVersion = request.expectedVersion,
@@ -75,7 +75,11 @@ class HeldOrderRepositoryImpl @Inject constructor(
                     amountReceived = request.payment.amountReceived,
                 ),
             ),
-        ).bodyOrThrow().toDomain()
+        ).bodyOrThrow()
+        HeldOrderCheckoutResult(
+            transaction = response.transaction.toDomain(),
+            replayed = response.replayed,
+        )
     }
 
     private fun com.kasirkita.pos.domain.model.HeldOrderItemRequest.toData() = HeldOrderItemRequest(
