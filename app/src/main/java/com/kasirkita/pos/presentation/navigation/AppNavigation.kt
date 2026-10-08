@@ -26,6 +26,7 @@ import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.presentation.cart.CartScreen
+import com.kasirkita.pos.presentation.cart.CartViewModel
 import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
 import com.kasirkita.pos.presentation.heldorder.HeldOrdersScreen
@@ -57,6 +58,7 @@ import javax.inject.Inject
 @Composable
 fun AppNavigation(
     viewModel: AppNavigationViewModel = hiltViewModel(),
+    cartViewModel: CartViewModel = hiltViewModel(),
 ) {
     val sessionState by viewModel.sessionState.collectAsState()
     val selectedOutlet by viewModel.selectedOutlet.collectAsState()
@@ -68,6 +70,11 @@ fun AppNavigation(
         SessionState.Unauthenticated,
         -> {
             val navController = rememberNavController()
+            val onHeldOrders = heldOrdersNavigationAction { destination ->
+                navController.navigate(destination.route) {
+                    launchSingleTop = destination.launchSingleTop
+                }
+            }
             val authenticatedSession = (currentState as? SessionState.Authenticated)?.session
             val productManagementRoute = authenticatedSession
                 ?.role
@@ -215,6 +222,8 @@ fun AppNavigation(
                         onCartClick = {
                             navController.navigate(Screen.Cart.route)
                         },
+                        onHeldOrders = onHeldOrders,
+                        cartViewModel = cartViewModel,
                     )
                 }
 
@@ -352,11 +361,8 @@ fun AppNavigation(
                         onCheckout = {
                             navController.navigate(Screen.Checkout.route)
                         },
-                        onHeldOrders = {
-                            navController.navigate(Screen.HeldOrders.route) {
-                                launchSingleTop = true
-                            }
-                        },
+                        onHeldOrders = onHeldOrders,
+                        viewModel = cartViewModel,
                     )
                 }
 
@@ -369,6 +375,7 @@ fun AppNavigation(
                                 launchSingleTop = true
                             }
                         },
+                        viewModel = cartViewModel,
                     )
                 }
 
@@ -468,6 +475,22 @@ internal fun newTransactionDestination(): SalesFlowDestination =
         route = Screen.Products.route,
         popUpToRoute = Screen.Home.route,
     )
+
+internal data class HeldOrdersNavigationDestination(
+    val route: String,
+    val launchSingleTop: Boolean,
+)
+
+internal fun heldOrdersNavigationAction(
+    navigate: (HeldOrdersNavigationDestination) -> Unit,
+): () -> Unit = {
+    navigate(
+        HeldOrdersNavigationDestination(
+            route = Screen.HeldOrders.route,
+            launchSingleTop = true,
+        ),
+    )
+}
 
 internal fun shiftRouteFor(role: UserRole): String = when (role) {
     UserRole.OWNER,

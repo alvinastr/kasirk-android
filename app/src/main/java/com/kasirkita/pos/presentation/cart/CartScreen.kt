@@ -54,8 +54,8 @@ import java.util.Locale
 
 @Composable
 fun CartScreen(
-    onCheckout: () -> Unit = {},
-    onHeldOrders: () -> Unit = {},
+    onCheckout: () -> Unit,
+    onHeldOrders: () -> Unit,
     embedded: Boolean = false,
     viewModel: CartViewModel = hiltViewModel(),
 ) {

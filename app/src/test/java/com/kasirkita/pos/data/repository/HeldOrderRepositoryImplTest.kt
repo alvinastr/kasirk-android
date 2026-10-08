@@ -7,6 +7,7 @@ import com.kasirkita.pos.data.model.CreateHeldOrderRequest
 import com.kasirkita.pos.data.model.HeldOrderCheckoutResponse
 import com.kasirkita.pos.data.model.HeldOrderItemRequest
 import com.kasirkita.pos.data.model.HeldOrderResponse
+import com.kasirkita.pos.data.model.HeldOrderSummaryResponse
 import com.kasirkita.pos.data.model.HeldOrdersMetaResponse
 import com.kasirkita.pos.data.model.HeldOrdersResponse
 import com.kasirkita.pos.data.model.UpdateHeldOrderRequest
@@ -55,7 +56,7 @@ class HeldOrderRepositoryImplTest {
     @Test
     fun list_mapsOpenHeldOrders() = runBlocking {
         val api = FakeHeldOrderApi(
-            listResponse = HeldOrdersResponse(listOf(heldOrderResponse()), HeldOrdersMetaResponse(1, 20, 1, 1)),
+            listResponse = HeldOrdersResponse(listOf(heldOrderSummaryResponse()), HeldOrdersMetaResponse(1, 20, 1, 1)),
         )
         val repository = HeldOrderRepositoryImpl(api)
 
@@ -66,6 +67,7 @@ class HeldOrderRepositoryImplTest {
         assertEquals("OPEN", api.lastListStatus)
         assertEquals(1, api.lastListPage)
         assertEquals(20, api.lastListLimit)
+        assertTrue(heldOrders.single().items.isEmpty())
     }
 
     @Test
@@ -431,6 +433,25 @@ class HeldOrderRepositoryImplTest {
         )
 
         fun heldOrderResponse(status: String = "OPEN", version: Int = VERSION) = HeldOrderResponse(
+            heldOrderId = HELD_ORDER_ID,
+            outletId = OUTLET_ID,
+            cashierSessionId = SESSION_ID,
+            cashierUserId = USER_ID,
+            cashierName = "Cashier",
+            label = "Label",
+            status = status,
+            version = version,
+            subtotalEstimate = 50_000L,
+            taxEstimate = 0L,
+            totalEstimate = 50_000L,
+            itemCount = 2,
+            createdAt = "2026-10-07T10:00:00.000Z",
+            updatedAt = "2026-10-07T10:00:00.000Z",
+            cancelledAt = null,
+            convertedAt = null,
+        )
+
+        fun heldOrderSummaryResponse(status: String = "OPEN", version: Int = VERSION) = HeldOrderSummaryResponse(
             heldOrderId = HELD_ORDER_ID,
             outletId = OUTLET_ID,
             cashierSessionId = SESSION_ID,

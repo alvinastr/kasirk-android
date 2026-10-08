@@ -204,6 +204,8 @@ internal fun heldOrderErrorMessage(error: HeldOrderUiError?): String = when (err
     HeldOrderUiError.NOT_OPEN -> "Order ini tidak lagi terbuka."
     HeldOrderUiError.NOT_FOUND -> "Order tidak ditemukan."
     HeldOrderUiError.RESOURCE_CONFLICT -> "Sesi kasir tidak valid untuk order ini."
+    HeldOrderUiError.AUTHENTICATION_REQUIRED -> "Sesi login berakhir. Silakan masuk kembali."
+    HeldOrderUiError.ACCESS_DENIED -> "Anda tidak memiliki akses ke order tersimpan untuk outlet ini."
     HeldOrderUiError.NETWORK -> "Order tersimpan memerlukan koneksi. Coba lagi."
     HeldOrderUiError.UNKNOWN -> "Order tersimpan gagal diproses. Coba lagi."
     null -> ""

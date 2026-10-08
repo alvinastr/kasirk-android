@@ -10,6 +10,7 @@ import com.kasirkita.pos.data.model.HeldOrderItemRequest
 import com.kasirkita.pos.data.model.HeldOrderItemResponse
 import com.kasirkita.pos.data.model.HeldOrderListResponse
 import com.kasirkita.pos.data.model.HeldOrderResponse
+import com.kasirkita.pos.data.model.HeldOrderSummaryResponse
 import com.kasirkita.pos.data.model.HeldOrdersResponse
 import com.kasirkita.pos.data.model.HeldOrdersMetaResponse
 import com.kasirkita.pos.data.model.UpdateHeldOrderRequest
@@ -17,6 +18,7 @@ import com.kasirkita.pos.data.model.toDomain
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.lang.reflect.Type
@@ -217,13 +219,61 @@ class HeldOrderApiTest {
     @Test
     fun listResponse_mapsMetaAndData() {
         val response = HeldOrdersResponse(
-            data = listOf(heldOrderResponse()),
+            data = listOf(heldOrderSummaryResponse()),
             meta = HeldOrdersMetaResponse(1, 20, 1, 1),
         )
 
         assertEquals(1, response.data.size)
         assertEquals(1, response.meta.total)
         assertEquals(1, response.meta.totalPages)
+    }
+
+    @Test
+    fun listSummaryJson_withoutDetailItems_mapsNullableFieldsAndPagination() {
+        val json = """
+            {
+              "data": [
+                {
+                  "held_order_id": "$HELD_ORDER_ID",
+                  "outlet_id": "$OUTLET_ID",
+                  "cashier_session_id": "$SESSION_ID",
+                  "cashier_user_id": "$USER_ID",
+                  "cashier_name": null,
+                  "label": null,
+                  "status": "OPEN",
+                  "version": 1,
+                  "subtotal_estimate": 50000,
+                  "tax_estimate": 0,
+                  "total_estimate": 50000,
+                  "item_count": 3,
+                  "created_at": "2026-10-07T10:00:00.000Z",
+                  "updated_at": "2026-10-07T10:05:00.000Z",
+                  "cancelled_at": null,
+                  "converted_at": null
+                }
+              ],
+              "meta": {
+                "page": 2,
+                "limit": 20,
+                "total": 21,
+                "total_pages": 2
+              }
+            }
+        """.trimIndent()
+
+        val response = gson.fromJson(json, HeldOrdersResponse::class.java)
+        val order = response.data.single().toDomain()
+
+        assertEquals(2, response.meta.page)
+        assertEquals(20, response.meta.limit)
+        assertEquals(21, response.meta.total)
+        assertEquals(2, response.meta.totalPages)
+        assertEquals(HELD_ORDER_ID, order.id)
+        assertNull(order.cashierName)
+        assertNull(order.label)
+        assertNull(order.cancelledAt)
+        assertNull(order.convertedAt)
+        assertTrue(order.items.isEmpty())
     }
 
     private companion object {
@@ -290,6 +340,25 @@ class HeldOrderApiTest {
         """.trimIndent()
 
         fun heldOrderResponse() = HeldOrderResponse(
+            heldOrderId = HELD_ORDER_ID,
+            outletId = OUTLET_ID,
+            cashierSessionId = SESSION_ID,
+            cashierUserId = USER_ID,
+            cashierName = "Cashier",
+            label = "Label",
+            status = "OPEN",
+            version = VERSION,
+            subtotalEstimate = 50_000L,
+            taxEstimate = 0L,
+            totalEstimate = 50_000L,
+            itemCount = 3,
+            createdAt = "2026-10-07T10:00:00.000Z",
+            updatedAt = "2026-10-07T10:00:00.000Z",
+            cancelledAt = null,
+            convertedAt = null,
+        )
+
+        fun heldOrderSummaryResponse() = HeldOrderSummaryResponse(
             heldOrderId = HELD_ORDER_ID,
             outletId = OUTLET_ID,
             cashierSessionId = SESSION_ID,

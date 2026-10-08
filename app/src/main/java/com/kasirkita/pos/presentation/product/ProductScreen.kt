@@ -59,7 +59,8 @@ import java.util.Locale
 
 @Composable
 internal fun ProductScreen(
-    onCartClick: () -> Unit = {},
+    onCartClick: () -> Unit,
+    onHeldOrders: () -> Unit,
     railDestinations: List<PosWorkspaceRailDestination> = emptyList(),
     onRailDestinationClick: (PosWorkspaceRailDestination) -> Unit = {},
     viewModel: ProductCatalogViewModel = hiltViewModel(),
@@ -103,6 +104,8 @@ internal fun ProductScreen(
                 onRefresh = viewModel::refresh,
                 onAddToCart = viewModel::addToCart,
                 onCheckout = { onCartClick() },
+                onHeldOrders = onHeldOrders,
+                cartViewModel = cartViewModel,
             )
             PosLayoutMode.Narrow -> NarrowProductLayout(
                 state = state,
@@ -126,6 +129,8 @@ private fun WideProductLayout(
     onRefresh: () -> Unit,
     onAddToCart: (ProductCatalogItem) -> Unit,
     onCheckout: () -> Unit,
+    onHeldOrders: () -> Unit,
+    cartViewModel: CartViewModel,
 ) {
     Row(modifier = Modifier.fillMaxSize()) {
         Box(
@@ -158,8 +163,9 @@ private fun WideProductLayout(
         ) {
             CartScreen(
                 onCheckout = onCheckout,
+                onHeldOrders = onHeldOrders,
                 embedded = true,
-                viewModel = hiltViewModel(),
+                viewModel = cartViewModel,
             )
         }
     }

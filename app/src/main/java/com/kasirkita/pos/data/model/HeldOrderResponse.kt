@@ -6,7 +6,7 @@ import com.kasirkita.pos.domain.model.HeldOrderItem
 import com.kasirkita.pos.domain.model.HeldOrderModifier
 
 data class HeldOrdersResponse(
-    val data: List<HeldOrderResponse>,
+    val data: List<HeldOrderSummaryResponse>,
     val meta: HeldOrdersMetaResponse,
 )
 
@@ -19,6 +19,38 @@ data class HeldOrdersMetaResponse(
 )
 
 typealias HeldOrderListResponse = HeldOrdersResponse
+
+data class HeldOrderSummaryResponse(
+    @SerializedName("held_order_id")
+    val heldOrderId: String,
+    @SerializedName("outlet_id")
+    val outletId: String,
+    @SerializedName("cashier_session_id")
+    val cashierSessionId: String,
+    @SerializedName("cashier_user_id")
+    val cashierUserId: String,
+    @SerializedName("cashier_name")
+    val cashierName: String?,
+    val label: String?,
+    val status: String,
+    val version: Int,
+    @SerializedName("subtotal_estimate")
+    val subtotalEstimate: Long,
+    @SerializedName("tax_estimate")
+    val taxEstimate: Long,
+    @SerializedName("total_estimate")
+    val totalEstimate: Long,
+    @SerializedName("item_count")
+    val itemCount: Int,
+    @SerializedName("created_at")
+    val createdAt: String,
+    @SerializedName("updated_at")
+    val updatedAt: String,
+    @SerializedName("cancelled_at")
+    val cancelledAt: String?,
+    @SerializedName("converted_at")
+    val convertedAt: String?,
+)
 
 data class HeldOrderResponse(
     @SerializedName("held_order_id")
@@ -117,6 +149,28 @@ fun HeldOrderResponse.toDomain(): HeldOrder = HeldOrder(
     convertedAt = convertedAt,
     convertedTransactionId = convertedTransactionId,
     items = items.map { it.toDomain() },
+)
+
+fun HeldOrderSummaryResponse.toDomain(): HeldOrder = HeldOrder(
+    id = heldOrderId,
+    outletId = outletId,
+    cashierSessionId = cashierSessionId,
+    cashierUserId = cashierUserId,
+    cashierName = cashierName,
+    actorRole = null,
+    label = label,
+    status = status,
+    version = version,
+    subtotalEstimate = subtotalEstimate,
+    taxEstimate = taxEstimate,
+    totalEstimate = totalEstimate,
+    itemCount = itemCount,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    cancelledAt = cancelledAt,
+    convertedAt = convertedAt,
+    convertedTransactionId = null,
+    items = emptyList(),
 )
 
 fun HeldOrderItemResponse.toDomain(): HeldOrderItem = HeldOrderItem(

@@ -480,6 +480,8 @@ class CartViewModel @Inject constructor(
         error is HeldOrderError && error.errorCode == "HELD_ORDER_NOT_OPEN" -> HeldOrderUiError.NOT_OPEN
         error is HeldOrderError && error.errorCode == "INVALID_CASHIER_SESSION" -> HeldOrderUiError.RESOURCE_CONFLICT
         error is HeldOrderError && error.errorCode == "HELD_ORDER_NOT_FOUND" -> HeldOrderUiError.NOT_FOUND
+        error is HeldOrderError && error.httpCode == 401 -> HeldOrderUiError.AUTHENTICATION_REQUIRED
+        error is HeldOrderError && error.httpCode == 403 -> HeldOrderUiError.ACCESS_DENIED
         error is java.io.IOException -> HeldOrderUiError.NETWORK
         else -> HeldOrderUiError.UNKNOWN
     }

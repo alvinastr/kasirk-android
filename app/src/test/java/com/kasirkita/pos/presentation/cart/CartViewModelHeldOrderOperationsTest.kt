@@ -95,6 +95,57 @@ class CartViewModelHeldOrderOperationsTest {
     }
 
     @Test
+    fun listHeldOrders_unauthorizedResponse_requestsAuthentication() {
+        heldOrderRepository.listResult = Result.failure(
+            HeldOrderError(401, null, "Unauthorized"),
+        )
+
+        viewModel.listHeldOrders()
+
+        assertEquals(HeldOrderUiError.AUTHENTICATION_REQUIRED, viewModel.state.value.heldOrderError)
+    }
+
+    @Test
+    fun listHeldOrders_forbiddenResponse_reportsAccessDenied() {
+        heldOrderRepository.listResult = Result.failure(
+            HeldOrderError(403, "OUTLET_ACCESS_DENIED", "Forbidden"),
+        )
+
+        viewModel.listHeldOrders()
+
+        assertEquals(HeldOrderUiError.ACCESS_DENIED, viewModel.state.value.heldOrderError)
+    }
+
+    @Test
+    fun authoritativeListCount_saveCancelAndSaveAgain_doesNotDrift() {
+        cartRepository.replaceCart(listOf(cartLine("prod-1", quantity = 1)))
+        heldOrderRepository.createResult = Result.success(order("held-1", version = 1))
+        heldOrderRepository.listResult = Result.success(listOf(order("held-1", version = 1)))
+
+        viewModel.saveHeldOrder("First")
+
+        assertEquals(listOf("held-1"), viewModel.state.value.heldOrders.map { it.id })
+
+        heldOrderRepository.cancelResult = Result.success(
+            order("held-1", version = 2, status = "CANCELLED"),
+        )
+        heldOrderRepository.listResult = Result.success(emptyList())
+
+        viewModel.cancelHeldOrder("held-1", expectedVersion = 1)
+
+        assertTrue(viewModel.state.value.heldOrders.isEmpty())
+
+        cartRepository.replaceCart(listOf(cartLine("prod-2", quantity = 1)))
+        heldOrderRepository.createResult = Result.success(order("held-2", version = 1))
+        heldOrderRepository.listResult = Result.success(listOf(order("held-2", version = 1)))
+
+        viewModel.saveHeldOrder("Second")
+
+        assertEquals(listOf("held-2"), viewModel.state.value.heldOrders.map { it.id })
+        assertEquals(1, viewModel.state.value.heldOrders.size)
+    }
+
+    @Test
     fun saveHeldOrder_sendsContextAndItemIdsOnly_thenClearsCartAndRefetchesList() {
         cartRepository.replaceCart(listOf(cartLine("prod-1", quantity = 2, modifierIds = listOf("opt-1"), note = "less ice")))
         heldOrderRepository.createResult = Result.success(order("held-new", version = 1, label = "Table 1"))
