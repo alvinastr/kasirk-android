@@ -1,6 +1,6 @@
 # KasirKita POS Android - Project Status
 
-Last verified: 2026-10-02 (KasirKita MVP Release Candidate READY after Phase 5I final RC closure, automated verification, and complete manual Small_Phone RC regression)
+Last verified: 2026-10-08 (M16 Held Orders complete after focused/full unit tests, production release build, and physical-device QA)
 
 ## Project Overview
 
@@ -148,6 +148,38 @@ Catatan: cart masih in-memory dan akan hilang jika process aplikasi mati.
 - Cart hanya dibersihkan setelah server sukses atau insert Room berhasil.
 - Jika insert Room gagal, cart dipertahankan dan error ditampilkan.
 - Setelah queue berhasil, Checkout menampilkan bahwa transaksi tersimpan untuk sinkronisasi.
+
+### M16 — Held Orders
+
+Status: **CLOSED — Held Orders workflow complete on 2026-10-08 after automated verification and physical-device QA.**
+
+Implementation commit: `d477cc6f05c5d01858242efffc4e3d973c4b8834` (`fix(android): repair held orders navigation and state sync`).
+
+#### Implementation Summary
+
+- Embedded POS Cart can navigate to Held Orders without leaving stale destination-scoped cart state behind.
+- Held Orders list parses backend summary responses that omit detail-only `items`; detail responses still map item/modifier rows for open/restore.
+- Save, list, open/restore, and cancel workflows are wired through the network-only Held Order API and shared cart state.
+- HTTP 401 and 403 are classified safely as authentication/access errors instead of generic unknown failures.
+- Product, Cart, and Held Orders destinations share one `CartViewModel`, so Held Orders badge state synchronizes immediately after save and cancel.
+
+#### Verification
+
+```text
+./gradlew :app:testDebugUnitTest --tests '*HeldOrder*' --rerun-tasks
+PASS — 131 tests, 0 failures, 0 errors, 0 skipped
+
+./gradlew :app:testDebugUnitTest --rerun-tasks
+PASS — 643 tests, 0 failures, 0 errors, 0 skipped
+
+./gradlew :app:assembleRelease -Pkasirkita.releaseApiBaseUrl=https://api.bekasirk.tech/
+PASS
+
+Physical-device QA
+PASS — navigation, save, list, open/restore, cancel, and badge synchronization
+```
+
+No backend source, production database, Room schema, offline transaction queue, printer behavior, signing configuration, APK/build output, or credentials were changed for this documentation closure. Receipt Template Settings / Receipt V2 remains planned follow-up work and is not marked implemented.
 
 ### Phase 3 Offline Reliability Closure
 
@@ -1012,8 +1044,8 @@ The signed verification APK was built with `-Pkasirkita.releaseApiBaseUrl=https:
 
 ## Next Milestones
 
-1. Auth V2 follow-up hardening dan strategi offline PIN.
-2. Printer/receipt printing.
+1. Receipt Template Settings / Receipt V2.
+2. Auth V2 follow-up hardening dan strategi offline PIN.
 3. Customer Module.
 4. Reports Dashboard.
 
