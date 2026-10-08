@@ -17,6 +17,7 @@ import com.kasirkita.pos.data.api.OutletApi
 import com.kasirkita.pos.data.api.ProductApi
 import com.kasirkita.pos.data.api.ReportApi
 import com.kasirkita.pos.data.api.ReceiptApi
+import com.kasirkita.pos.data.api.ReceiptSettingsApi
 import com.kasirkita.pos.data.api.HeldOrderApi
 import com.kasirkita.pos.data.api.ShiftApi
 import com.kasirkita.pos.data.api.SyncApi
@@ -145,6 +146,11 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideReceiptApi(retrofit: Retrofit): ReceiptApi = retrofit.create(ReceiptApi::class.java)
+
+    @Provides
+    @Singleton
+    fun provideReceiptSettingsApi(retrofit: Retrofit): ReceiptSettingsApi =
+        retrofit.create(ReceiptSettingsApi::class.java)
 
     @Provides
     @Singleton

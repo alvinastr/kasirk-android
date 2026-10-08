@@ -10,6 +10,7 @@ import com.kasirkita.pos.data.repository.ProductRepositoryImpl
 import com.kasirkita.pos.data.repository.ReportRepositoryImpl
 import com.kasirkita.pos.data.repository.HeldOrderRepositoryImpl
 import com.kasirkita.pos.data.repository.ReceiptRepositoryImpl
+import com.kasirkita.pos.data.repository.ReceiptSettingsRepositoryImpl
 import com.kasirkita.pos.data.repository.ShiftRepositoryImpl
 import com.kasirkita.pos.data.repository.StockRepositoryImpl
 import com.kasirkita.pos.data.repository.TransactionRepositoryImpl
@@ -23,6 +24,7 @@ import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import com.kasirkita.pos.domain.repository.ProductRepository
 import com.kasirkita.pos.domain.repository.ReportRepository
 import com.kasirkita.pos.domain.repository.ReceiptRepository
+import com.kasirkita.pos.domain.repository.ReceiptSettingsRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.domain.repository.StockRepository
 import com.kasirkita.pos.domain.repository.TransactionRepository
@@ -113,4 +115,10 @@ abstract class RepositoryModule {
     abstract fun bindTransactionRepository(
         implementation: TransactionRepositoryImpl,
     ): TransactionRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindReceiptSettingsRepository(
+        implementation: ReceiptSettingsRepositoryImpl,
+    ): ReceiptSettingsRepository
 }
