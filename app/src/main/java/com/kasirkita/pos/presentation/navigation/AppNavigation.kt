@@ -41,6 +41,8 @@ import com.kasirkita.pos.presentation.product.ProductScreen
 import com.kasirkita.pos.presentation.receipt.ReceiptScreen
 import com.kasirkita.pos.presentation.reports.ReportsScreen
 import com.kasirkita.pos.presentation.settings.PrinterSettingsScreen
+import com.kasirkita.pos.presentation.settings.ReceiptSettingsContext
+import com.kasirkita.pos.presentation.settings.ReceiptTemplateSettingsScreen
 import com.kasirkita.pos.presentation.shift.ShiftScreen
 import com.kasirkita.pos.presentation.stock.StockAdjustmentScreen
 import com.kasirkita.pos.presentation.transaction.TransactionDetailScreen
@@ -106,6 +108,9 @@ fun AppNavigation(
             val printerSettingsRoute = authenticatedSession
                 ?.role
                 ?.let(::printerSettingsRouteFor)
+            val receiptTemplateSettingsRoute = authenticatedSession
+                ?.role
+                ?.let(::receiptTemplateSettingsRouteFor)
             val startDestination = startupRouteFor(currentState)
 
             NavHost(
@@ -190,6 +195,9 @@ fun AppNavigation(
                             { navController.navigate(route) }
                         },
                         onReportsClick = reportsRoute?.let { route ->
+                            { navController.navigate(route) }
+                        },
+                        onReceiptTemplateSettingsClick = receiptTemplateSettingsRoute?.let { route ->
                             { navController.navigate(route) }
                         },
                         onOfflineProblemsClick = {
@@ -450,6 +458,17 @@ fun AppNavigation(
                         PrinterSettingsScreen()
                     }
                 }
+                composable(Screen.ReceiptTemplateSettings.route) {
+                    val session = (authenticatedSession as? NavigationSession.AuthV2)?.value
+                    ReceiptTemplateSettingsScreen(
+                        context = ReceiptSettingsContext(
+                            tenantId = session?.tenantId.orEmpty(),
+                            outletId = selectedOutlet?.id ?: session?.outletId,
+                            role = session?.role ?: UserRole.CASHIER,
+                        ),
+                        onBack = navController::popBackStack,
+                    )
+                }
             }
         }
     }
@@ -562,6 +581,13 @@ internal fun printerSettingsRouteFor(role: UserRole): String? = when (role) {
     UserRole.CASHIER -> null
 }
 
+internal fun receiptTemplateSettingsRouteFor(role: UserRole): String? = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    -> Screen.ReceiptTemplateSettings.route
+    UserRole.CASHIER -> null
+}
+
 internal data class PosWorkspaceRailDestination(
     val route: String,
     val label: String,
@@ -579,6 +605,9 @@ internal fun posWorkspaceRailDestinationsFor(role: UserRole): List<PosWorkspaceR
     }
     if (printerSettingsRouteFor(role) != null) {
         add(PosWorkspaceRailDestination(Screen.PrinterSettings.route, "Printer", selected = false))
+    }
+    if (receiptTemplateSettingsRouteFor(role) != null) {
+        add(PosWorkspaceRailDestination(Screen.ReceiptTemplateSettings.route, "Template", selected = false))
     }
 }
 

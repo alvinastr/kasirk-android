@@ -53,6 +53,7 @@ fun HomeScreen(
     onManageProductsClick: (() -> Unit)? = null,
     onTransactionsClick: (() -> Unit)? = null,
     onReportsClick: (() -> Unit)? = null,
+    onReceiptTemplateSettingsClick: (() -> Unit)? = null,
     onOfflineProblemsClick: () -> Unit,
     onLogoutComplete: () -> Unit,
     currentUserName: String? = null,
@@ -103,6 +104,7 @@ fun HomeScreen(
             onManageProductsClick = onManageProductsClick,
             onTransactionsClick = onTransactionsClick,
             onReportsClick = onReportsClick,
+            onReceiptTemplateSettingsClick = onReceiptTemplateSettingsClick,
             onOfflineProblemsClick = onOfflineProblemsClick,
         )
 
@@ -304,6 +306,7 @@ private fun NavigationActionsCard(
     onManageProductsClick: (() -> Unit)?,
     onTransactionsClick: (() -> Unit)?,
     onReportsClick: (() -> Unit)?,
+    onReceiptTemplateSettingsClick: (() -> Unit)?,
     onOfflineProblemsClick: () -> Unit,
 ) {
     KasirCard(modifier = Modifier.fillMaxWidth()) {
@@ -342,6 +345,13 @@ private fun NavigationActionsCard(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             KasirSecondaryButton(
                 text = "Kelola Produk",
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        onReceiptTemplateSettingsClick?.let { onClick ->
+            KasirSecondaryButton(
+                text = "Template Struk",
                 onClick = onClick,
                 modifier = Modifier.fillMaxWidth(),
             )

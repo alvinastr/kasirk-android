@@ -30,5 +30,6 @@ sealed class Screen(val route: String) {
     }
     data object Reports : Screen("reports")
     data object PrinterSettings : Screen("settings/printer")
+    data object ReceiptTemplateSettings : Screen("settings/receipt-template")
     data object OfflineRecovery : Screen("offline-recovery")
 }

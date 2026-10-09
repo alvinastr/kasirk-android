@@ -22,10 +22,12 @@ class PosWorkspaceRailNavigationTest {
         )
         assertFalse(destinations.any { it.route == Screen.ProductManagement.route })
         assertFalse(destinations.any { it.route == Screen.Reports.route })
+        assertFalse(destinations.any { it.route == Screen.PrinterSettings.route })
+        assertFalse(destinations.any { it.route == Screen.ReceiptTemplateSettings.route })
     }
 
     @Test
-    fun ownerRail_containsExistingOwnerDestinations() {
+    fun ownerRail_containsReceiptTemplateSettings() {
         val destinations = posWorkspaceRailDestinationsFor(UserRole.OWNER)
 
         assertEquals(
@@ -35,13 +37,14 @@ class PosWorkspaceRailNavigationTest {
                 Screen.ProductManagement.route,
                 Screen.Reports.route,
                 Screen.PrinterSettings.route,
+                Screen.ReceiptTemplateSettings.route,
             ),
             destinations.map { it.route },
         )
     }
 
     @Test
-    fun adminRail_containsExistingAdminDestinations() {
+    fun adminRail_containsReceiptTemplateSettings() {
         val destinations = posWorkspaceRailDestinationsFor(UserRole.ADMIN)
 
         assertEquals(
@@ -51,6 +54,7 @@ class PosWorkspaceRailNavigationTest {
                 Screen.ProductManagement.route,
                 Screen.Reports.route,
                 Screen.PrinterSettings.route,
+                Screen.ReceiptTemplateSettings.route,
             ),
             destinations.map { it.route },
         )
