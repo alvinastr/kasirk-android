@@ -2,146 +2,48 @@ package com.kasirkita.pos.data.printer
 
 import com.kasirkita.pos.domain.model.DrawerPulseProfile
 import com.kasirkita.pos.domain.model.Receipt
-import java.text.NumberFormat
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
+import com.kasirkita.pos.domain.model.ReceiptDocument
+import com.kasirkita.pos.domain.model.ReceiptSettings
+import com.kasirkita.pos.domain.model.ReceiptTextAlignment
+import com.kasirkita.pos.domain.usecase.BuildReceiptDocumentUseCase
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Generic ESC/POS receipt formatter.
+ * ESC/POS byte renderer.
+ *
+ * Content decisions live in [BuildReceiptDocumentUseCase]; this class only
+ * translates canonical receipt lines and styles into ESC/POS commands.
  * Physical compatibility with VSC TM-58D unverified until M16.
  */
 @Singleton
 class EscPosReceiptFormatter @Inject constructor() {
-
-    private val currencyFormat = NumberFormat.getCurrencyInstance(Locale("id", "ID")).apply {
-        maximumFractionDigits = 0
-    }
-
-    private val dateTimeFormat = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("id", "ID"))
+    private val documentBuilder = BuildReceiptDocumentUseCase()
 
     /**
-     * Format receipt to ESC/POS byte array.
-     * Uses canonical M14 Receipt domain snapshot.
+     * Legacy entry point: build the canonical document without settings.
      */
-    fun formatReceipt(receipt: Receipt, paperWidthMm: Int): ByteArray {
-        val maxChars = when (paperWidthMm) {
-            58 -> 32
-            80 -> 48
-            else -> 32 // Default to 58mm
+    fun formatReceipt(receipt: Receipt, paperWidthMm: Int): ByteArray =
+        formatReceipt(documentBuilder(receipt, settings = null, paperWidthMm = paperWidthMm))
+
+    /**
+     * Settings-aware entry point for M17E, when repository settings reach printing.
+     */
+    fun formatReceipt(receipt: Receipt, settings: ReceiptSettings?, paperWidthMm: Int): ByteArray =
+        formatReceipt(documentBuilder(receipt, settings, paperWidthMm))
+
+    fun formatReceipt(document: ReceiptDocument): ByteArray = buildString {
+        append(ESC_INIT)
+        document.lines.forEach { line ->
+            requireNoUnsafeTextControls(line.text)
+            append(alignmentCommand(line.alignment))
+            if (line.style == com.kasirkita.pos.domain.model.ReceiptLineStyle.Emphasis) append(ESC_BOLD_ON)
+            append(line.text)
+            if (line.style == com.kasirkita.pos.domain.model.ReceiptLineStyle.Emphasis) append(ESC_BOLD_OFF)
+            append("\n")
         }
-
-        return buildString {
-            // ESC/POS initialization
-            append(ESC_INIT)
-
-            // Center alignment for header
-            append(ESC_ALIGN_CENTER)
-            append(receipt.tenant.name.truncate(maxChars))
-            append("\n")
-            append(receipt.outlet.name.truncate(maxChars))
-            append("\n")
-            if (!receipt.outlet.address.isNullOrBlank()) {
-                append(receipt.outlet.address.truncate(maxChars))
-                append("\n")
-            }
-            append("\n")
-
-            // Left alignment for body
-            append(ESC_ALIGN_LEFT)
-
-            // Transaction metadata
-            append("ID: ${receipt.transactionId}\n")
-            append("Tanggal: ${dateTimeFormat.format(Date())}\n")
-            append("Kasir: ${receipt.cashier.name}\n")
-            if (receipt.customer != null) {
-                append("Pelanggan: ${receipt.customer.name}\n")
-            }
-            append(separator(maxChars))
-            append("\n")
-
-            // Items
-            receipt.items.forEach { item ->
-                // Product name (use snapshot if available)
-                val productName = item.productNameSnapshot ?: item.productName
-                append(productName.truncate(maxChars))
-                append("\n")
-
-                // SKU (use snapshot if available)
-                val sku = item.skuSnapshot ?: item.sku
-                if (sku.isNotBlank()) {
-                    append("  SKU: $sku\n")
-                }
-
-                // Modifiers
-                item.modifierSnapshots.forEach { modifier ->
-                    append("  + ${modifier.groupName}: ${modifier.optionName}\n")
-                }
-
-                // Note
-                if (!item.note.isNullOrBlank()) {
-                    append("  Catatan: ${item.note}\n")
-                }
-
-                // Quantity x Unit Price = Subtotal
-                val qtyLine = "${item.quantity} x ${formatCurrency(item.unitPrice)}"
-                val subtotalLine = formatCurrency(item.subtotal)
-                append(formatLine(qtyLine, subtotalLine, maxChars))
-                append("\n")
-            }
-
-            append(separator(maxChars))
-            append("\n")
-
-            // Totals
-            append(formatLine("Subtotal", formatCurrency(receipt.subtotal), maxChars))
-            append("\n")
-
-            if (receipt.discount > 0) {
-                append(formatLine("Diskon", "-${formatCurrency(receipt.discount)}", maxChars))
-                append("\n")
-            }
-
-            if (receipt.tax > 0) {
-                append(formatLine("Pajak", formatCurrency(receipt.tax), maxChars))
-                append("\n")
-            }
-
-            // Total (bold)
-            append(ESC_BOLD_ON)
-            append(formatLine("TOTAL", formatCurrency(receipt.total), maxChars))
-            append(ESC_BOLD_OFF)
-            append("\n")
-            append("\n")
-
-            // Payment method
-            append("Metode: ${receipt.payment?.method ?: "-"}\n")
-
-            // CASH: show tender and change
-            if (receipt.payment?.method?.equals("CASH", ignoreCase = true) == true) {
-                receipt.payment.amountReceived?.let { received ->
-                    append(formatLine("Diterima", formatCurrency(received), maxChars))
-                    append("\n")
-                }
-                // Show change amount (even if 0)
-                if (receipt.payment.changeAmount != null) {
-                    append(formatLine("Kembalian", formatCurrency(receipt.payment.changeAmount), maxChars))
-                    append("\n")
-                }
-            }
-            // QRIS: no fake tender/change
-
-            append("\n")
-            append(ESC_ALIGN_CENTER)
-            append("Terima kasih\n")
-            append("\n")
-
-            // Feed and cut
-            append(ESC_FEED_CUT)
-        }.toByteArray(Charsets.UTF_8)
-    }
+        append(ESC_FEED_CUT)
+    }.toByteArray(Charsets.UTF_8)
 
     /**
      * Generate drawer pulse command.
@@ -159,26 +61,17 @@ class EscPosReceiptFormatter @Inject constructor() {
         }
     }
 
-    private fun formatCurrency(amount: Long): String {
-        return currencyFormat.format(amount).replace("Rp", "Rp ")
+    private fun alignmentCommand(alignment: ReceiptTextAlignment): String = when (alignment) {
+        ReceiptTextAlignment.Left -> ESC_ALIGN_LEFT
+        ReceiptTextAlignment.Center -> ESC_ALIGN_CENTER
+        ReceiptTextAlignment.Right -> ESC_ALIGN_RIGHT
     }
 
-    private fun formatLine(left: String, right: String, maxChars: Int): String {
-        val totalLen = left.length + right.length
-        val spacing = if (totalLen < maxChars) {
-            " ".repeat(maxChars - totalLen)
-        } else {
-            " "
+    private fun requireNoUnsafeTextControls(text: String) {
+        val firstUnsafe = text.firstOrNull { it == '\u007F' || it.code < 0x20 || it.code in 0x80..0x9F }
+        require(firstUnsafe == null) {
+            "ReceiptDocument contains unsafe control character U+${firstUnsafe!!.code.toString(16).uppercase().padStart(4, '0')}"
         }
-        return left + spacing + right
-    }
-
-    private fun separator(maxChars: Int): String {
-        return "-".repeat(maxChars)
-    }
-
-    private fun String.truncate(maxLength: Int): String {
-        return if (length <= maxLength) this else take(maxLength - 3) + "..."
     }
 
     private companion object {
@@ -186,6 +79,7 @@ class EscPosReceiptFormatter @Inject constructor() {
         const val ESC_INIT = "\u001B@" // Initialize printer
         const val ESC_ALIGN_LEFT = "\u001Ba\u0000"
         const val ESC_ALIGN_CENTER = "\u001Ba\u0001"
+        const val ESC_ALIGN_RIGHT = "\u001Ba\u0002"
         const val ESC_BOLD_ON = "\u001BE\u0001"
         const val ESC_BOLD_OFF = "\u001BE\u0000"
         const val ESC_FEED_CUT = "\n\n\n\u001Bd\u0005\u001Bm" // Feed 5 lines + partial cut
