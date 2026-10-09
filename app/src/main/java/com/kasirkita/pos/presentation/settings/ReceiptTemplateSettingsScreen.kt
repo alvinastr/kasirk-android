@@ -1,7 +1,6 @@
 package com.kasirkita.pos.presentation.settings
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -10,7 +9,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -30,15 +28,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.ReceiptDocument
-import com.kasirkita.pos.domain.model.ReceiptLine
-import com.kasirkita.pos.domain.model.ReceiptLineStyle
-import com.kasirkita.pos.domain.model.ReceiptTextAlignment
+import com.kasirkita.pos.presentation.receipt.ReceiptDocumentPreview
 import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirErrorState
 import com.kasirkita.pos.ui.components.KasirLoadingState
@@ -345,16 +338,7 @@ private fun PreviewCard(
                 WidthButton("80 mm", paperWidthMm == 80) { onPaperWidthSelected(80) }
             }
         }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .widthIn(min = if (document.characterWidth == 48) 384.dp else 256.dp),
-        ) {
-            document.lines.forEach { line ->
-                PreviewLine(line = line)
-            }
-        }
+        ReceiptDocumentPreview(document = document)
     }
 }
 
@@ -369,29 +353,4 @@ private fun WidthButton(
     } else {
         OutlinedButton(onClick = onClick) { Text(text) }
     }
-}
-
-@Composable
-private fun PreviewLine(line: ReceiptLine) {
-    Text(
-        text = line.text.ifEmpty { " " },
-        modifier = Modifier.fillMaxWidth(),
-        textAlign = when (line.alignment) {
-            ReceiptTextAlignment.Left -> TextAlign.Start
-            ReceiptTextAlignment.Center -> TextAlign.Center
-            ReceiptTextAlignment.Right -> TextAlign.End
-        },
-        fontFamily = FontFamily.Monospace,
-        fontWeight = when (line.style) {
-            ReceiptLineStyle.Emphasis -> FontWeight.Bold
-            ReceiptLineStyle.Normal,
-            ReceiptLineStyle.Separator,
-            -> FontWeight.Normal
-        },
-        color = if (line.style == ReceiptLineStyle.Separator) {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
-    )
 }

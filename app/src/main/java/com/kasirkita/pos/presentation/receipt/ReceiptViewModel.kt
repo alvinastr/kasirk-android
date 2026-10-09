@@ -4,25 +4,48 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.domain.model.Receipt
+import com.kasirkita.pos.data.datastore.PrinterConfigDataStore
+import com.kasirkita.pos.domain.usecase.BuildReceiptDocumentUseCase
 import com.kasirkita.pos.domain.usecase.GetReceiptUseCase
 import com.kasirkita.pos.domain.usecase.PrintReceiptUseCase
+import com.kasirkita.pos.domain.usecase.ResolveReceiptSettingsUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
-class ReceiptViewModel @Inject constructor(
+class ReceiptViewModel internal constructor(
     savedStateHandle: SavedStateHandle,
     private val getReceipt: GetReceiptUseCase,
     private val printReceipt: PrintReceiptUseCase,
+    private val resolveSettings: suspend (Receipt) -> ResolveReceiptSettingsUseCase.Resolution,
+    private val paperWidthProvider: suspend () -> Int,
+    private val buildDocument: BuildReceiptDocumentUseCase = BuildReceiptDocumentUseCase(),
 ) : ViewModel() {
+
+    @Inject
+    constructor(
+        savedStateHandle: SavedStateHandle,
+        getReceipt: GetReceiptUseCase,
+        printReceipt: PrintReceiptUseCase,
+        resolveSettings: ResolveReceiptSettingsUseCase,
+        printerConfigDataStore: PrinterConfigDataStore,
+    ) : this(
+        savedStateHandle = savedStateHandle,
+        getReceipt = getReceipt,
+        printReceipt = printReceipt,
+        resolveSettings = resolveSettings::invoke,
+        paperWidthProvider = { printerConfigDataStore.configFlow.first().paperWidthMm },
+    )
 
     private val transactionId: String? = savedStateHandle[TRANSACTION_ID_ARGUMENT]
     private val _state = MutableStateFlow<ReceiptState>(ReceiptState.Loading)
     val state: StateFlow<ReceiptState> = _state.asStateFlow()
+    private var isPrinting = false
 
     init {
         loadReceipt()
@@ -39,7 +62,24 @@ class ReceiptViewModel @Inject constructor(
             _state.value = ReceiptState.Loading
             getReceipt(id).fold(
                 onSuccess = { receipt ->
-                    _state.value = ReceiptState.Success(receipt)
+                    val settingsResult = resolveSettings(receipt)
+                    val paperWidthMm = paperWidthProvider()
+                    val document = buildDocument(receipt, settingsResult.settings, paperWidthMm = paperWidthMm)
+                    printReceipt.validatedContext(receipt, settingsResult, document.paperWidthMm).fold(
+                        onSuccess = { printContext ->
+                            _state.value = ReceiptState.Success(
+                                receipt = receipt,
+                                document = document,
+                                settings = settingsResult.settings,
+                                paperWidthMm = document.paperWidthMm,
+                                usedLegacyFallback = settingsResult.usedLegacyFallback,
+                                printContext = printContext,
+                            )
+                        },
+                        onFailure = {
+                            _state.value = ReceiptState.Error(RECEIPT_LOAD_ERROR_MESSAGE)
+                        },
+                    )
                 },
                 onFailure = {
                     _state.value = ReceiptState.Error(RECEIPT_LOAD_ERROR_MESSAGE)
@@ -48,22 +88,32 @@ class ReceiptViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Prints using the current success snapshot only. No settings resolution happens here.
+     * Repeated taps while a print is already running are ignored.
+     */
     fun printReceipt(
-        receipt: Receipt,
         onPrintStart: () -> Unit,
         onPrintComplete: () -> Unit,
         onPrintError: (String) -> Unit,
     ) {
+        val currentState = state.value as? ReceiptState.Success ?: return
+        if (isPrinting) return
+        isPrinting = true
         onPrintStart()
         viewModelScope.launch {
-            printReceipt(receipt).fold(
-                onSuccess = {
-                    onPrintComplete()
-                },
-                onFailure = { error ->
-                    onPrintError(error.message ?: "Gagal cetak")
-                },
-            )
+            try {
+                printReceipt.invokeResolved(currentState.printContext).fold(
+                    onSuccess = {
+                        onPrintComplete()
+                    },
+                    onFailure = { error ->
+                        onPrintError(error.message ?: "Gagal cetak")
+                    },
+                )
+            } finally {
+                isPrinting = false
+            }
         }
     }
 
