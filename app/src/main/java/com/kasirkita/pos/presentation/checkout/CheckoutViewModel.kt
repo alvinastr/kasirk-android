@@ -87,6 +87,7 @@ class CheckoutViewModel @Inject constructor(
                 payment = when (method) {
                     CheckoutPaymentMethod.CASH -> current.payment.selectCash()
                     CheckoutPaymentMethod.QRIS -> current.payment.selectQris()
+                    CheckoutPaymentMethod.EDC -> current.payment.selectEdc()
                 },
                 errorMessage = null,
             )
@@ -146,6 +147,7 @@ class CheckoutViewModel @Inject constructor(
             val error = when (snapshot.payment.method) {
                 CheckoutPaymentMethod.CASH -> "Jumlah pembayaran kurang dari total belanja"
                 CheckoutPaymentMethod.QRIS -> "Pembayaran QRIS tidak valid"
+                CheckoutPaymentMethod.EDC -> "Pembayaran EDC tidak valid"
             }
             _state.update { it.copy(errorMessage = error) }
             return
@@ -479,11 +481,11 @@ class CheckoutViewModel @Inject constructor(
 
         viewModelScope.launch {
             // Reconstruct the frozen payment payload from persisted metadata only.
-            // QRIS can never carry a cash tender amount, CASH keeps its original one.
-            val payment = if (pending.paymentMethod == V1_PAYMENT_METHOD_QRIS) {
-                V1Payment(method = V1_PAYMENT_METHOD_QRIS, amountReceived = null)
-            } else {
-                V1Payment(method = pending.paymentMethod, amountReceived = pending.amountReceived)
+            // QRIS and EDC can never carry a cash tender amount; CASH keeps its original one.
+            val payment = when (pending.paymentMethod) {
+                V1_PAYMENT_METHOD_QRIS -> V1Payment(method = V1_PAYMENT_METHOD_QRIS, amountReceived = null)
+                V1_PAYMENT_METHOD_EDC -> V1Payment(method = V1_PAYMENT_METHOD_EDC, amountReceived = null)
+                else -> V1Payment(method = pending.paymentMethod, amountReceived = pending.amountReceived)
             }
 
             val request = HeldOrderCheckoutRequest(

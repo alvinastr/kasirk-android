@@ -271,6 +271,21 @@ class EscPosReceiptFormatterTest {
     }
 
     @Test
+    fun testEdcPaymentNoFakeTender() {
+        val receipt = createTestReceipt(
+            paymentMethod = "EDC",
+            amountReceived = null,
+            changeAmount = null,
+        )
+        val data = formatter.formatReceipt(receipt, 58)
+        val text = String(data, Charsets.UTF_8)
+
+        assertTrue(text.contains("Metode: EDC"))
+        assertFalse(text.contains("Diterima"))
+        assertFalse(text.contains("Kembalian"))
+    }
+
+    @Test
     fun formatterConsumesCanonicalDocumentAndMapsStyleCommands() {
         val document = ReceiptDocument(
             paperWidthMm = 58,

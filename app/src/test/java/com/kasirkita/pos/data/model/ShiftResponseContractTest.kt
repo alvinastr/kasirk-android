@@ -47,7 +47,7 @@ class ShiftResponseContractTest {
               "closed_at": "2026-09-24T16:00:00.000Z",
               "generated_at": "2026-09-24T16:01:00.000Z",
               "transaction_count": 2,
-              "totals": { "sales": 30000, "cash": 10000, "qris": 20000 },
+              "totals": { "sales": 30000, "cash": 10000, "qris": 15000, "edc": 5000 },
               "products": [
                 { "product_id": "product-2", "product_name": "Teh", "quantity": 1 },
                 { "product_id": "product-1", "product_name": "Kopi", "quantity": 3 }
@@ -67,8 +67,28 @@ class ShiftResponseContractTest {
         assertEquals(2, summary.transactionCount)
         assertEquals(30_000L, summary.totals.sales)
         assertEquals(10_000L, summary.totals.cash)
-        assertEquals(20_000L, summary.totals.qris)
+        assertEquals(15_000L, summary.totals.qris)
+        assertEquals(5_000L, summary.totals.edc)
         assertEquals(listOf("product-2", "product-1"), summary.products.map { it.productId })
         assertEquals(listOf(1, 3), summary.products.map { it.quantity })
+    }
+
+    @Test
+    fun legacyShiftSummaryPayload_withoutEdc_defaultsEdcToZero() {
+        val response = gson.fromJson(
+            """
+            {
+              "shift_id": "shift-legacy", "status": "CLOSED",
+              "outlet": { "id": "outlet-1", "name": "Outlet Utama" },
+              "cashier": { "id": "user-1", "name": "Kasir Utama" },
+              "opened_at": "2026-09-24T08:00:00.000Z", "closed_at": null,
+              "generated_at": "2026-09-24T16:01:00.000Z", "transaction_count": 1,
+              "totals": { "sales": 10000, "cash": 10000, "qris": 0 }, "products": []
+            }
+            """.trimIndent(),
+            ShiftSummaryResponse::class.java,
+        )
+
+        assertEquals(0L, response.toDomain().totals.edc)
     }
 }

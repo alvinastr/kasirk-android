@@ -384,6 +384,11 @@ class BuildReceiptDocumentUseCaseTest {
         assertTrue(qris.contains("Metode: QRIS"))
         assertFalse(qris.contains("Diterima"))
         assertFalse(qris.contains("Kembalian"))
+
+        val edc = builder(baseReceipt(payment = payment("EDC", amountReceived = null, changeAmount = null)), null, 58).textLines().joinToString("\n")
+        assertTrue(edc.contains("Metode: EDC"))
+        assertFalse(edc.contains("Diterima"))
+        assertFalse(edc.contains("Kembalian"))
     }
 
     @Test

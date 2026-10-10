@@ -33,6 +33,8 @@ data class ShiftSummaryTotalsResponse(
     val sales: Long,
     val cash: Long,
     val qris: Long,
+    @SerializedName("edc")
+    val edc: Long = 0L,
 )
 
 data class ShiftSummaryProductResponse(
@@ -56,6 +58,7 @@ fun ShiftSummaryResponse.toDomain(): ShiftSummary = ShiftSummary(
         sales = totals.sales,
         cash = totals.cash,
         qris = totals.qris,
+        edc = totals.edc,
     ),
     products = products.map { product ->
         ShiftProductSummary(

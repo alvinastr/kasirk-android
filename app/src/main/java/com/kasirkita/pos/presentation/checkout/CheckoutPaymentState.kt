@@ -4,11 +4,13 @@ import com.kasirkita.pos.domain.model.V1Payment
 
 internal const val V1_PAYMENT_METHOD_CASH = "CASH"
 internal const val V1_PAYMENT_METHOD_QRIS = "QRIS"
+internal const val V1_PAYMENT_METHOD_EDC = "EDC"
 internal const val MAX_QUICK_TENDER_CANDIDATES = 4
 
 enum class CheckoutPaymentMethod {
     CASH,
     QRIS,
+    EDC,
 }
 
 enum class CashTenderMode {
@@ -46,7 +48,8 @@ data class CheckoutPaymentState(
     val canSubmit: Boolean
         get() = when (method) {
             CheckoutPaymentMethod.CASH -> amountReceived != null && amountReceived >= totalAmount
-            CheckoutPaymentMethod.QRIS -> totalAmount >= 0L
+            CheckoutPaymentMethod.QRIS,
+            CheckoutPaymentMethod.EDC -> totalAmount >= 0L
         }
 
     fun withTotal(total: Long): CheckoutPaymentState = copy(totalAmount = total.coerceAtLeast(0L))
@@ -60,6 +63,13 @@ data class CheckoutPaymentState(
 
     fun selectQris(): CheckoutPaymentState = copy(
         method = CheckoutPaymentMethod.QRIS,
+        amountReceived = null,
+        tenderMode = CashTenderMode.NONE,
+        manualInput = "",
+    )
+
+    fun selectEdc(): CheckoutPaymentState = copy(
+        method = CheckoutPaymentMethod.EDC,
         amountReceived = null,
         tenderMode = CashTenderMode.NONE,
         manualInput = "",
@@ -97,6 +107,7 @@ data class CheckoutPaymentState(
     fun toPayment(): V1Payment = when (method) {
         CheckoutPaymentMethod.CASH -> V1Payment(V1_PAYMENT_METHOD_CASH, amountReceived)
         CheckoutPaymentMethod.QRIS -> V1Payment(V1_PAYMENT_METHOD_QRIS, null)
+        CheckoutPaymentMethod.EDC -> V1Payment(V1_PAYMENT_METHOD_EDC, null)
     }
 }
 

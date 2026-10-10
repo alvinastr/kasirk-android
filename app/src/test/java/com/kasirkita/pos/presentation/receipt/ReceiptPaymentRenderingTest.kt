@@ -76,6 +76,23 @@ class ReceiptPaymentRenderingTest {
     }
 
     @Test
+    fun `EDC payment has no amountReceived or changeAmount`() {
+        val payment = Payment(
+            id = "pay1",
+            method = "EDC",
+            status = "settled",
+            amount = 68000L,
+            paidAt = "2024-01-15T10:30:00Z",
+            amountReceived = null,
+            changeAmount = null,
+        )
+
+        assertEquals("EDC", payment.method)
+        assertNull(payment.amountReceived)
+        assertNull(payment.changeAmount)
+    }
+
+    @Test
     fun `receipt change field distinct from payment changeAmount`() {
         val receipt = createMinimalReceipt(
             payment = Payment(

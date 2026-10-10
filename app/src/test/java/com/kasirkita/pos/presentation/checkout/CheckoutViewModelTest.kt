@@ -265,6 +265,37 @@ class CheckoutViewModelTest {
         assertTrue(cart.getCart().value.items.isEmpty())
     }
 
+    @Test fun edcCanSubmitWithoutTenderAndSendsMethodOnlyPayment() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+
+        vm.selectQuickTender(100_000L)
+        vm.selectPaymentMethod(CheckoutPaymentMethod.EDC)
+        assertNull(vm.state.value.payment.amountReceived)
+        assertTrue(vm.state.value.payment.canSubmit)
+        vm.confirmPayment()
+        runCurrent()
+
+        val request = online.requests.single()
+        assertEquals("sale-id", request.clientTransactionId)
+        assertEquals("EDC", request.payment.method)
+        assertNull(request.payment.amountReceived)
+    }
+
+    @Test fun edcNetworkFailureQueuesV2SnapshotWithTotalAndNoTender() = runTest(dispatcher) {
+        val vm = viewModel()
+        runCurrent()
+        vm.selectPaymentMethod(CheckoutPaymentMethod.EDC)
+        vm.confirmPayment()
+        runCurrent()
+        online.complete(Result.failure(IOException("offline")))
+        advanceUntilIdle()
+
+        assertEquals("EDC", offline.requests.single().payment.method)
+        assertNull(offline.requests.single().payment.amountReceived)
+        assertEquals(50_000L, offline.snapshots.single().paymentAmount)
+    }
+
     @Test fun cashNetworkFailureQueuesV2SnapshotWithTenderAndSameRequest() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()

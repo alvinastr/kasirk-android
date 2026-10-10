@@ -421,8 +421,9 @@ private fun SummaryCard(summary: ShiftSummary) {
         Spacer(modifier = Modifier.height(8.dp))
         ShiftValueInline(label = "Transaksi", value = summary.transactionCount.toString())
         ShiftMoneyInline(label = "Total Penjualan", amount = summary.totals.sales)
-        ShiftMoneyInline(label = "CASH", amount = summary.totals.cash)
+        ShiftMoneyInline(label = "Tunai", amount = summary.totals.cash)
         ShiftMoneyInline(label = "QRIS", amount = summary.totals.qris)
+        ShiftMoneyInline(label = "EDC", amount = summary.totals.edc)
         Spacer(modifier = Modifier.height(8.dp))
         Text(
             text = "Produk Terjual",

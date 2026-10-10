@@ -769,7 +769,7 @@ Status: **CLOSED — cashier-first Checkout and Receipt flow verified manually o
 
 - Checkout screen now uses a clear payment-completion hierarchy with `KasirTopBar`, order summary, cart item rows, payment method section, cash input section, and bottom completion CTA.
 - Payment/cash/change presentation is explicit: `Uang diterima`, insufficient-cash `Kurang`, and successful `Kembalian` use Indonesian customer-facing labels and the Phase 5B price components.
-- Existing CASH payment method remains unchanged; future translation to "Tunai" is deferred and not a Phase 5F blocker.
+- Existing CASH payment behavior remains unchanged; the checkout and shift summaries present it as "Tunai" alongside QRIS and EDC.
 - Receipt screen now presents transaction completion with a clear `Transaksi Berhasil` header, store/outlet/cashier context, readable item rows, totals, payment details, and bottom `Transaksi Baru` CTA.
 - Transaction ID remains available but visually secondary in the receipt footer.
 - Offline/pending-sync presentation is preserved; Checkout still shows queued transaction state without changing queue/sync logic.
@@ -1041,6 +1041,18 @@ clean
 ### Build Verification Notice
 
 The signed verification APK was built with `-Pkasirkita.releaseApiBaseUrl=https://example.com/`. `https://example.com/` is **only a documentation placeholder domain** and is NOT a reachable service. This APK is **NOT production-distributable**; its API base URL still points to the placeholder domain. Before any production distribution the real backend HTTPS URL must replace the placeholder, and a production-distributable release build must be generated from that configuration.
+
+## M18B — Record-only EDC Android Support
+
+Status: **OPEN — M18B implemented and locally verified; deployment and physical validation pending.**
+
+- Checkout supports `CASH`, `QRIS`, and record-only `EDC`. EDC sends only `method: "EDC"`; it has no tender, change, provider, card, bank, gateway, or webhook data.
+- EDC guidance requires the cashier to confirm success on the external machine before completing checkout. It uses the existing completion action and never opens the cash drawer.
+- Supported V2 offline payloads persist and replay EDC method-only payments. Legacy RC2 remains CASH-only. Existing CASH and QRIS flows remain unchanged.
+- Shift summaries expose separate Tunai, QRIS, and EDC totals. Older responses without `edc` map that bucket to zero; total sales and non-reconciling fields are unchanged.
+- Receipts, transaction details, history, manual/automatic print, and reprint preserve `Metode: EDC` without tender or change fields.
+- Verification: focused M18B 231/231, full unit 798/798, Kotlin compilation, `lintDebug`, `assembleDebug`, `assembleRelease`, and `git diff --check` all PASS. The release artifact from this verification environment was unsigned; signed release verification remains pending. No APK was installed and no production API was contacted.
+- Backend M18A is pushed but not deployed, so production EDC is unavailable. Deployment, signed release verification, and physical EDC/printer QA remain pending; M18 remains OPEN and is not marked complete.
 
 ## Next Milestones
 

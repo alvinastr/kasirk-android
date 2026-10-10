@@ -126,6 +126,21 @@ class HeldOrderRequestSerializationTest {
     }
 
     @Test
+    fun checkoutRequest_edc_isMethodOnlyAndHasNoCashTender() {
+        val edc = gson.toJson(
+            CheckoutHeldOrderRequest(
+                expectedVersion = 1,
+                clientTransactionId = "client-transaction-1",
+                payment = V1PaymentRequest(method = "EDC", amountReceived = null),
+            ),
+        )
+
+        val payment = com.google.gson.JsonParser.parseString(edc).asJsonObject["payment"].asJsonObject
+        assertEquals(setOf("method"), payment.keySet())
+        assertEquals("EDC", payment["method"].asString)
+    }
+
+    @Test
     fun checkoutResponse_deserializesBackendEnvelopeWithoutDefaultingReplayed() {
         val json = """
             {

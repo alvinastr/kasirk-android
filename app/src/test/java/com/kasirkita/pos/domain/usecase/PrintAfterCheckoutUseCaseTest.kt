@@ -55,6 +55,17 @@ class PrintAfterCheckoutUseCaseTest {
     }
 
     @Test
+    fun autoPrintEdcNeverOpensCashDrawer() = runTest {
+        val fixture = Fixture(config = printerConfig(autoDrawer = true))
+        val useCase = fixture.useCase(settingsResolution = ResolveReceiptSettingsUseCase.Resolution(null, true))
+
+        val result = useCase(receipt = sampleReceipt(), paymentMethod = "EDC", isOriginalOnlineCheckout = true)
+
+        assertTrue(result is PrintAfterCheckoutUseCase.Result.Success)
+        assertEquals(listOf("receipt"), fixture.printedKinds)
+    }
+
+    @Test
     fun autoPrintNoCacheUsesLegacyFallback() = runTest {
         val fixture = Fixture(config = printerConfig())
         val useCase = fixture.useCase(settingsResolution = ResolveReceiptSettingsUseCase.Resolution(null, true))
@@ -198,7 +209,9 @@ class PrintAfterCheckoutUseCaseTest {
                 if (settingsException != null) throw settingsException
                 settingsResolution ?: ResolveReceiptSettingsUseCase.Resolution(null, true)
             },
-            drawerEligible = { _: Boolean, _: String, _: Boolean, enabled: Boolean -> enabled },
+            drawerEligible = { _: Boolean, paymentMethod: String, _: Boolean, enabled: Boolean ->
+                paymentMethod == "CASH" && enabled
+            },
         )
     }
 

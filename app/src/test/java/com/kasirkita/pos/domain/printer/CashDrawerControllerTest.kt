@@ -47,6 +47,17 @@ class CashDrawerControllerTest {
     }
 
     @Test
+    fun testDrawerNotEligibleEDC() {
+        val isOriginalOnline = true
+        val paymentMethod = "EDC"
+        val printerConfigured = true
+        val autoDrawer = true
+
+        val eligible = isOriginalOnline && paymentMethod == "CASH" && printerConfigured && autoDrawer
+        assertFalse(eligible)
+    }
+
+    @Test
     fun testDrawerNotEligibleNoAutoDrawer() {
         val isOriginalOnline = true
         val paymentMethod = "CASH"

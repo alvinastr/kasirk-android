@@ -77,6 +77,25 @@ class TransactionResponseJsonTest {
         assertEquals(5_000L, transaction.change)
     }
 
+    @Test
+    fun detailResponse_preservesEdcAsRecordOnlyPayment() {
+        val response = gson.fromJson(
+            DETAIL_JSON.replace("\"method\": \"CASH\"", "\"method\": \"EDC\"")
+                .replace("\"amount_received\": 35000", "\"amount_received\": null")
+                .replace("\"change_amount\": 10000", "\"change_amount\": null")
+                .replace("\"change\": 5000", "\"change\": null"),
+            TransactionDetailResponse::class.java,
+        )
+        val transaction = response.toDomain()
+        val payment = transaction.payments.single()
+
+        assertEquals("EDC", payment.method)
+        assertEquals(30_000L, payment.amount)
+        assertNull(payment.amountReceived)
+        assertNull(payment.changeAmount)
+        assertNull(transaction.change)
+    }
+
     private companion object {
         val LIST_JSON = """
             {

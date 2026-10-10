@@ -63,6 +63,21 @@ class CheckoutPaymentStateTest {
         assertFalse(state.canSubmit)
     }
 
+    @Test
+    fun switchingCashToEdc_clearsCashTenderAndUsesMethodOnlyPayment() {
+        val state = CheckoutPaymentState(totalAmount = 27_000L)
+            .selectTender(50_000L)
+            .selectEdc()
+
+        assertEquals(CheckoutPaymentMethod.EDC, state.method)
+        assertNull(state.amountReceived)
+        assertEquals(0L, state.changeAmount)
+        assertEquals(0L, state.shortageAmount)
+        assertTrue(state.canSubmit)
+        assertEquals(V1_PAYMENT_METHOD_EDC, state.toPayment().method)
+        assertNull(state.toPayment().amountReceived)
+    }
+
     // ============================================================
     // UANG PAS
     // ============================================================
@@ -300,6 +315,16 @@ class CheckoutPaymentStateTest {
         val payment = qris.toPayment()
         assertEquals(V1_PAYMENT_METHOD_QRIS, payment.method)
         assertNull(payment.amountReceived)
+    }
+
+    @Test
+    fun edcCanSubmit_withoutAnyCashTender() {
+        val edc = CheckoutPaymentState(totalAmount = 27_000L).selectEdc()
+
+        assertTrue(edc.canSubmit)
+        assertNull(edc.amountReceived)
+        assertEquals(V1_PAYMENT_METHOD_EDC, edc.toPayment().method)
+        assertNull(edc.toPayment().amountReceived)
     }
 
     @Test

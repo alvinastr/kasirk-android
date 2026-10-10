@@ -74,6 +74,40 @@ class V1CreateTransactionRequestJsonTest {
     }
 
     @Test
+    fun edcPayment_serializesMethodOnlyWithoutSensitiveOrProviderFields() {
+        val request = V1CreateTransactionRequest(
+            clientTransactionId = "c2d2d2d2-aaaa-4444-bbbb-222222222222",
+            outletId = "outlet-id",
+            cashierSessionId = "session-id",
+            customerId = null,
+            items = listOf(
+                V1CreateTransactionItemRequest(
+                    productId = "product-id",
+                    quantity = 1,
+                    modifierOptionIds = emptyList(),
+                    note = null,
+                ),
+            ),
+            payment = V1PaymentRequest(method = "EDC", amountReceived = null),
+            discount = null,
+        )
+
+        val json = gson.toJsonTree(request).asJsonObject
+        val paymentJson = json.getAsJsonObject("payment")
+
+        assertEquals(setOf("method"), paymentJson.keySet())
+        assertEquals("EDC", paymentJson.get("method").asString)
+        assertTrue(json.has("outlet_id"))
+        assertTrue(json.has("cashier_session_id"))
+        assertTrue(json.has("items"))
+        assertFalse(paymentJson.has("amount"))
+        assertFalse(paymentJson.has("amount_received"))
+        assertFalse(paymentJson.has("change_amount"))
+        assertFalse(paymentJson.has("provider"))
+        assertFalse(paymentJson.has("provider_reference"))
+    }
+
+    @Test
     fun v1Request_includesExplicitCashierSessionId() {
         val request = V1CreateTransactionRequest(
             clientTransactionId = "c3c3c3c3-aaaa-4444-bbbb-333333333333",

@@ -37,6 +37,16 @@ class ShiftStateTest {
     }
 
     @Test
+    fun summaryTotals_keepCashQrisAndEdcSeparate() {
+        val totals = summary().totals
+
+        assertEquals(10_000L, totals.cash)
+        assertEquals(5_000L, totals.qris)
+        assertEquals(5_000L, totals.edc)
+        assertEquals(20_000L, totals.sales)
+    }
+
+    @Test
     fun summaryFailure_keepsActiveShiftAndDoesNotFabricateTotals() {
         val shift = openShift()
 
@@ -93,7 +103,7 @@ class ShiftStateTest {
         closedAt = null,
         generatedAt = "2026-09-24T09:00:00.000Z",
         transactionCount = 1,
-        totals = ShiftSummaryTotals(sales = 20_000L, cash = 10_000L, qris = 10_000L),
+        totals = ShiftSummaryTotals(sales = 20_000L, cash = 10_000L, qris = 5_000L, edc = 5_000L),
         products = emptyList(),
     )
 }

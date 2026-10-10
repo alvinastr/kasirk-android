@@ -719,6 +719,21 @@ class OfflineSyncRepositoryImplTest {
     }
 
     @Test
+    fun v2_edc_roundTrip_hasMethodOnlyPayment() = runBlocking {
+        val request = V1TransactionRequest(
+            clientTransactionId = UUID.randomUUID().toString(), outletId = OUTLET_ID,
+            cashierSessionId = "4c0e3c2c-1a1d-4e55-a8d1-f43cd0f655ab", customerId = null,
+            items = listOf(V1TransactionItemRequest(PRODUCT_ID, 1, emptyList(), null)),
+            payment = V1Payment("EDC", null),
+        )
+        val queued = repository.queueV1Transaction(request, sampleFinancialSnapshot()).getOrThrow()
+        val json = queued.payloadJson
+        assertTrue(json.contains("\"method\":\"EDC\""))
+        assertTrue(!json.contains("amount_received"))
+        assertTrue(!json.contains("\"amount\""))
+    }
+
+    @Test
     fun unknownVersion_failsWithoutBackendSubmission() = runBlocking {
         val queued = queueTransaction("22222222-2222-4222-8222-222222222222")
         dao.replacePayload(queued.clientTransactionId, queued.payloadJson.replace("\"version\":1", "\"version\":99"))
@@ -842,6 +857,44 @@ class OfflineSyncRepositoryImplTest {
         assertEquals(setOf("method"), transaction.getAsJsonObject("payment").keySet())
         assertEquals("QRIS", transaction.getAsJsonObject("payment").get("method").asString)
         assertEquals(request.cashierSessionId, transaction.get("cashier_session_id").asString)
+    }
+
+    @Test
+    fun v2EdcSync_serializesMethodOnlyPaymentAndKeepsSession() = runBlocking {
+        val request = v2Request(payment = V1Payment("EDC", null)).copy(discount = null)
+        repository.queueV1Transaction(request, sampleFinancialSnapshot()).getOrThrow()
+        api.responder = { incoming -> Response.success(successResponse(incoming)) }
+
+        repository.syncPendingTransactions().getOrThrow()
+
+        val transaction = capturedTransactions().single()
+        assertEquals(setOf("method"), transaction.getAsJsonObject("payment").keySet())
+        assertEquals("EDC", transaction.getAsJsonObject("payment").get("method").asString)
+        assertEquals(request.cashierSessionId, transaction.get("cashier_session_id").asString)
+    }
+
+    @Test
+    fun v2EdcRetry_reusesPersistedMethodOnlyPayload() = runBlocking {
+        val request = v2Request(payment = V1Payment("EDC", null))
+        val queued = repository.queueV1Transaction(request, v2Snapshot(paymentAmount = 19_500L)).getOrThrow()
+        api.responder = { throw IOException("offline") }
+
+        repository.syncPendingTransactions().getOrThrow()
+        api.responder = { incoming -> Response.success(successResponse(incoming)) }
+        repository.syncPendingTransactions().getOrThrow()
+
+        assertEquals(2, api.requests.size)
+        assertEquals(queued.payloadJson, dao.find(queued.clientTransactionId)?.payloadJson)
+        api.requests.forEach { syncRequest ->
+            assertEquals(setOf("method"), syncRequest.transactions.single().payment.let { payment ->
+                buildSet {
+                    add("method")
+                    if (payment.amountReceived != null) add("amount_received")
+                }
+            })
+            assertEquals("EDC", syncRequest.transactions.single().payment.method)
+            assertNull(syncRequest.transactions.single().payment.amountReceived)
+        }
     }
 
     @Test

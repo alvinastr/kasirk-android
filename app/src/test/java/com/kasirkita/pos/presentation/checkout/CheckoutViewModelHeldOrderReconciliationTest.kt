@@ -356,6 +356,36 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         assertNull(retry.payment.amountReceived)
     }
 
+    @Test
+    fun edcRetry_staysEdcWithNoCashAmount() = runTest(dispatcher) {
+        seedCart()
+        val handle = freshHandle()
+        val vm = viewModel(handle)
+        runCurrent()
+
+        heldOrders.checkoutResult = Result.failure(IOException("lost response"))
+        vm.selectPaymentMethod(CheckoutPaymentMethod.EDC)
+        vm.confirmPayment()
+        advanceUntilIdle()
+
+        assertEquals("EDC", heldOrders.checkoutCalls.first().payment.method)
+        assertNull(heldOrders.checkoutCalls.first().payment.amountReceived)
+
+        // UI switched to CASH; the frozen EDC payload must still be replayed.
+        vm.selectPaymentMethod(CheckoutPaymentMethod.CASH)
+        vm.selectQuickTender(100_000)
+
+        heldOrders.checkoutResult = Result.success(
+            HeldOrderCheckoutResult(canonicalTransaction(paymentMethod = "EDC"), replayed = false),
+        )
+        vm.retryHeldOrderCheckout()
+        advanceUntilIdle()
+
+        val retry = heldOrders.checkoutCalls.last()
+        assertEquals("EDC", retry.payment.method)
+        assertNull(retry.payment.amountReceived)
+    }
+
     // ---------------------------------------------------------------------
     // 9. repeated IOException keeps identical pending request
     // ---------------------------------------------------------------------

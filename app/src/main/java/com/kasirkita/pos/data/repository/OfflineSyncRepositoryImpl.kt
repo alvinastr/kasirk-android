@@ -600,13 +600,13 @@ class OfflineSyncRepositoryImpl @Inject constructor(
 
     private fun PaymentRequest.isValidV2Payment(): Boolean = when (method) {
         "CASH" -> amount == null && amountReceived != null && amountReceived >= 0L
-        "QRIS" -> amount == null && amountReceived == null
+        "QRIS", "EDC" -> amount == null && amountReceived == null
         else -> false
     }
 
     private fun V1Payment.isValidV2Payment(): Boolean = when (method) {
         "CASH" -> amountReceived != null && amountReceived >= 0L
-        "QRIS" -> amountReceived == null
+        "QRIS", "EDC" -> amountReceived == null
         else -> false
     }
 
@@ -628,7 +628,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
             total >= 0L && discount <= subtotal && calculatedTotal == total && paymentAmount >= 0L &&
             when (method) {
                 "CASH" -> amountReceived != null && amountReceived >= total && paymentAmount == amountReceived
-                "QRIS" -> amountReceived == null && paymentAmount == total
+                "QRIS", "EDC" -> amountReceived == null && paymentAmount == total
                 else -> false
             }
     }

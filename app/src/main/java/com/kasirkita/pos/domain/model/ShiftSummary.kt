@@ -22,6 +22,7 @@ data class ShiftSummaryTotals(
     val sales: Long,
     val cash: Long,
     val qris: Long,
+    val edc: Long = 0L,
 )
 
 data class ShiftProductSummary(

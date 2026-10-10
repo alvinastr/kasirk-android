@@ -448,6 +448,12 @@ private fun PaymentMethodSection(
                 modifier = Modifier.weight(1f),
                 enabled = method != CheckoutPaymentMethod.QRIS,
             )
+            KasirSecondaryButton(
+                text = "EDC",
+                onClick = { onMethodSelected(CheckoutPaymentMethod.EDC) },
+                modifier = Modifier.weight(1f),
+                enabled = method != CheckoutPaymentMethod.EDC,
+            )
         }
         Text(
             text = "Dipilih: ${method.name}",
@@ -474,6 +480,15 @@ private fun PaymentControls(
         if (payment.method == CheckoutPaymentMethod.QRIS) {
             Text(
                 text = "QRIS toko (QR fisik/statik). Pastikan kasir memverifikasi pembayaran melalui QRIS toko sebelum konfirmasi.",
+                style = MaterialTheme.typography.body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@KasirCard
+        }
+
+        if (payment.method == CheckoutPaymentMethod.EDC) {
+            Text(
+                text = "Pastikan pembayaran pada mesin EDC berhasil sebelum menyelesaikan transaksi.",
                 style = MaterialTheme.typography.body,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -549,10 +564,10 @@ private fun SubmitPaymentSection(
     onSubmit: () -> Unit,
 ) {
     val canSubmit = isEnabled && payment.canSubmit && !isLoading
-    val buttonText = if (payment.method == CheckoutPaymentMethod.QRIS) {
-        "Konfirmasi Pembayaran QRIS"
-    } else {
-        "Selesaikan Transaksi"
+    val buttonText = when (payment.method) {
+        CheckoutPaymentMethod.QRIS -> "Konfirmasi Pembayaran QRIS"
+        CheckoutPaymentMethod.EDC -> "Konfirmasi Pembayaran EDC"
+        CheckoutPaymentMethod.CASH -> "Selesaikan Transaksi"
     }
 
     Column(
