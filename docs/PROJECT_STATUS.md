@@ -1085,6 +1085,48 @@ Status: **IMPLEMENTED — automated verification and tablet physical QA PASS; ph
 - Customer Management, Staff/User Management, and Product Media are not implemented by M19A and remain future feature milestones.
 - No backend, API, Room/DataStore, payment, offline queue, printer, receipt, signing, package, or version behavior was changed.
 
+## M19B — Operational Home Dashboard
+
+Status: **CLOSED — operational dashboard implemented, automated verification passed, and tablet physical QA passed.**
+
+### Dashboard behavior
+
+- OWNER and ADMIN Home displays authenticated identity, outlet and shift context, daily sales total, daily transaction count, current-shift transaction count, separate Tunai, QRIS, and EDC totals, authoritative held-order total, and synchronization status.
+- CASHIER Home never requests or displays tenant-level daily sales. CASHIER receives current-shift summary, held-order, and synchronization state only.
+- Daily sales uses the existing reports API and use case. It is not calculated from local transaction lists.
+- Shift values use the active shift summary. Held-order count uses pagination `meta.total`, never the first-page list size.
+- The root `CartViewModel` remains the sole cart and held-order owner. Held-order state distinguishes `NotLoaded`, `Loading`, `Available`, `Stale`, and `Error`.
+
+### State and isolation
+
+- Daily-sales and shift-summary groups use independent jobs, retries, request tokens, response identity validation, and cancellation handling.
+- Home operational context includes tenant, authenticated user, role, outlet, active shift, and cashier-session identity.
+- Held-order refreshes coalesce for the same context. Mandatory mutation refreshes invalidate older work, and authoritative results publish items and `meta.total` together.
+- Tenant, user, outlet, shift, cashier-session, and logout transitions clear state and reject late responses. Lifecycle resume uses normal same-context coalescing rather than forced replacement.
+
+### Verification
+
+- Full `:app:testDebugUnitTest`: **841 passed**, 0 failures, 0 errors, 0 skipped.
+- Focused Home, Cart, held-order repository, presentation-policy, and M19A navigation tests passed.
+- `compileDebugKotlin`, `compileDebugUnitTestKotlin`, `lintDebug`, and `assembleDebug` passed.
+- Signed release build with `https://api.bekasirk.tech/` passed. Package remains `com.kasirkita.pos`; certificate SHA-256 remains `f1b37763c7da2cf7d3e03c6cfe7b630887901acf08dd8e115063a00e872b193b`.
+- `git diff --check` passed.
+
+### Physical QA
+
+Tablet `RR2N50016ZZ` QA passed:
+
+- Adaptive tablet NavigationRail remained functional.
+- Dark mode passed on Home, Kasir, Lainnya, and Order Tersimpan. Light mode passed on Home, Kasir, and Lainnya.
+- No mixed white/dark root canvas remained, and semantic green selected navigation remained visible.
+- Dashboard loaded daily sales and current-shift values. Held-order authoritative count changed `0 → 1 → 0`; the created order appeared and cancellation returned the list to empty. Kasir badge returned to `Order Tersimpan (0)`.
+- Offline Home showed explicit unavailable or stale states with retry actions. Held-order offline presentation showed the last known value as unsynchronized. Returning online restored daily, shift, and held-order data.
+- No crash or blocked navigation was observed.
+
+Phone NavigationBar physical QA, phone portrait/landscape QA, TalkBack QA, and large-font QA were not performed. No production deployment, backend change, new API, or database migration was made.
+
+M19A navigation, Shift `GATE`/`MANAGE` behavior, root `CartViewModel` ownership, CASH/QRIS/EDC payments, offline checkout, printer behavior, and receipt behavior remain unchanged. Customer Management, Staff/User Management, and Product Media are not implemented.
+
 ## Next Milestones
 
 1. Receipt Template Settings / Receipt V2.

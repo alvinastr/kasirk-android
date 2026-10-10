@@ -23,7 +23,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.awaitCancellation
 import com.kasirkita.pos.domain.model.Shift
+import com.kasirkita.pos.domain.model.ShiftSummary
+import com.kasirkita.pos.domain.model.UserRole
+import com.kasirkita.pos.presentation.cart.CartViewModel
+import com.kasirkita.pos.presentation.cart.HeldOrderTotalState
 import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirPrimaryButton
 import com.kasirkita.pos.ui.components.KasirSecondaryButton
@@ -49,12 +57,46 @@ fun HomeScreen(
     onShiftClick: () -> Unit,
     currentUserName: String? = null,
     currentOutletName: String? = null,
+    currentOutletId: String? = null,
+    currentTenantId: String? = null,
+    currentUserId: String? = null,
+    currentCashierSessionId: String? = null,
     currentShift: Shift? = null,
+    role: UserRole? = null,
+    onHeldOrdersClick: () -> Unit = {},
+    cartViewModel: CartViewModel,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val syncState by viewModel.syncState.collectAsState()
+    val dashboardState by viewModel.dashboardState.collectAsState()
+    val cartState by cartViewModel.state.collectAsState()
+    val lifecycleOwner = LocalLifecycleOwner.current
     val numberFormat = NumberFormat.getNumberInstance(Locale("id", "ID"))
     val hasActiveShift = currentShift?.status == "OPEN"
+
+    LaunchedEffect(
+        lifecycleOwner,
+        role,
+        currentOutletId,
+        currentShift?.id,
+        currentTenantId,
+        currentUserId,
+        currentCashierSessionId,
+    ) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            viewModel.refresh(
+                role = role,
+                outletId = currentOutletId,
+                shiftId = currentShift?.takeIf { it.status == "OPEN" }?.id,
+                tenantId = currentTenantId,
+                userId = currentUserId,
+                cashierSessionId = currentCashierSessionId,
+                force = false,
+            )
+            cartViewModel.refreshHeldOrders()
+            awaitCancellation()
+        }
+    }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val isWide = homeUsesWideLayout(maxWidth.value.toInt())
@@ -82,7 +124,6 @@ fun HomeScreen(
                             outletName = currentOutletName,
                             currentShift = currentShift,
                             numberFormat = numberFormat,
-                            onShiftClick = onShiftClick,
                             modifier = Modifier.weight(1f),
                         )
                         PrimaryCashierActionCard(
@@ -97,7 +138,6 @@ fun HomeScreen(
                         outletName = currentOutletName,
                         currentShift = currentShift,
                         numberFormat = numberFormat,
-                        onShiftClick = onShiftClick,
                     )
                     PrimaryCashierActionCard(
                         hasActiveShift = hasActiveShift,
@@ -106,11 +146,111 @@ fun HomeScreen(
                     )
                 }
 
+                DashboardOperationalSummary(
+                    role = role,
+                    dailySales = dashboardState.dailySales,
+                    shiftSummary = dashboardState.shiftSummary,
+                    onRetryDaily = { viewModel.retryDaily(role, currentOutletId) },
+                    onRetryShift = {
+                        viewModel.retryShift(
+                            currentOutletId,
+                            currentShift?.takeIf { it.status == "OPEN" }?.id,
+                        )
+                    },
+                )
+
+                HeldOrdersSummary(
+                    totalState = cartState.heldOrderTotalState,
+                    onRetry = cartViewModel::refreshHeldOrders,
+                    onOpen = onHeldOrdersClick,
+                )
+
                 SyncStatusCard(
                     syncState = syncState,
                     onSyncNow = viewModel::syncNow,
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun DashboardOperationalSummary(
+    role: UserRole?,
+    dailySales: DashboardMetric<com.kasirkita.pos.domain.model.DailySalesReport>,
+    shiftSummary: DashboardMetric<ShiftSummary>,
+    onRetryDaily: () -> Unit,
+    onRetryShift: () -> Unit,
+) {
+    if (role == UserRole.CASHIER) {
+        ShiftSummarySurface(shiftSummary, onRetryShift)
+        return
+    }
+    if (role == UserRole.OWNER || role == UserRole.ADMIN) {
+        KasirCard(modifier = Modifier.fillMaxWidth()) {
+            Text("Hari ini", style = MaterialTheme.typography.sectionTitle, color = MaterialTheme.colorScheme.onSurface)
+            when (dailySales) {
+                DashboardMetric.NotRequested -> Unit
+                DashboardMetric.Loading -> Text("Memuat penjualan...", style = MaterialTheme.typography.supporting)
+                is DashboardMetric.Success -> {
+                    PriceDisplay("Total penjualan", formatRupiah(dailySales.value.totalSales, NumberFormat.getNumberInstance(Locale("id", "ID"))))
+                    HomeMetricRow("Transaksi", dailySales.value.transactionCount.toString(), MaterialTheme.colorScheme.onSurface)
+                }
+                is DashboardMetric.Error -> MetricError(dailySales.message, onRetryDaily)
+            }
+        }
+        ShiftSummarySurface(shiftSummary, onRetryShift)
+    }
+}
+
+@Composable
+private fun ShiftSummarySurface(state: DashboardMetric<ShiftSummary>, onRetry: () -> Unit) {
+    KasirCard(modifier = Modifier.fillMaxWidth()) {
+        Text("Shift aktif", style = MaterialTheme.typography.sectionTitle, color = MaterialTheme.colorScheme.onSurface)
+        when (state) {
+            DashboardMetric.NotRequested -> Text("Buka shift untuk melihat ringkasan.", style = MaterialTheme.typography.supporting)
+            DashboardMetric.Loading -> Text("Memuat ringkasan shift...", style = MaterialTheme.typography.supporting)
+            is DashboardMetric.Success -> {
+                val summary = state.value
+                HomeMetricRow("Transaksi", summary.transactionCount.toString(), MaterialTheme.colorScheme.onSurface)
+                HomeMetricRow("Tunai", formatRupiah(summary.totals.cash, NumberFormat.getNumberInstance(Locale("id", "ID"))), MaterialTheme.colorScheme.onSurface)
+                HomeMetricRow("QRIS", formatRupiah(summary.totals.qris, NumberFormat.getNumberInstance(Locale("id", "ID"))), MaterialTheme.colorScheme.onSurface)
+                HomeMetricRow("EDC", formatRupiah(summary.totals.edc, NumberFormat.getNumberInstance(Locale("id", "ID"))), MaterialTheme.colorScheme.onSurface)
+            }
+            is DashboardMetric.Error -> MetricError(state.message, onRetry)
+        }
+    }
+}
+
+@Composable
+private fun MetricError(message: String, onRetry: () -> Unit) {
+    Text(message, style = MaterialTheme.typography.supporting, color = MaterialTheme.colorScheme.error)
+    KasirSecondaryButton(text = "Coba lagi", onClick = onRetry, modifier = Modifier.fillMaxWidth())
+}
+
+@Composable
+private fun HeldOrdersSummary(
+    totalState: HeldOrderTotalState,
+    onRetry: () -> Unit,
+    onOpen: () -> Unit,
+) {
+    KasirCard(modifier = Modifier.fillMaxWidth()) {
+        Text("Pesanan tersimpan", style = MaterialTheme.typography.sectionTitle, color = MaterialTheme.colorScheme.onSurface)
+        when (val presentation = heldOrderHomePresentation(totalState)) {
+            HeldOrderHomePresentation.LOADING -> Text("Memuat jumlah pesanan...", style = MaterialTheme.typography.supporting)
+            is HeldOrderHomePresentation.ERROR -> {
+                Text("Jumlah pesanan tidak tersedia saat ini.", style = MaterialTheme.typography.supporting, color = MaterialTheme.colorScheme.error)
+                KasirSecondaryButton(text = "Coba lagi", onClick = onRetry, modifier = Modifier.fillMaxWidth())
+            }
+            is HeldOrderHomePresentation.STALE -> {
+                Text("Jumlah terakhir: ${presentation.total}. Belum tersinkron.", style = MaterialTheme.typography.supporting, color = MaterialTheme.colorScheme.error)
+                KasirSecondaryButton(text = "Coba lagi", onClick = onRetry, modifier = Modifier.fillMaxWidth())
+            }
+            is HeldOrderHomePresentation.AVAILABLE -> {
+                HomeMetricRow("Jumlah", presentation.total.toString(), MaterialTheme.colorScheme.onSurface)
+                KasirSecondaryButton(text = "Buka pesanan tersimpan", onClick = onOpen, modifier = Modifier.fillMaxWidth())
+            }
+            HeldOrderHomePresentation.NOT_LOADED -> Text("Buka shift untuk melihat pesanan tersimpan.", style = MaterialTheme.typography.supporting)
         }
     }
 }
@@ -145,7 +285,6 @@ private fun OperationalContextCard(
     outletName: String?,
     currentShift: Shift?,
     numberFormat: NumberFormat,
-    onShiftClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val shiftIsOpen = currentShift?.status == "OPEN"
@@ -192,11 +331,7 @@ private fun OperationalContextCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-        } ?: KasirSecondaryButton(
-            text = "Buka Shift",
-            onClick = onShiftClick,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        }
     }
 }
 

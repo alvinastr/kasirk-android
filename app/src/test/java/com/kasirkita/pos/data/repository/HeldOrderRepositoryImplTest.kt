@@ -71,6 +71,23 @@ class HeldOrderRepositoryImplTest {
     }
 
     @Test
+    fun listPage_preservesAuthoritativePaginationTotal() = runBlocking {
+        val api = FakeHeldOrderApi(
+            listResponse = HeldOrdersResponse(
+                listOf(heldOrderSummaryResponse()),
+                HeldOrdersMetaResponse(1, 20, 37, 2),
+            ),
+        )
+        val repository = HeldOrderRepositoryImpl(api)
+
+        val page = repository.listPage(outletId = OUTLET_ID).getOrThrow()
+
+        assertEquals(37, page.total)
+        assertEquals(2, page.totalPages)
+        assertEquals(1, page.items.size)
+    }
+
+    @Test
     fun get_mapsItemsAndModifiers() = runBlocking {
         val api = FakeHeldOrderApi(getResponse = heldOrderDetailResponse())
         val repository = HeldOrderRepositoryImpl(api)

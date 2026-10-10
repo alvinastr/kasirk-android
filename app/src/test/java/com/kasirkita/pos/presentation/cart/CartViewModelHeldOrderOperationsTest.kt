@@ -13,6 +13,7 @@ import com.kasirkita.pos.domain.model.HeldOrderCreateRequest
 import com.kasirkita.pos.domain.model.HeldOrderItem
 import com.kasirkita.pos.domain.model.HeldOrderItemRequest
 import com.kasirkita.pos.domain.model.HeldOrderModifier
+import com.kasirkita.pos.domain.model.HeldOrderPage
 import com.kasirkita.pos.domain.model.HeldOrderUpdateRequest
 import com.kasirkita.pos.domain.model.ModifierGroup
 import com.kasirkita.pos.domain.model.ModifierOption
@@ -30,6 +31,7 @@ import com.kasirkita.pos.domain.usecase.AddToCartUseCase
 import com.kasirkita.pos.domain.usecase.RemoveFromCartUseCase
 import com.kasirkita.pos.domain.usecase.UpdateCartQuantityUseCase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +45,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
+import java.util.ArrayDeque
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class CartViewModelHeldOrderOperationsTest {
@@ -92,6 +95,145 @@ class CartViewModelHeldOrderOperationsTest {
 
         assertEquals(listOf("held-a"), viewModel.state.value.heldOrders.map { it.id })
         assertEquals(HeldOrderUiError.NETWORK, viewModel.state.value.heldOrderError)
+    }
+
+    @Test
+    fun heldOrderTotal_usesAuthoritativeMetadata_notFirstPageSize() {
+        heldOrderRepository.pageResult = Result.success(
+            HeldOrderPage(
+                items = listOf(order("held-a"), order("held-b")),
+                total = 27,
+                page = 1,
+                limit = 20,
+                totalPages = 2,
+            ),
+        )
+
+        viewModel.refreshHeldOrders()
+
+        assertEquals(HeldOrderTotalState.Available(27), viewModel.state.value.heldOrderTotalState)
+        assertEquals(2, viewModel.state.value.heldOrders.size)
+    }
+
+    @Test
+    fun heldOrderBadge_usesOnlyFreshAuthoritativeTotals() {
+        assertEquals(0, heldOrderBadgeCount(HeldOrderTotalState.Available(0)))
+        assertEquals(3, heldOrderBadgeCount(HeldOrderTotalState.Available(3)))
+        assertNull(heldOrderBadgeCount(HeldOrderTotalState.Loading()))
+        assertNull(heldOrderBadgeCount(HeldOrderTotalState.Stale(3, "offline")))
+        assertNull(heldOrderBadgeCount(HeldOrderTotalState.Error("offline")))
+        assertNull(heldOrderBadgeCount(HeldOrderTotalState.NotLoaded))
+    }
+
+    @Test
+    fun heldOrderRefresh_failureWithoutPreviousValue_isErrorNotZero() {
+        heldOrderRepository.pageResult = Result.failure(IOException("offline"))
+
+        viewModel.refreshHeldOrders()
+
+        assertTrue(viewModel.state.value.heldOrderTotalState is HeldOrderTotalState.Error)
+    }
+
+    @Test
+    fun heldOrderRefresh_failureAfterSuccess_isExplicitlyStale() {
+        heldOrderRepository.pageResult = Result.success(
+            HeldOrderPage(listOf(order("held-a")), total = 1, page = 1, limit = 20, totalPages = 1),
+        )
+        viewModel.refreshHeldOrders()
+        heldOrderRepository.pageResult = Result.failure(IOException("offline"))
+
+        viewModel.refreshHeldOrders()
+
+        assertEquals(HeldOrderTotalState.Stale(1, "Jumlah pesanan mungkin belum terbaru."), viewModel.state.value.heldOrderTotalState)
+    }
+
+    @Test
+    fun sameContextNormalRefreshes_areCoalesced() {
+        val deferred = CompletableDeferred<Result<HeldOrderPage>>()
+        heldOrderRepository.pageDeferred = deferred
+
+        viewModel.refreshHeldOrders()
+        viewModel.refreshHeldOrders()
+
+        assertEquals(1, heldOrderRepository.pageCalls)
+        deferred.complete(Result.success(HeldOrderPage(emptyList(), 0, 1, 20, 0)))
+        assertEquals(HeldOrderTotalState.Available(0), viewModel.state.value.heldOrderTotalState)
+    }
+
+    @Test
+    fun contextChange_clearsTotal_andRejectsLateResponse() {
+        val deferred = CompletableDeferred<Result<HeldOrderPage>>()
+        heldOrderRepository.pageDeferred = deferred
+        viewModel.refreshHeldOrders()
+
+        outletRepository.setOutlet(outlet("out-2"))
+        shiftRepository.setShift(shift("shift-2", "out-2", "OPEN"))
+        deferred.complete(Result.success(HeldOrderPage(listOf(order("old")), 1, 1, 20, 1)))
+
+        assertEquals(HeldOrderTotalState.NotLoaded, viewModel.state.value.heldOrderTotalState)
+        assertTrue(viewModel.state.value.heldOrders.isEmpty())
+    }
+
+    @Test
+    fun fullOperationalContextTransitions_clearAndRejectLateResponses() {
+        val transitions = listOf<() -> Unit>(
+            { outletRepository.setOutlet(outlet("out-2", tenantId = "tenant-2")) },
+            { shiftRepository.setShift(shift("shift-2", "out-2", "OPEN", userId = "user-2")) },
+            { shiftRepository.setShift(shift("shift-3", "out-2", "OPEN", userId = "user-2")) },
+            { outletRepository.setOutlet(null); shiftRepository.setShift(null) },
+        )
+
+        transitions.forEach { transition ->
+            val old = CompletableDeferred<Result<HeldOrderPage>>()
+            heldOrderRepository.pageDeferred = old
+            viewModel.refreshHeldOrders()
+            transition()
+            assertEquals(HeldOrderTotalState.NotLoaded, viewModel.state.value.heldOrderTotalState)
+            assertTrue(viewModel.state.value.heldOrders.isEmpty())
+            old.complete(Result.success(HeldOrderPage(listOf(order("late")), 1, 1, 20, 1)))
+        }
+    }
+
+    @Test
+    fun logoutContextClear_rejectsLateHeldOrderResponse() {
+        val old = CompletableDeferred<Result<HeldOrderPage>>()
+        heldOrderRepository.pageDeferred = old
+        viewModel.refreshHeldOrders()
+
+        outletRepository.setOutlet(null)
+        shiftRepository.setShift(null)
+        old.complete(Result.success(HeldOrderPage(listOf(order("late")), 1, 1, 20, 1)))
+
+        assertEquals(HeldOrderTotalState.NotLoaded, viewModel.state.value.heldOrderTotalState)
+        assertTrue(viewModel.state.value.heldOrders.isEmpty())
+    }
+
+    @Test
+    fun mandatoryMutationRefresh_winsOverOlderRefresh() {
+        val older = CompletableDeferred<Result<HeldOrderPage>>()
+        val newer = CompletableDeferred<Result<HeldOrderPage>>()
+        heldOrderRepository.pageDeferreds.add(older)
+        heldOrderRepository.pageDeferreds.add(newer)
+        viewModel.refreshHeldOrders()
+        heldOrderRepository.cancelResult = Result.success(order("held-a", version = 2, status = "CANCELLED"))
+        viewModel.cancelHeldOrder("held-a", expectedVersion = 1)
+
+        newer.complete(Result.success(HeldOrderPage(listOf(order("new")), 4, 1, 20, 1)))
+        older.complete(Result.success(HeldOrderPage(listOf(order("old")), 1, 1, 20, 1)))
+
+        assertEquals(4, (viewModel.state.value.heldOrderTotalState as HeldOrderTotalState.Available).total)
+        assertEquals(listOf("new"), viewModel.state.value.heldOrders.map { it.id })
+    }
+
+    @Test
+    fun mutationRefreshFailure_becomesStaleAfterFreshTotal() {
+        heldOrderRepository.pageDeferreds.add(CompletableDeferred(Result.success(HeldOrderPage(emptyList(), 3, 1, 20, 1))))
+        heldOrderRepository.pageDeferreds.add(CompletableDeferred(Result.failure(IOException("offline"))))
+        viewModel.refreshHeldOrders()
+        heldOrderRepository.cancelResult = Result.success(order("held-a", version = 2, status = "CANCELLED"))
+        viewModel.cancelHeldOrder("held-a", expectedVersion = 1)
+
+        assertTrue(viewModel.state.value.heldOrderTotalState is HeldOrderTotalState.Stale)
     }
 
     @Test
@@ -503,6 +645,10 @@ class CartViewModelHeldOrderOperationsTest {
         val cancelCalls = mutableListOf<Pair<String, Int>>()
         val requestedGetIds = mutableListOf<String>()
         var listResult: Result<List<HeldOrder>> = Result.success(emptyList())
+        var pageResult: Result<HeldOrderPage>? = null
+        var pageDeferred: CompletableDeferred<Result<HeldOrderPage>>? = null
+        val pageDeferreds = ArrayDeque<CompletableDeferred<Result<HeldOrderPage>>>()
+        var pageCalls: Int = 0
         var createResult: Result<HeldOrder> = Result.success(order("created"))
         var onCreate: (() -> Unit)? = null
         var updateResult: Result<HeldOrder> = Result.success(order("updated"))
@@ -514,6 +660,15 @@ class CartViewModelHeldOrderOperationsTest {
             return createResult
         }
         override suspend fun list(outletId: String?, status: String, page: Int, limit: Int): Result<List<HeldOrder>> { listCalls += ListCall(outletId, status, page, limit); return listResult }
+        override suspend fun listPage(outletId: String?, status: String, page: Int, limit: Int): Result<HeldOrderPage> {
+            pageCalls += 1
+            listCalls += ListCall(outletId, status, page, limit)
+            return if (pageDeferreds.isNotEmpty()) {
+                pageDeferreds.removeFirst().await()
+            } else {
+                pageDeferred?.await() ?: pageResult ?: listResult.map { items -> HeldOrderPage(items, items.size, page, limit, if (items.isEmpty()) 0 else 1) }
+            }
+        }
         override suspend fun get(id: String): Result<HeldOrder> {
             requestedGetIds += id
             return getResults[id] ?: Result.failure(AssertionError("unexpected get $id"))
@@ -653,6 +808,6 @@ private fun product(
     modifierGroups = option?.let { listOf(ModifierGroup("grp-1", "tenant-1", "Size", true, 1, false, SelectionMode.SINGLE, listOf(it))) }.orEmpty(),
 )
 
-private fun outlet(id: String) = Outlet(id, "tenant-1", "Outlet", null, true, "2026-01-01T00:00:00Z")
+private fun outlet(id: String, tenantId: String = "tenant-1") = Outlet(id, tenantId, "Outlet", null, true, "2026-01-01T00:00:00Z")
 
-private fun shift(id: String, outletId: String, status: String) = Shift(id, outletId, "user-1", null, null, null, null, status, "2026-01-01T00:00:00Z", null)
+private fun shift(id: String, outletId: String, status: String, userId: String = "user-1") = Shift(id, outletId, userId, null, null, null, null, status, "2026-01-01T00:00:00Z", null)

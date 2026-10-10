@@ -19,14 +19,18 @@ import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.domain.usecase.AddToCartUseCase
 import com.kasirkita.pos.domain.usecase.RemoveFromCartUseCase
 import com.kasirkita.pos.domain.usecase.UpdateCartQuantityUseCase
+import com.kasirkita.pos.presentation.heldorder.heldOrderErrorMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import javax.inject.Inject
 
 @HiltViewModel
@@ -55,6 +59,8 @@ class CartViewModel @Inject constructor(
      * rebuilt only after that succeeds.
      */
     private val heldOrderContext = HeldOrderCartContext(savedStateHandle)
+    private var heldOrderRefreshJob: Job? = null
+    private var heldOrderRefreshToken: Long = 0L
 
     init {
         heldOrderContext.heldOrderId?.let { id ->
@@ -78,6 +84,13 @@ class CartViewModel @Inject constructor(
                 Quadruple(cart, outlet, shift, identity)
             }
                 .collect { (cart, outlet, shift, identity) ->
+                    val contextKey = heldOrderContextKey(outlet, shift)
+                    val contextChanged = _state.value.heldOrderContext != contextKey
+                    if (contextChanged) {
+                        heldOrderRefreshJob?.cancel()
+                        heldOrderRefreshJob = null
+                        heldOrderRefreshToken += 1
+                    }
                     if (identity != null && heldOrderContext.heldOrderId != identity.heldOrderId) {
                         heldOrderContext.attach(identity.heldOrderId, identity.expectedVersion, identity.label)
                     } else if (identity == null && _state.value.isEditingHeldOrder) {
@@ -93,9 +106,12 @@ class CartViewModel @Inject constructor(
                             heldOrderId = identity?.heldOrderId ?: heldOrderContext.heldOrderId,
                             heldOrderExpectedVersion = identity?.expectedVersion ?: heldOrderContext.expectedVersion,
                             heldOrderLabel = identity?.label ?: heldOrderContext.label,
-                            heldOrders = if (outletChanged) emptyList() else current.heldOrders,
-                            heldOrdersLoaded = if (outletChanged) false else current.heldOrdersLoaded,
-                            heldOrdersOutletId = if (outletChanged) null else current.heldOrdersOutletId,
+                            heldOrders = if (contextChanged) emptyList() else current.heldOrders,
+                            heldOrdersLoaded = if (contextChanged) false else current.heldOrdersLoaded,
+                            heldOrdersOutletId = if (contextChanged) null else current.heldOrdersOutletId,
+                            heldOrdersShiftId = if (contextChanged) null else current.heldOrdersShiftId,
+                            heldOrderContext = contextKey,
+                            heldOrderTotalState = if (contextChanged) HeldOrderTotalState.NotLoaded else current.heldOrderTotalState,
                         )
                     }
                 }
@@ -199,13 +215,9 @@ class CartViewModel @Inject constructor(
             return
         }
         if (_state.value.heldOrderOperation != null) return
-        viewModelScope.launch {
-            _state.update { it.copy(heldOrderOperation = HeldOrderOperation.LIST, heldOrderError = null) }
-            heldOrderRepository.list(context.outletId, "OPEN", page, limit)
-                .onSuccess { orders -> publishHeldOrders(context.outletId, orders) }
-                .onFailure { error -> _state.update { it.copy(heldOrderError = mapHeldOrderError(error)) } }
-            _state.update { it.copy(heldOrderOperation = null) }
-        }
+        if (heldOrderRefreshJob?.isActive == true) return
+        _state.update { it.copy(heldOrderOperation = HeldOrderOperation.LIST, heldOrderError = null) }
+        startHeldOrderRefresh(context, page, limit, showOperation = true)
     }
 
     fun saveHeldOrder(label: String?) {
@@ -229,8 +241,8 @@ class CartViewModel @Inject constructor(
             heldOrderRepository.create(
                 HeldOrderCreateRequest(context.outletId, context.cashierSessionId, normalizeLabel(label), requests),
             ).onSuccess {
-                refreshHeldOrders(context.outletId)
                 if (cartRepository.getCart().value.items == savedItems) {
+                    refreshHeldOrdersAuthoritative(context)
                     cartRepository.clearCart()
                     detachHeldOrder()
                 } else {
@@ -272,10 +284,10 @@ class CartViewModel @Inject constructor(
                 ),
             ).fold(
                 onSuccess = {
-                    refreshHeldOrders(context.outletId)
                     if (cartRepository.getCart().value.items != savedItems) {
                         _state.update { it.copy(heldOrderError = HeldOrderUiError.CART_CHANGED) }
                     } else {
+                        refreshHeldOrdersAuthoritative(context)
                         cartRepository.clearCart()
                         detachHeldOrder()
                         heldOrderRepository.get(targetHeldOrderId).fold(
@@ -352,7 +364,11 @@ class CartViewModel @Inject constructor(
             _state.update { it.copy(heldOrderOperation = HeldOrderOperation.RESTORE, heldOrderError = null) }
             val result = heldOrderRepository.get(id)
             result.fold(
-                onSuccess = { detail -> restoreDetail(detail) },
+                onSuccess = { detail ->
+                    if (restoreDetail(detail)) {
+                        resolveOperationalContext().getOrNull()?.let { refreshHeldOrdersAuthoritative(it) }
+                    }
+                },
                 onFailure = { error -> _state.update { it.copy(heldOrderError = mapHeldOrderError(error)) } },
             )
             _state.update { it.copy(heldOrderOperation = null) }
@@ -364,23 +380,23 @@ class CartViewModel @Inject constructor(
         restoreHeldOrder(id)
     }
 
-    private suspend fun restoreDetail(detail: HeldOrder) {
+    private suspend fun restoreDetail(detail: HeldOrder): Boolean {
         if (!detail.status.equals("OPEN", ignoreCase = true)) {
             _state.update { it.copy(heldOrderError = HeldOrderUiError.NOT_OPEN) }
-            return
+            return false
         }
         val context = resolveOperationalContext().getOrNull()
         if (context == null) {
             _state.update { it.copy(heldOrderError = contextError()) }
-            return
+            return false
         }
         if (detail.outletId != context.outletId || detail.cashierSessionId != context.cashierSessionId) {
             _state.update { it.copy(heldOrderError = HeldOrderUiError.RESOURCE_CONFLICT) }
-            return
+            return false
         }
         val products = productRepository.getProducts(includeModifiers = true).getOrElse { error ->
             _state.update { it.copy(heldOrderError = mapHeldOrderError(error)) }
-            return
+            return false
         }
         val byId = products.filter { it.isActive }.associateBy { it.id }
         val candidate = mutableListOf<CartItem>()
@@ -388,14 +404,14 @@ class CartViewModel @Inject constructor(
             val product = byId[heldItem.productId]
             if (product == null) {
                 _state.update { it.copy(heldOrderError = HeldOrderUiError.CATALOG_CONFLICT) }
-                return
+                return false
             }
             val selections = mutableListOf<com.kasirkita.pos.domain.model.CartModifierSelectionSnapshot>()
             for (modifier in heldItem.modifiers) {
                 val optionId = modifier.modifierOptionId
                 if (optionId == null) {
                     _state.update { it.copy(heldOrderError = HeldOrderUiError.CATALOG_CONFLICT) }
-                    return
+                    return false
                 }
                 val match = product.modifierGroups.asSequence()
                     .filter { it.isActive }
@@ -403,7 +419,7 @@ class CartViewModel @Inject constructor(
                     .firstOrNull { (_, option) -> option.id == optionId }
                 if (match == null) {
                     _state.update { it.copy(heldOrderError = HeldOrderUiError.CATALOG_CONFLICT) }
-                    return
+                    return false
                 }
                 val (group, option) = match
                 selections += com.kasirkita.pos.domain.model.CartModifierSelectionSnapshot(
@@ -428,35 +444,108 @@ class CartViewModel @Inject constructor(
         }
         if (cartRepository.replaceCart(mergedCandidate) == CartUpdateResult.STOCK_LIMIT_REACHED) {
             _state.update { it.copy(heldOrderError = HeldOrderUiError.STOCK_CONFLICT) }
-            return
+            return false
         }
         attachHeldOrder(detail.id, detail.version, detail.label)
+        return true
     }
 
     private fun revalidateHeldOrders() {
         val context = resolveOperationalContext().getOrNull() ?: return
-        viewModelScope.launch {
-            heldOrderRepository.list(context.outletId, "OPEN", 1, 20)
-                .onSuccess { orders -> publishHeldOrders(context.outletId, orders) }
-        }
+        startHeldOrderRefresh(context, mutation = true)
     }
 
-    private fun refreshHeldOrders(outletId: String) {
-        viewModelScope.launch {
-            heldOrderRepository.list(outletId, "OPEN", 1, 20)
-                .onSuccess { orders -> publishHeldOrders(outletId, orders) }
-        }
+    fun refreshHeldOrders() {
+        val context = resolveOperationalContext().getOrNull() ?: return
+        startHeldOrderRefresh(context)
     }
 
-    private fun publishHeldOrders(outletId: String, orders: List<HeldOrder>) {
-        if (_state.value.selectedOutlet?.id != outletId) return
+    private fun refreshHeldOrdersAuthoritative(context: OperationalContext) {
+        startHeldOrderRefresh(context, mutation = true)
+    }
+
+    private fun startHeldOrderRefresh(
+        context: OperationalContext,
+        page: Int = 1,
+        limit: Int = 20,
+        mutation: Boolean = false,
+        showOperation: Boolean = false,
+    ) {
+        val contextKey = currentHeldOrderContext() ?: return
+        if (!mutation && heldOrderRefreshJob?.isActive == true && _state.value.heldOrderContext == contextKey) return
+        heldOrderRefreshJob?.cancel()
+        val token = ++heldOrderRefreshToken
+        val previous = (_state.value.heldOrderTotalState as? HeldOrderTotalState.Available)?.total
         _state.update {
             it.copy(
-                heldOrders = orders,
-                heldOrdersLoaded = true,
-                heldOrdersOutletId = outletId,
+                heldOrderTotalState = HeldOrderTotalState.Loading(previous),
+                heldOrderError = null,
+                heldOrderOperation = if (showOperation) HeldOrderOperation.LIST else it.heldOrderOperation,
             )
         }
+        heldOrderRefreshJob = viewModelScope.launch {
+            try {
+                val result = heldOrderRepository.listPage(context.outletId, "OPEN", page, limit)
+                ensureActive()
+                if (token != heldOrderRefreshToken || currentHeldOrderContext() != contextKey) return@launch
+                result.fold(
+                    onSuccess = { pageResult -> publishHeldOrders(contextKey, pageResult) },
+                    onFailure = { error ->
+                        if (error is CancellationException) throw error
+                        val staleValue = previous
+                        _state.update {
+                            it.copy(
+                                heldOrderTotalState = if (staleValue != null) {
+                                    HeldOrderTotalState.Stale(staleValue, "Jumlah pesanan mungkin belum terbaru.")
+                                } else {
+                                    HeldOrderTotalState.Error(heldOrderErrorMessage(mapHeldOrderError(error)))
+                                },
+                                heldOrderError = mapHeldOrderError(error),
+                            )
+                        }
+                    },
+                )
+            } finally {
+                if (token == heldOrderRefreshToken) {
+                    _state.update { it.copy(heldOrderOperation = if (showOperation) null else it.heldOrderOperation) }
+                }
+            }
+        }
+    }
+
+    private fun publishHeldOrders(contextKey: HeldOrderContextKey, result: com.kasirkita.pos.domain.model.HeldOrderPage) {
+        if (currentHeldOrderContext() != contextKey) return
+        _state.update {
+            it.copy(
+                heldOrders = result.items,
+                heldOrdersLoaded = true,
+                heldOrdersOutletId = contextKey.outletId,
+                heldOrdersShiftId = contextKey.shiftId,
+                heldOrderContext = contextKey,
+                heldOrderTotalState = HeldOrderTotalState.Available(result.total),
+                heldOrderError = null,
+            )
+        }
+    }
+
+    private fun currentHeldOrderContext(): HeldOrderContextKey? = heldOrderContextKey(
+        _state.value.selectedOutlet,
+        _state.value.currentShift,
+    )
+
+    private fun heldOrderContextKey(
+        outlet: com.kasirkita.pos.domain.model.Outlet?,
+        shift: com.kasirkita.pos.domain.model.Shift?,
+    ): HeldOrderContextKey? {
+        if (outlet == null || shift == null || !shift.status.equals(OPEN_SHIFT_STATUS, ignoreCase = true)) return null
+        if (shift.outletId != outlet.id) return null
+        return HeldOrderContextKey(
+            tenantId = outlet.tenantId,
+            userId = shift.userId,
+            outletId = outlet.id,
+            shiftId = shift.id,
+            cashierSessionId = shift.id,
+        )
     }
 
     private fun toHeldOrderItemRequest(item: CartItem) = HeldOrderItemRequest(

@@ -15,6 +15,7 @@ import com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest
 import com.kasirkita.pos.domain.model.HeldOrderCheckoutResult
 import com.kasirkita.pos.domain.model.HeldOrderCreateRequest
 import com.kasirkita.pos.domain.model.HeldOrderUpdateRequest
+import com.kasirkita.pos.domain.model.HeldOrderPage
 import com.kasirkita.pos.domain.repository.HeldOrderRepository
 import retrofit2.Response
 import javax.inject.Inject
@@ -42,7 +43,24 @@ class HeldOrderRepositoryImpl @Inject constructor(
         page: Int,
         limit: Int,
     ): Result<List<HeldOrder>> = runCatching {
-        api.getHeldOrders(outletId, status, page, limit).bodyOrThrow().data.map { it.toDomain() }
+        listPage(outletId, status, page, limit).getOrThrow().items
+    }
+
+    override suspend fun listPage(
+        outletId: String?,
+        status: String,
+        page: Int,
+        limit: Int,
+    ): Result<HeldOrderPage> = runCatching {
+        api.getHeldOrders(outletId, status, page, limit).bodyOrThrow().let { response ->
+            HeldOrderPage(
+                items = response.data.map { it.toDomain() },
+                total = response.meta.total,
+                page = response.meta.page,
+                limit = response.meta.limit,
+                totalPages = response.meta.totalPages,
+            )
+        }
     }
 
     override suspend fun get(id: String): Result<HeldOrder> = runCatching {

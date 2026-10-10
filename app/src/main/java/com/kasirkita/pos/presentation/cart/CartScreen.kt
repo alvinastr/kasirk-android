@@ -463,10 +463,9 @@ private fun OrderSummary(
                             enabled = cart.items.isNotEmpty() && state.heldOrderOperation == null,
                         )
                         KasirSecondaryButton(
-                            text = if (state.heldOrdersLoaded) {
-                                "Order Tersimpan (${state.heldOrders.size})"
-                            } else {
-                                "Order Tersimpan"
+                            text = when (val total = heldOrderBadgeCount(state.heldOrderTotalState)) {
+                                null -> "Order Tersimpan"
+                                else -> "Order Tersimpan ($total)"
                             },
                             onClick = onHeldOrders,
                             modifier = Modifier.fillMaxWidth(),

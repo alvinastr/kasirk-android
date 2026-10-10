@@ -228,7 +228,14 @@ fun AppNavigation(
                             ?.value
                             ?.userName,
                         currentOutletName = selectedOutlet?.name,
+                        currentOutletId = selectedOutlet?.id,
+                        currentTenantId = (authenticatedSession as? NavigationSession.AuthV2)?.value?.tenantId,
+                        currentUserId = (authenticatedSession as? NavigationSession.AuthV2)?.value?.userId,
+                        currentCashierSessionId = currentShift?.id,
                         currentShift = currentShift,
+                        role = role,
+                        onHeldOrdersClick = onHeldOrders,
+                        cartViewModel = cartViewModel,
                     )
                 }
 
@@ -427,6 +434,7 @@ fun AppNavigation(
                 composable(Screen.Checkout.route) {
                     CheckoutScreen(
                         onCheckoutSuccess = { transactionId ->
+                            cartViewModel.refreshHeldOrders()
                             val destination = receiptDestination(transactionId)
                             navController.navigate(destination.route) {
                                 popUpTo(existingSalesFlowPopUpRoute(navController, destination.popUpToRoute)) {
