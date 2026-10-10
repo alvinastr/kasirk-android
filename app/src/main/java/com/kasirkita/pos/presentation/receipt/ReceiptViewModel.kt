@@ -65,7 +65,7 @@ class ReceiptViewModel internal constructor(
                     val settingsResult = resolveSettings(receipt)
                     val paperWidthMm = paperWidthProvider()
                     val document = buildDocument(receipt, settingsResult.settings, paperWidthMm = paperWidthMm)
-                    printReceipt.validatedContext(receipt, settingsResult, document.paperWidthMm).fold(
+                    printReceipt.validatedContext(receipt, settingsResult, document).fold(
                         onSuccess = { printContext ->
                             _state.value = ReceiptState.Success(
                                 receipt = receipt,

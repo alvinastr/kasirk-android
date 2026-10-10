@@ -11,6 +11,7 @@ import com.kasirkita.pos.domain.repository.ReceiptRepository
 import com.kasirkita.pos.domain.repository.TransactionRepository
 import com.kasirkita.pos.domain.usecase.GetReceiptUseCase
 import com.kasirkita.pos.domain.usecase.GetTransactionDetailUseCase
+import com.kasirkita.pos.domain.usecase.BuildReceiptDocumentUseCase
 import com.kasirkita.pos.domain.usecase.PrintReceiptUseCase
 import com.kasirkita.pos.domain.usecase.ResolveReceiptSettingsUseCase
 import kotlinx.coroutines.test.runTest
@@ -53,7 +54,7 @@ class TransactionDetailReprintIsolationTest {
 
         val printReceipt = PrintReceiptUseCase(
             configProvider = { com.kasirkita.pos.domain.model.PrinterConfig(deviceAddress = "printer", paperWidthMm = 58) },
-            formatter = { _: Receipt, _, _: Int -> byteArrayOf(0x1b, 0x40) },
+            formatter = { byteArrayOf(0x1b, 0x40) },
             transport = { _: String, data: ByteArray ->
                 capturedTransport += data
                 Result.success(Unit)
@@ -97,7 +98,7 @@ class TransactionDetailReprintIsolationTest {
         var resolverCallCount = 0
         val printReceipt = PrintReceiptUseCase(
             configProvider = { com.kasirkita.pos.domain.model.PrinterConfig(deviceAddress = "printer", paperWidthMm = 58) },
-            formatter = { _: Receipt, _, _: Int -> byteArrayOf(0x1b, 0x40) },
+            formatter = { byteArrayOf(0x1b, 0x40) },
             transport = { _: String, _: ByteArray -> Result.success(Unit) },
             settingsResolver = { _: Receipt ->
                 resolverCallCount++
@@ -134,7 +135,7 @@ class TransactionDetailReprintIsolationTest {
         var resolverCallCount = 0
         val printReceipt = PrintReceiptUseCase(
             configProvider = { com.kasirkita.pos.domain.model.PrinterConfig(deviceAddress = "printer", paperWidthMm = 58) },
-            formatter = { _: Receipt, _, _: Int -> byteArrayOf(0x1b, 0x40) },
+            formatter = { byteArrayOf(0x1b, 0x40) },
             transport = { _: String, _: ByteArray -> Result.success(Unit) },
             settingsResolver = { _: Receipt ->
                 resolverCallCount++
@@ -144,7 +145,11 @@ class TransactionDetailReprintIsolationTest {
 
         // preview produces validated context directly (no resolver call happens here)
         val context = printReceipt
-            .validatedContext(receipt, ResolveReceiptSettingsUseCase.Resolution(null, true), 58)
+            .validatedContext(
+                receipt,
+                ResolveReceiptSettingsUseCase.Resolution(null, true),
+                BuildReceiptDocumentUseCase()(receipt, null, 58),
+            )
             .getOrThrow()
 
         // manual print uses the same context

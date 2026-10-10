@@ -1,11 +1,10 @@
 package com.kasirkita.pos.data.printer
 
 import com.kasirkita.pos.domain.model.DrawerPulseProfile
-import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.domain.model.ReceiptDocument
-import com.kasirkita.pos.domain.model.ReceiptSettings
 import com.kasirkita.pos.domain.model.ReceiptTextAlignment
-import com.kasirkita.pos.domain.usecase.BuildReceiptDocumentUseCase
+import com.kasirkita.pos.BuildConfig
+import android.util.Log
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -18,31 +17,27 @@ import javax.inject.Singleton
  */
 @Singleton
 class EscPosReceiptFormatter @Inject constructor() {
-    private val documentBuilder = BuildReceiptDocumentUseCase()
-
-    /**
-     * Legacy entry point: build the canonical document without settings.
-     */
-    fun formatReceipt(receipt: Receipt, paperWidthMm: Int): ByteArray =
-        formatReceipt(documentBuilder(receipt, settings = null, paperWidthMm = paperWidthMm))
-
-    /**
-     * Settings-aware entry point for M17E, when repository settings reach printing.
-     */
-    fun formatReceipt(receipt: Receipt, settings: ReceiptSettings?, paperWidthMm: Int): ByteArray =
-        formatReceipt(documentBuilder(receipt, settings, paperWidthMm))
-
     fun formatReceipt(document: ReceiptDocument): ByteArray = buildString {
+        if (BuildConfig.DEBUG) {
+            runCatching {
+                Log.d(
+                    "ReceiptPrint",
+                    "document_lines=${document.lines.size} header_additional=${document.headerAdditionalTextPresent} footer_promo=${document.footerPromoTextPresent}",
+                )
+            }
+        }
         append(ESC_INIT)
         document.lines.forEach { line ->
-            requireNoUnsafeTextControls(line.text)
             append(alignmentCommand(line.alignment))
             if (line.style == com.kasirkita.pos.domain.model.ReceiptLineStyle.Emphasis) append(ESC_BOLD_ON)
-            append(line.text)
+            append(line.text.toPrinterSafeText())
             if (line.style == com.kasirkita.pos.domain.model.ReceiptLineStyle.Emphasis) append(ESC_BOLD_OFF)
             append("\n")
         }
-        append(ESC_FEED_CUT)
+        // Reset state before the terminal manual-tear feed; these are the final bytes.
+        append(ESC_BOLD_OFF)
+        append(ESC_ALIGN_LEFT)
+        append(ESC_FEED)
     }.toByteArray(Charsets.UTF_8)
 
     /**
@@ -67,10 +62,11 @@ class EscPosReceiptFormatter @Inject constructor() {
         ReceiptTextAlignment.Right -> ESC_ALIGN_RIGHT
     }
 
-    private fun requireNoUnsafeTextControls(text: String) {
-        val firstUnsafe = text.firstOrNull { it == '\u007F' || it.code < 0x20 || it.code in 0x80..0x9F }
-        require(firstUnsafe == null) {
-            "ReceiptDocument contains unsafe control character U+${firstUnsafe!!.code.toString(16).uppercase().padStart(4, '0')}"
+    private fun String.toPrinterSafeText(): String = buildString(length) {
+        this@toPrinterSafeText.forEach { character ->
+            if (character != '\u007F' && character.code >= 0x20 && character.code !in 0x80..0x9F) {
+                append(character)
+            }
         }
     }
 
@@ -82,6 +78,6 @@ class EscPosReceiptFormatter @Inject constructor() {
         const val ESC_ALIGN_RIGHT = "\u001Ba\u0002"
         const val ESC_BOLD_ON = "\u001BE\u0001"
         const val ESC_BOLD_OFF = "\u001BE\u0000"
-        const val ESC_FEED_CUT = "\n\n\n\u001Bd\u0005\u001Bm" // Feed 5 lines + partial cut
+        const val ESC_FEED = "\n\n" // Two manual-tear lines; cutter support is not modeled.
     }
 }

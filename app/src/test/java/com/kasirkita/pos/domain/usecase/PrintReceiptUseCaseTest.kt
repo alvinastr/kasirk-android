@@ -5,6 +5,7 @@ import com.kasirkita.pos.domain.model.PrinterConfig
 import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.domain.model.ReceiptCashier
 import com.kasirkita.pos.domain.model.ReceiptCustomer
+import com.kasirkita.pos.domain.model.ReceiptDocument
 import com.kasirkita.pos.domain.model.ReceiptFooterSettings
 import com.kasirkita.pos.domain.model.ReceiptHeaderSettings
 import com.kasirkita.pos.domain.model.ReceiptOutlet
@@ -85,15 +86,15 @@ class PrintReceiptUseCaseTest {
     fun intentionalLegacyNullPrintsWithCanonicalLegacyRendering() = runTest {
         val fixture = Fixture()
         val receipt = sampleReceipt()
+        val document = BuildReceiptDocumentUseCase()(receipt, null, 58)
         val context = fixture.useCase()
-            .validatedContext(receipt, ResolveReceiptSettingsUseCase.Resolution(null, true), 58)
+            .validatedContext(receipt, ResolveReceiptSettingsUseCase.Resolution(null, true), document)
             .getOrThrow()
 
         val result = fixture.useCase().invokeResolved(context)
 
         assertTrue(result.isSuccess)
-        assertNull(fixture.lastFormattedSettings)
-        assertEquals(58, fixture.lastFormattedWidth)
+        assertTrue(fixture.lastFormattedDocument === document)
         assertEquals(0, fixture.resolverCalls.size)
     }
 
@@ -134,15 +135,17 @@ class PrintReceiptUseCaseTest {
     fun validatedPreviewContextPrintsWithoutAdditionalResolverCall() = runTest {
         val fixture = Fixture()
         val receipt = sampleReceipt()
+        val configuredSettings = settings()
+        val document = BuildReceiptDocumentUseCase()(receipt, configuredSettings, 80)
         val context = fixture.useCase()
-            .validatedContext(receipt, ResolveReceiptSettingsUseCase.Resolution(settings(), false), 80)
+            .validatedContext(receipt, ResolveReceiptSettingsUseCase.Resolution(configuredSettings, false), document)
             .getOrThrow()
 
         val result = fixture.useCase().invokeResolved(context)
 
         assertTrue(result.isSuccess)
         assertEquals(0, fixture.resolverCalls.size)
-        assertEquals(settings(), fixture.lastFormattedSettings)
+        assertTrue(fixture.lastFormattedDocument === document)
     }
 
     private class Fixture {
@@ -153,14 +156,19 @@ class PrintReceiptUseCaseTest {
         var formatterCalled = false
         var lastFormattedSettings: ReceiptSettings? = null
         var lastFormattedWidth: Int? = null
+        var lastFormattedDocument: ReceiptDocument? = null
         var transportCalls = 0
 
         fun useCase() = PrintReceiptUseCase(
             configProvider = { PrinterConfig(deviceAddress = "printer", paperWidthMm = 80) },
-            formatter = { _: Receipt, receiptSettings: ReceiptSettings?, paperWidthMm: Int ->
-                formatterCalled = true
+            documentBuilder = { receipt: Receipt, receiptSettings: ReceiptSettings?, paperWidthMm: Int ->
                 lastFormattedSettings = receiptSettings
                 lastFormattedWidth = paperWidthMm
+                BuildReceiptDocumentUseCase()(receipt, receiptSettings, paperWidthMm)
+            },
+            formatter = { document: ReceiptDocument ->
+                formatterCalled = true
+                lastFormattedDocument = document
                 byteArrayOf(1, 2, 3)
             },
             transport = { _: String, _: ByteArray ->

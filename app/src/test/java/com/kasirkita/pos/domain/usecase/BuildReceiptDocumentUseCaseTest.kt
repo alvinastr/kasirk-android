@@ -1,6 +1,7 @@
 package com.kasirkita.pos.domain.usecase
 
 import com.kasirkita.pos.domain.model.ModifierSnapshot
+import com.kasirkita.pos.domain.model.ReceiptBlockType
 import com.kasirkita.pos.domain.model.Payment
 import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.domain.model.ReceiptCashier
@@ -128,6 +129,26 @@ class BuildReceiptDocumentUseCaseTest {
         assertTrue(lines.contains("Buka setiap hari 08.00-22.00"))
         assertTrue(lines.contains("Terima kasih sudah belanja"))
         assertTrue(lines.contains("Promo Jumat: beli 2 gratis 1"))
+    }
+
+    @Test
+    fun `configured custom text wrapping is deterministic for 58 and 80 mm`() {
+        val custom = "Instagram : kopitoga_bekasi dan Wifi Password: arabicatoraja"
+        val configured = settings(additionalText = custom, promoText = custom)
+
+        val lines58 = builder(baseReceipt(), configured, 58).textLines()
+        val lines80 = builder(baseReceipt(), configured, 80).textLines()
+
+        val expected58 = listOf(
+            "Instagram : kopitoga_bekasi dan",
+            "Wifi Password: arabicatoraja",
+        )
+        val expected80 = listOf(
+            "Instagram : kopitoga_bekasi dan Wifi Password:",
+            "arabicatoraja",
+        )
+        assertTrue(lines58.windowed(expected58.size).count { it == expected58 } == 2)
+        assertTrue(lines80.windowed(expected80.size).count { it == expected80 } == 2)
     }
 
     @Test
@@ -387,6 +408,28 @@ class BuildReceiptDocumentUseCaseTest {
 
         assertTrue(text.contains("  + Size: Large"))
         assertTrue(text.contains("  Catatan: Less ice"))
+    }
+
+    @Test
+    fun `zero modifier product emits no modifier sentinel and subtotal follows item separator`() {
+        val receipt = baseReceipt(
+            items = listOf(
+                item(
+                    id = "ZERO",
+                    productName = "Normal Product",
+                    sku = "NORMAL-1",
+                    note = null,
+                    modifiers = emptyList(),
+                ),
+            ),
+        )
+        val document = builder(receipt, null, 58)
+        val itemBlock = document.blocks.first { it.type == ReceiptBlockType.Items }
+        val separator = "-".repeat(document.characterWidth)
+        assertEquals(1, itemBlock.lines.count { it.text == separator })
+        assertFalse(itemBlock.lines.any { it.text.contains("PLMC") || it.text.contains("##") })
+        assertEquals("Normal Product", itemBlock.lines.first().text)
+        assertTrue(document.blocks.first { it.type == ReceiptBlockType.Totals }.lines.first().text.startsWith("Subtotal"))
     }
 
     @Test

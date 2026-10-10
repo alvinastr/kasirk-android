@@ -6,6 +6,7 @@ import com.kasirkita.pos.domain.model.PrinterConfig
 import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.domain.model.ReceiptCashier
 import com.kasirkita.pos.domain.model.ReceiptCustomer
+import com.kasirkita.pos.domain.model.ReceiptDocument
 import com.kasirkita.pos.domain.model.ReceiptFooterSettings
 import com.kasirkita.pos.domain.model.ReceiptHeaderSettings
 import com.kasirkita.pos.domain.model.ReceiptOutlet
@@ -165,6 +166,7 @@ class PrintAfterCheckoutUseCaseTest {
         var settingsResolverCalls = 0
         var lastSettings: ReceiptSettings? = null
         var lastPaperWidthMm: Int? = null
+        var lastDocument: ReceiptDocument? = null
         val printedKinds = mutableListOf<String>()
 
         fun useCase(
@@ -172,9 +174,13 @@ class PrintAfterCheckoutUseCaseTest {
             settingsException: Throwable? = null,
         ) = PrintAfterCheckoutUseCase(
             configProvider = { config },
-            receiptFormatter = { _: Receipt, settings: ReceiptSettings?, paperWidthMm: Int ->
+            documentBuilder = { receipt: Receipt, settings: ReceiptSettings?, paperWidthMm: Int ->
                 lastSettings = settings
                 lastPaperWidthMm = paperWidthMm
+                BuildReceiptDocumentUseCase()(receipt, settings, paperWidthMm)
+            },
+            receiptFormatter = { document: ReceiptDocument ->
+                lastDocument = document
                 byteArrayOf(0x1b, 0x40)
             },
             drawerFormatter = { byteArrayOf(0x1b, 0x70) },

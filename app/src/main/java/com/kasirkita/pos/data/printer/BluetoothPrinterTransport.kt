@@ -13,6 +13,7 @@ import com.kasirkita.pos.BuildConfig
 import com.kasirkita.pos.domain.model.PrinterError
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.io.IOException
@@ -30,6 +31,7 @@ class BluetoothPrinterTransport @Inject constructor(
     @ApplicationContext private val context: Context,
 ) {
     private val adapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+    private val payloadWriter: BluetoothPayloadWriter = ChunkedBluetoothPayloadWriter()
 
     /**
      * Standard Serial Port Profile UUID for generic ESC/POS printers.
@@ -89,7 +91,7 @@ class BluetoothPrinterTransport @Inject constructor(
 
     /**
      * Print bytes to specified Bluetooth device.
-     * Lifecycle: connect → write → flush → close.
+     * Lifecycle: connect → bounded ordered writes → flush → drain → close.
      * Runs off main thread with bounded timeouts.
      */
     suspend fun print(deviceAddress: String, data: ByteArray): Result<Unit> =
@@ -140,19 +142,21 @@ class BluetoothPrinterTransport @Inject constructor(
 
                 // Write data with timeout.
                 val writeStartedNanos = System.nanoTime()
-                withTimeout(WRITE_TIMEOUT_MS) {
-                    socket.outputStream.apply {
-                        write(data)
-                        flush()
-                    }
+                val writeStats = withTimeout(WRITE_TIMEOUT_MS) {
+                    payloadWriter.write(socket.outputStream, data)
                 }
                 if (BuildConfig.DEBUG) {
                     debugLog(
-                        "bluetooth_write_flush_ms=${millisSince(writeStartedNanos)} bluetooth_total_ms=${millisSince(totalStartedNanos)}",
+                        "bluetooth_payload_bytes=${writeStats.payloadBytes} bluetooth_chunks=${writeStats.chunkCount} " +
+                            "bluetooth_flushed=${writeStats.flushed} bluetooth_drained=${writeStats.drained} " +
+                            "bluetooth_write_flush_drain_ms=${millisSince(writeStartedNanos)} " +
+                            "bluetooth_total_ms=${millisSince(totalStartedNanos)}",
                     )
                 }
 
                 Result.success(Unit)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: SecurityException) {
                 Result.failure(PrinterException(PrinterError.PERMISSION_DENIED))
             } catch (e: IOException) {

@@ -7,6 +7,7 @@ import com.kasirkita.pos.data.printer.BluetoothPrinterTransport
 import com.kasirkita.pos.data.printer.EscPosReceiptFormatter
 import com.kasirkita.pos.domain.model.PrinterConfig
 import com.kasirkita.pos.domain.model.Receipt
+import com.kasirkita.pos.domain.model.ReceiptDocument
 import com.kasirkita.pos.domain.model.ReceiptSettings
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -24,12 +25,12 @@ open class PrintReceiptUseCase private constructor(
         formatter: EscPosReceiptFormatter,
         transport: BluetoothPrinterTransport,
         settingsResolver: ResolveReceiptSettingsUseCase,
+        documentBuilder: BuildReceiptDocumentUseCase,
     ) : this(
         Operations(
             configProvider = { configDataStore.configFlow.first() },
-            formatter = { receipt, settings, paperWidthMm ->
-                formatter.formatReceipt(receipt, settings, paperWidthMm)
-            },
+            documentBuilder = documentBuilder::invoke,
+            formatter = formatter::formatReceipt,
             transport = { address, data -> transport.print(address, data) },
             settingsResolver = settingsResolver::invoke,
         ),
@@ -37,12 +38,14 @@ open class PrintReceiptUseCase private constructor(
 
     internal constructor(
         configProvider: suspend () -> PrinterConfig,
-        formatter: (Receipt, ReceiptSettings?, Int) -> ByteArray,
+        documentBuilder: (Receipt, ReceiptSettings?, Int) -> ReceiptDocument = BuildReceiptDocumentUseCase()::invoke,
+        formatter: (ReceiptDocument) -> ByteArray,
         transport: suspend (String, ByteArray) -> Result<Unit>,
         settingsResolver: suspend (Receipt) -> ResolveReceiptSettingsUseCase.Resolution,
     ) : this(
         Operations(
             configProvider = configProvider,
+            documentBuilder = documentBuilder,
             formatter = formatter,
             transport = transport,
             settingsResolver = settingsResolver,
@@ -54,14 +57,9 @@ open class PrintReceiptUseCase private constructor(
      */
     protected constructor() : this(Operations.throwing())
 
-    /**
-     * Validated preview/print context. Non-null settings are guaranteed to match the receipt tenant/outlet.
-     * A null settings value is allowed only as the explicit result of completed legacy fallback resolution.
-     */
-    data class ValidatedPrintContext internal constructor(
-        val receipt: Receipt,
-        val settings: ReceiptSettings?,
-        val paperWidthMm: Int,
+    /** Canonical document snapshot shared by preview and manual printing. */
+    class ValidatedPrintContext internal constructor(
+        val document: ReceiptDocument,
         val usedLegacyFallback: Boolean,
     )
 
@@ -71,34 +69,34 @@ open class PrintReceiptUseCase private constructor(
     fun validatedContext(
         receipt: Receipt,
         resolution: ResolveReceiptSettingsUseCase.Resolution,
-        paperWidthMm: Int,
+        document: ReceiptDocument,
     ): Result<ValidatedPrintContext> = validateContext(
         receipt = receipt,
         settings = resolution.settings,
-        paperWidthMm = paperWidthMm,
+        document = document,
         usedLegacyFallback = resolution.usedLegacyFallback,
     )
 
     /** Prints a context that was already validated while building the preview. Does not resolve settings again. */
     open suspend fun invokeResolved(context: ValidatedPrintContext): Result<Unit> =
-        invokeInternal(context, resolveSettings = false)
+        invokeInternal(context)
 
     /** Resolves settings from the receipt's immutable tenant/outlet identity, then prints. */
     open suspend operator fun invoke(receipt: Receipt): Result<Unit> {
         val config = operations.configProvider()
         val resolution = operations.settingsResolver(receipt)
+        val document = operations.documentBuilder(receipt, resolution.settings, config.paperWidthMm)
         val context = validateContext(
             receipt = receipt,
             settings = resolution.settings,
-            paperWidthMm = config.paperWidthMm,
+            document = document,
             usedLegacyFallback = resolution.usedLegacyFallback,
         ).getOrElse { return Result.failure(it) }
-        return invokeInternal(context, resolveSettings = false, configOverride = config)
+        return invokeInternal(context, configOverride = config)
     }
 
     private suspend fun invokeInternal(
         context: ValidatedPrintContext,
-        resolveSettings: Boolean,
         configOverride: PrinterConfig? = null,
     ): Result<Unit> {
         val totalStartedNanos = System.nanoTime()
@@ -107,24 +105,8 @@ open class PrintReceiptUseCase private constructor(
         val deviceAddress = config.deviceAddress
             ?: return Result.failure(Exception("Printer belum dikonfigurasi"))
 
-        val effectiveContext = if (resolveSettings) {
-            val resolution = ops.settingsResolver(context.receipt)
-            validateContext(
-                receipt = context.receipt,
-                settings = resolution.settings,
-                paperWidthMm = config.paperWidthMm,
-                usedLegacyFallback = resolution.usedLegacyFallback,
-            ).getOrElse { return Result.failure(it) }
-        } else {
-            context
-        }
-
         val formatStartedNanos = System.nanoTime()
-        val data = ops.formatter(
-            effectiveContext.receipt,
-            effectiveContext.settings,
-            effectiveContext.paperWidthMm,
-        )
+        val data = ops.formatter(context.document)
         if (BuildConfig.DEBUG) {
             debugLog("format_ms=${millisSince(formatStartedNanos)}")
         }
@@ -140,7 +122,7 @@ open class PrintReceiptUseCase private constructor(
     private fun validateContext(
         receipt: Receipt,
         settings: ReceiptSettings?,
-        paperWidthMm: Int,
+        document: ReceiptDocument,
         usedLegacyFallback: Boolean,
     ): Result<ValidatedPrintContext> {
         if (settings != null) {
@@ -153,9 +135,7 @@ open class PrintReceiptUseCase private constructor(
         }
         return Result.success(
             ValidatedPrintContext(
-                receipt = receipt,
-                settings = settings,
-                paperWidthMm = paperWidthMm,
+                document = document,
                 usedLegacyFallback = usedLegacyFallback,
             ),
         )
@@ -170,14 +150,16 @@ open class PrintReceiptUseCase private constructor(
 
     private data class Operations(
         val configProvider: suspend () -> PrinterConfig,
-        val formatter: (Receipt, ReceiptSettings?, Int) -> ByteArray,
+        val documentBuilder: (Receipt, ReceiptSettings?, Int) -> ReceiptDocument,
+        val formatter: (ReceiptDocument) -> ByteArray,
         val transport: suspend (String, ByteArray) -> Result<Unit>,
         val settingsResolver: suspend (Receipt) -> ResolveReceiptSettingsUseCase.Resolution,
     ) {
         companion object {
             fun throwing() = Operations(
                 configProvider = { error("PrintReceiptUseCase config provider is not available") },
-                formatter = { _, _, _ -> error("PrintReceiptUseCase formatter is not available") },
+                documentBuilder = { _, _, _ -> error("PrintReceiptUseCase document builder is not available") },
+                formatter = { error("PrintReceiptUseCase formatter is not available") },
                 transport = { _, _ -> error("PrintReceiptUseCase transport is not available") },
                 settingsResolver = { error("PrintReceiptUseCase settings resolver is not available") },
             )

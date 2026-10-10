@@ -8,6 +8,7 @@ import com.kasirkita.pos.data.printer.EscPosReceiptFormatter
 import com.kasirkita.pos.domain.model.DrawerPulseProfile
 import com.kasirkita.pos.domain.model.PrinterConfig
 import com.kasirkita.pos.domain.model.Receipt
+import com.kasirkita.pos.domain.model.ReceiptDocument
 import com.kasirkita.pos.domain.model.ReceiptSettings
 import com.kasirkita.pos.domain.printer.CashDrawerController
 import kotlinx.coroutines.CancellationException
@@ -27,9 +28,11 @@ open class PrintAfterCheckoutUseCase private constructor(
         transport: BluetoothPrinterTransport,
         settingsResolver: ResolveReceiptSettingsUseCase,
         drawerController: CashDrawerController,
+        documentBuilder: BuildReceiptDocumentUseCase,
     ) : this(
         Operations(
             configProvider = { configDataStore.configFlow.first() },
+            documentBuilder = documentBuilder::invoke,
             receiptFormatter = formatter::formatReceipt,
             drawerFormatter = formatter::formatDrawerPulse,
             transport = transport::print,
@@ -40,7 +43,8 @@ open class PrintAfterCheckoutUseCase private constructor(
 
     internal constructor(
         configProvider: suspend () -> PrinterConfig,
-        receiptFormatter: (Receipt, ReceiptSettings?, Int) -> ByteArray,
+        documentBuilder: (Receipt, ReceiptSettings?, Int) -> ReceiptDocument = BuildReceiptDocumentUseCase()::invoke,
+        receiptFormatter: (ReceiptDocument) -> ByteArray,
         drawerFormatter: (DrawerPulseProfile) -> ByteArray,
         transport: suspend (String, ByteArray) -> kotlin.Result<Unit>,
         settingsResolver: suspend (Receipt) -> ResolveReceiptSettingsUseCase.Resolution,
@@ -48,6 +52,7 @@ open class PrintAfterCheckoutUseCase private constructor(
     ) : this(
         Operations(
             configProvider,
+            documentBuilder,
             receiptFormatter,
             drawerFormatter,
             transport,
@@ -82,11 +87,12 @@ open class PrintAfterCheckoutUseCase private constructor(
                 } catch (_: Throwable) {
                     ResolveReceiptSettingsUseCase.Resolution(null, usedLegacyFallback = true)
                 }
-                val receiptBytes = operations.receiptFormatter(
+                val document = operations.documentBuilder(
                     receipt,
                     resolution.settings,
                     config.paperWidthMm,
                 )
+                val receiptBytes = operations.receiptFormatter(document)
                 operations.transport(address!!, receiptBytes).getOrThrow()
                 printed = true
             } catch (cancellation: CancellationException) {
@@ -141,7 +147,8 @@ open class PrintAfterCheckoutUseCase private constructor(
 
     private data class Operations(
         val configProvider: suspend () -> PrinterConfig,
-        val receiptFormatter: (Receipt, ReceiptSettings?, Int) -> ByteArray,
+        val documentBuilder: (Receipt, ReceiptSettings?, Int) -> ReceiptDocument,
+        val receiptFormatter: (ReceiptDocument) -> ByteArray,
         val drawerFormatter: (DrawerPulseProfile) -> ByteArray,
         val transport: suspend (String, ByteArray) -> kotlin.Result<Unit>,
         val settingsResolver: suspend (Receipt) -> ResolveReceiptSettingsUseCase.Resolution,
@@ -150,7 +157,8 @@ open class PrintAfterCheckoutUseCase private constructor(
         companion object {
             fun throwing() = Operations(
                 configProvider = { error("Missing config provider") },
-                receiptFormatter = { _, _, _ -> error("Missing receipt formatter") },
+                documentBuilder = { _, _, _ -> error("Missing document builder") },
+                receiptFormatter = { error("Missing receipt formatter") },
                 drawerFormatter = { error("Missing drawer formatter") },
                 transport = { _, _ -> error("Missing printer transport") },
                 settingsResolver = { error("Missing settings resolver") },

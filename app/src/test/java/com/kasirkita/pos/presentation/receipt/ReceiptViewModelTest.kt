@@ -29,6 +29,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -211,8 +212,7 @@ class ReceiptViewModelTest {
         advanceUntilIdle()
 
         assertEquals(1, resolveSettingsCallCount) // no second refresh
-        assertEquals(settings, printer.lastSettings)
-        assertEquals(80, printer.lastWidth)
+        assertSame(previewState.document, printer.lastDocument)
     }
 
     @Test
@@ -243,6 +243,25 @@ class ReceiptViewModelTest {
         assertTrue(errorMessage!!.contains("bluetooth disconnected"))
     }
 
+    @Test
+    fun duplicateManualPrintTapStartsOnlyOnePrint() = runTest(dispatcher) {
+        val printer = FakePrintReceiptUseCase()
+        val viewModel = ReceiptViewModel(
+            savedStateHandle = SavedStateHandle(mapOf("transactionId" to "tx-1")),
+            getReceipt = GetReceiptUseCase(FakeReceiptRepository(Result.success(sampleReceipt()))),
+            printReceipt = printer,
+            resolveSettings = { ResolveReceiptSettingsUseCase.Resolution(null, true) },
+            paperWidthProvider = { 58 },
+        )
+        advanceUntilIdle()
+
+        viewModel.printReceipt({}, {}, {})
+        viewModel.printReceipt({}, {}, {})
+        advanceUntilIdle()
+
+        assertEquals(1, printer.callCount)
+    }
+
     private fun sampleReceipt() = Receipt(
         transactionId = "tx-1",
         clientTransactionId = "client-1",
@@ -269,16 +288,16 @@ class ReceiptViewModelTest {
 
     private class FakePrintReceiptUseCase : PrintReceiptUseCase() {
         var result: Result<Unit> = Result.success(Unit)
-        var lastSettings: ReceiptSettings? = null
-        var lastWidth: Int? = null
+        var lastDocument: com.kasirkita.pos.domain.model.ReceiptDocument? = null
+        var callCount: Int = 0
 
         override suspend fun invoke(receipt: Receipt): Result<Unit> = result
 
         override suspend fun invokeResolved(
             context: PrintReceiptUseCase.ValidatedPrintContext,
         ): Result<Unit> {
-            lastSettings = context.settings
-            lastWidth = context.paperWidthMm
+            callCount++
+            lastDocument = context.document
             return result
         }
     }

@@ -20,6 +20,8 @@ data class ReceiptDocument(
     val paperWidthMm: Int,
     val characterWidth: Int,
     val blocks: List<ReceiptBlock>,
+    val headerAdditionalTextPresent: Boolean = false,
+    val footerPromoTextPresent: Boolean = false,
 ) {
     val lines: List<ReceiptLine> = blocks.flatMap { it.lines }
 }

@@ -80,6 +80,8 @@ class BuildReceiptDocumentUseCase @Inject constructor() {
                 ReceiptBlock(ReceiptBlockType.Payment, payment),
                 ReceiptBlock(ReceiptBlockType.Footer, footerLines),
             ),
+            headerAdditionalTextPresent = header?.additionalText?.isNotBlank() == true,
+            footerPromoTextPresent = footer?.promoText?.isNotBlank() == true,
         )
     }
 

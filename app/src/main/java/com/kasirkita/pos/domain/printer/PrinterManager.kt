@@ -37,7 +37,7 @@ class PrinterManager @Inject constructor(
             append(java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("id", "ID"))
                 .format(java.util.Date()))
             append("\n\n")
-            append(ESC_FEED_CUT)
+            append(ESC_MANUAL_TEAR_FEED)
         }
 
         return transport.print(deviceAddress, testReceipt.toByteArray(Charsets.UTF_8))
@@ -82,6 +82,6 @@ class PrinterManager @Inject constructor(
     private companion object {
         const val ESC_INIT = "\u001B@"
         const val ESC_ALIGN_CENTER = "\u001Ba\u0001"
-        const val ESC_FEED_CUT = "\n\n\n\u001Bd\u0005\u001Bm"
+        const val ESC_MANUAL_TEAR_FEED = "\n\n"
     }
 }

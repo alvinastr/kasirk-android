@@ -17,8 +17,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.widthIn
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.kasirkita.pos.domain.model.ReceiptDocument
+import com.kasirkita.pos.domain.model.Receipt
 import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirErrorState
 import com.kasirkita.pos.ui.components.KasirLoadingState
@@ -27,7 +29,6 @@ import com.kasirkita.pos.ui.components.KasirSecondaryButton
 import com.kasirkita.pos.ui.theme.KasirSpacing
 import com.kasirkita.pos.ui.theme.body
 import com.kasirkita.pos.ui.theme.sectionTitle
-import com.kasirkita.pos.ui.theme.supporting
 
 @Composable
 fun ReceiptScreen(
@@ -48,8 +49,7 @@ fun ReceiptScreen(
         )
 
         is ReceiptState.Success -> ReceiptContent(
-            document = currentState.document,
-            usedLegacyFallback = currentState.usedLegacyFallback,
+            receipt = currentState.receipt,
             onNewTransaction = onNewTransaction,
             isPrinting = isPrinting,
             onPrint = {
@@ -108,18 +108,22 @@ private fun ReceiptErrorContent(
 
 @Composable
 private fun ReceiptContent(
-    document: ReceiptDocument,
-    usedLegacyFallback: Boolean,
+    receipt: Receipt,
     onNewTransaction: () -> Unit,
     isPrinting: Boolean = false,
     onPrint: () -> Unit = {},
     printError: String? = null,
     onPrintErrorDismiss: () -> Unit = {},
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    val summary = receipt.toSuccessSummary()
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 560.dp)
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
                 .padding(KasirSpacing.CompactScreenPadding),
@@ -132,21 +136,16 @@ private fun ReceiptContent(
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Text(
-                    text = "Preview struk ${document.paperWidthMm} mm (${document.characterWidth} karakter)",
-                    style = MaterialTheme.typography.supporting,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "Pembayaran berhasil diproses.",
+                    style = MaterialTheme.typography.body,
                 )
-                if (usedLegacyFallback) {
-                    Text(
-                        text = "Template tidak tersedia. Format bawaan digunakan.",
-                        style = MaterialTheme.typography.supporting,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
             }
 
             KasirCard(modifier = Modifier.fillMaxWidth()) {
-                ReceiptDocumentPreview(document = document)
+                SummaryRow("Total Tagihan", summary.total)
+                SummaryRow("Metode Pembayaran", summary.paymentMethod)
+                SummaryRow("Jumlah Dibayar", summary.amountPaid)
+                SummaryRow("Kembalian", summary.change)
             }
         }
 
@@ -154,6 +153,7 @@ private fun ReceiptContent(
             KasirCard(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .widthIn(max = 560.dp)
                     .padding(KasirSpacing.Large),
             ) {
                 Column(verticalArrangement = Arrangement.spacedBy(KasirSpacing.Small)) {
@@ -174,6 +174,7 @@ private fun ReceiptContent(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
+                .widthIn(max = 560.dp)
                 .padding(KasirSpacing.Large),
             verticalArrangement = Arrangement.spacedBy(KasirSpacing.Small),
         ) {
@@ -191,4 +192,31 @@ private fun ReceiptContent(
             )
         }
     }
+}
+
+@Composable
+private fun SummaryRow(label: String, amount: Long) {
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, style = MaterialTheme.typography.body)
+        Text(formatRupiah(amount), style = MaterialTheme.typography.body)
+    }
+}
+
+@Composable
+private fun SummaryRow(label: String, value: String) {
+    androidx.compose.foundation.layout.Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Text(label, style = MaterialTheme.typography.body)
+        Text(value, style = MaterialTheme.typography.body)
+    }
+}
+
+private fun formatRupiah(amount: Long): String {
+    val digits = amount.toString().removePrefix("-").reversed().chunked(3).joinToString(".").reversed()
+    return if (amount < 0) "-Rp $digits" else "Rp $digits"
 }

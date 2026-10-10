@@ -18,6 +18,7 @@ import com.kasirkita.pos.domain.model.ReceiptLineStyle
 import com.kasirkita.pos.domain.model.ReceiptSettings
 import com.kasirkita.pos.domain.model.ReceiptTextAlignment
 import com.kasirkita.pos.domain.model.ReceiptVisibilitySettings
+import com.kasirkita.pos.domain.usecase.BuildReceiptDocumentUseCase
 import org.junit.Before
 import org.junit.Test
 import org.junit.Assert.*
@@ -25,6 +26,7 @@ import org.junit.Assert.*
 class EscPosReceiptFormatterTest {
 
     private lateinit var formatter: EscPosReceiptFormatter
+    private val documentBuilder = BuildReceiptDocumentUseCase()
 
     @Before
     fun setUp() {
@@ -171,6 +173,50 @@ class EscPosReceiptFormatterTest {
     }
 
     @Test
+    fun zeroModifierReceiptHasNoSentinelAndKeepsItemSeparatorBeforeSubtotal() {
+        val receipt = createTestReceipt().copy(
+            items = listOf(
+                ReceiptItem(
+                    id = "I0",
+                    productId = "P0",
+                    productName = "Normal Product",
+                    sku = "NORMAL-1",
+                    quantity = 1,
+                    unitPrice = 12_000,
+                    subtotal = 12_000,
+                    productNameSnapshot = "Normal Product",
+                    skuSnapshot = "NORMAL-1",
+                    modifierSnapshots = emptyList(),
+                ),
+            ),
+            subtotal = 12_000,
+            total = 22_000,
+        )
+        val document = documentBuilder(receipt, null, 58)
+        val itemBlock = document.blocks.first { it.type == ReceiptBlockType.Items }
+        val separator = "-".repeat(document.characterWidth)
+        assertEquals(1, itemBlock.lines.count { it.text == separator })
+        assertEquals("Normal Product", itemBlock.lines.first().text)
+        assertTrue(document.blocks.first { it.type == ReceiptBlockType.Totals }.lines.first().text.startsWith("Subtotal"))
+
+        val printable = printableBody(formatter.formatReceipt(document))
+        assertFalse(printable.contains("##PLMC"))
+        assertFalse(printable.contains("PLMC"))
+        assertFalse(printable.contains("modifier" , ignoreCase = true))
+        assertTrue(printable.indexOf(separator) < printable.indexOf("Subtotal"))
+    }
+
+    @Test
+    fun footerUsesOnlyTwoManualTearLineFeedsAndNoCut() {
+        val payload = formatter.formatReceipt(documentBuilder(createTestReceipt(), null, 58))
+        val footer = "Terima kasih".toByteArray()
+        val footerIndex = payload.indexOfSubArray(footer)
+        val tail = payload.copyOfRange(footerIndex + footer.size, payload.size)
+        assertArrayEquals("\n\u001BE\u0000\u001Ba\u0000\n\n".toByteArray(), tail)
+        assertFalse(tail.contains(0x1B.toByte()).and(tail.contains('m'.code.toByte())))
+    }
+
+    @Test
     fun testCashPaymentShowsTender() {
         val receipt = createTestReceipt(
             paymentMethod = "CASH",
@@ -246,7 +292,7 @@ class EscPosReceiptFormatterTest {
         assertTrue(text.startsWith("\u001B@"))
         assertTrue(text.contains("\u001Ba\u0001Canonical Header\n"))
         assertTrue(text.contains("\u001Ba\u0002\u001BE\u0001Canonical total\u001BE\u0000\n"))
-        assertTrue(text.endsWith("\n\n\n\u001Bd\u0005\u001Bm"))
+        assertTrue(text.endsWith("\u001BE\u0000\u001Ba\u0000\n\n"))
     }
 
     @Test
@@ -276,19 +322,84 @@ class EscPosReceiptFormatterTest {
 
         assertTrue(text.startsWith("\u001B@"))
         assertTrue(text.contains("Tanggal: 05/10/2026 22:14"))
-        assertTrue(text.endsWith("\n\n\n\u001Bd\u0005\u001Bm"))
+        assertTrue(text.endsWith("\u001BE\u0000\u001Ba\u0000\n\n"))
     }
 
     @Test
-    fun manuallyConstructedDocumentWithUnsafeControlsIsRejected() {
+    fun manuallyConstructedDocumentSanitizesUnsafeControlsWithoutDroppingLegitimateText() {
         listOf('\u0000', '\u0009', '\u000A', '\u000D', '\u001B', '\u001D', '\u007F', '\u0085').forEach { control ->
-            val document = canonicalDocument(ReceiptLine("unsafe${control}text"))
+            val document = canonicalDocument(ReceiptLine("unsafe${control}legitimate"))
 
-            val failure = runCatching { formatter.formatReceipt(document) }.exceptionOrNull()
+            val payload = String(formatter.formatReceipt(document), Charsets.UTF_8)
 
-            assertTrue("control U+${control.code.toString(16)} was accepted", failure is IllegalArgumentException)
-            assertTrue(failure?.message.orEmpty().contains("unsafe control character"))
+            assertTrue(payload.contains("unsafelegitimate"))
+            assertFalse(payload.contains("unsafe${control}legitimate"))
         }
+    }
+
+    @Test
+    fun configuredAdditionalHeaderAndPromoReachCanonicalEscPosPayload() {
+        val settings = ReceiptSettings(
+            tenantId = "T1",
+            outletId = "O1",
+            header = ReceiptHeaderSettings(
+                "Coffee & Shop Toga",
+                "Outlet 1",
+                "Jl. Perjuangan No.4",
+                null,
+                "Instagram : kopitoga_bekasi\nWifi Password: arabicatoraja",
+            ),
+            visibility = ReceiptVisibilitySettings(true, true, true, true, true),
+            footer = ReceiptFooterSettings("Terima kasih", "Promo akhir pekan"),
+            templateVersion = 1,
+            createdAt = null,
+            updatedAt = null,
+        )
+        val document = documentBuilder(createTestReceipt(), settings, 58)
+        val printable = printableBody(formatter.formatReceipt(document))
+
+        assertTrue(printable.contains("Instagram : kopitoga_bekasi"))
+        assertTrue(printable.contains("Wifi Password: arabicatoraja"))
+        assertTrue(printable.contains("Promo akhir pekan"))
+        assertEquals(document.lines.joinToString("") { "${it.text}\n" }, printable)
+    }
+
+    @Test
+    fun everyCanonicalTextLineIsEncodedInTheSameOrderIncludingBlankLines() {
+        val document = documentBuilder(
+            createTestReceipt(),
+            ReceiptSettings(
+                tenantId = "T1",
+                outletId = "O1",
+                header = ReceiptHeaderSettings("Store", "Outlet", "Address", null, "Header one\n\nHeader two"),
+                visibility = ReceiptVisibilitySettings(true, true, true, true, true),
+                footer = ReceiptFooterSettings("Thanks", "Footer one\n\nFooter two"),
+                templateVersion = 1,
+                createdAt = null,
+                updatedAt = null,
+            ),
+            80,
+        )
+
+        assertEquals(
+            document.lines.joinToString("") { "${it.text}\n" },
+            printableBody(formatter.formatReceipt(document)),
+        )
+    }
+
+    @Test
+    fun canonicalHeaderFooterAlignmentAndTotalEmphasisBecomePrinterCommands() {
+        val document = documentBuilder(createTestReceipt(), null, 58)
+        val payload = String(formatter.formatReceipt(document), Charsets.UTF_8)
+        val total = document.lines.first { it.text.startsWith("TOTAL") }
+
+        document.blocks.first { it.type == ReceiptBlockType.Header }.lines.forEach { line ->
+            assertTrue(payload.contains("\u001Ba\u0001${line.text}\n"))
+        }
+        document.blocks.first { it.type == ReceiptBlockType.Footer }.lines.forEach { line ->
+            assertTrue(payload.contains("\u001Ba\u0001${line.text}\n"))
+        }
+        assertTrue(payload.contains("\u001BE\u0001${total.text}\u001BE\u0000\n"))
     }
 
     @Test
@@ -359,6 +470,25 @@ class EscPosReceiptFormatterTest {
 
     private fun renderLines(vararg lines: ReceiptLine): String =
         String(formatter.formatReceipt(canonicalDocument(*lines)), Charsets.UTF_8)
+
+    private fun printableBody(bytes: ByteArray): String = String(bytes, Charsets.UTF_8)
+        .removePrefix("\u001B@")
+        .removeSuffix("\u001BE\u0000\u001Ba\u0000\n\n")
+        .replace(Regex("\u001Ba[\u0000-\u0002]"), "")
+        .replace("\u001BE\u0001", "")
+        .replace("\u001BE\u0000", "")
+
+    private fun ByteArray.indexOfSubArray(needle: ByteArray): Int =
+        indices.firstOrNull { start -> start + needle.size <= size && needle.indices.all { this[start + it] == needle[it] } } ?: -1
+
+    private fun EscPosReceiptFormatter.formatReceipt(receipt: Receipt, paperWidthMm: Int): ByteArray =
+        formatReceipt(documentBuilder(receipt, settings = null, paperWidthMm = paperWidthMm))
+
+    private fun EscPosReceiptFormatter.formatReceipt(
+        receipt: Receipt,
+        settings: ReceiptSettings?,
+        paperWidthMm: Int,
+    ): ByteArray = formatReceipt(documentBuilder(receipt, settings, paperWidthMm))
 
     @Test
     fun testDrawerPulseDefault() {
