@@ -1044,15 +1044,18 @@ The signed verification APK was built with `-Pkasirkita.releaseApiBaseUrl=https:
 
 ## M18B — Record-only EDC Android Support
 
-Status: **OPEN — M18B implemented and locally verified; deployment and physical validation pending.**
+Status: **CLOSED — M18B implemented, pushed, installed, and physical QA PASS.**
 
 - Checkout supports `CASH`, `QRIS`, and record-only `EDC`. EDC sends only `method: "EDC"`; it has no tender, change, provider, card, bank, gateway, or webhook data.
 - EDC guidance requires the cashier to confirm success on the external machine before completing checkout. It uses the existing completion action and never opens the cash drawer.
 - Supported V2 offline payloads persist and replay EDC method-only payments. Legacy RC2 remains CASH-only. Existing CASH and QRIS flows remain unchanged.
 - Shift summaries expose separate Tunai, QRIS, and EDC totals. Older responses without `edc` map that bucket to zero; total sales and non-reconciling fields are unchanged.
 - Receipts, transaction details, history, manual/automatic print, and reprint preserve `Metode: EDC` without tender or change fields.
-- Verification: focused M18B 231/231, full unit 798/798, Kotlin compilation, `lintDebug`, `assembleDebug`, `assembleRelease`, and `git diff --check` all PASS. The release artifact from this verification environment was unsigned; signed release verification remains pending. No APK was installed and no production API was contacted.
-- Backend M18A is pushed but not deployed, so production EDC is unavailable. Deployment, signed release verification, and physical EDC/printer QA remain pending; M18 remains OPEN and is not marked complete.
+- Android commit: `41bb2ad897d4ea2b3a0b08d8e52b3ab670cc0d24`.
+- Production release: `https://api.bekasirk.tech/`, package `com.kasirkita.pos`, version `1.0` (versionCode `1`). Signed APK SHA-256: `5dcca7a5c5f6791d5c64a9fec80979ea852825e0842c86576eb546b8d3d0de98`; APK Signature Scheme v2 with exactly one signer; certificate SHA-256 `f1b37763c7da2cf7d3e03c6cfe7b630887901acf08dd8e115063a00e872b193b`.
+- Online and offline EDC QA PASS: no tender or change input, no cash-drawer pulse, checkout success summary, auto/manual/history reprint, `Metode: EDC` without `Diterima` or `Kembalian`, separate shift EDC total, V2 queue persistence/replay, pending count returned to zero, exactly-once sync, and no duplicate transaction, payment, or print.
+- Focused M18B 231/231, full unit 798/798, Kotlin compilation, `lintDebug`, debug/release builds, and diff checks passed. No card or other sensitive payment data is collected or stored. CASH and QRIS regression behavior remains preserved.
+- Backend M18A is deployed and production EDC is available. M18 overall is CLOSED; no unrelated future milestone is marked complete.
 
 ## Next Milestones
 
