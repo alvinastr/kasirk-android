@@ -32,6 +32,8 @@ val KasirOnWarningContainer = Color(0xFF2C1600)
 
 val KasirDarkPrimary = Color(0xFF77D9A7)
 val KasirDarkOnPrimary = Color(0xFF003826)
+val KasirDarkPrimaryContainer = Color(0xFF005236)
+val KasirDarkOnPrimaryContainer = Color(0xFFA5F2C6)
 val KasirDarkBackground = Color(0xFF101411)
 val KasirDarkOnBackground = Color(0xFFE0E4DC)
 val KasirDarkSurface = Color(0xFF191C19)

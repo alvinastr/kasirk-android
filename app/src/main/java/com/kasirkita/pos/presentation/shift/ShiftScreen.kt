@@ -30,6 +30,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Shift
 import com.kasirkita.pos.domain.model.ShiftProductSummary
 import com.kasirkita.pos.domain.model.ShiftSummary
+import com.kasirkita.pos.presentation.navigation.Screen
 import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirErrorState
 import com.kasirkita.pos.ui.components.KasirLoadingState
@@ -50,7 +51,7 @@ fun ShiftScreen(
     outletId: String,
     outletName: String = outletId,
     cashierName: String? = null,
-    autoNavigateToHome: Boolean = true,
+    entryMode: Screen.Shift.EntryMode = Screen.Shift.EntryMode.GATE,
     onShiftOpen: () -> Unit = {},
     viewModel: ShiftViewModel = hiltViewModel(),
 ) {
@@ -58,7 +59,7 @@ fun ShiftScreen(
 
     val loadedShift = (state as? ShiftState.ShiftLoaded)?.shift
     val shouldNavigateToHome = shouldNavigateToHomeFromShift(
-        autoNavigateToHome = autoNavigateToHome,
+        entryMode = entryMode,
         selectedOutletId = outletId,
         shift = loadedShift,
     )
@@ -570,10 +571,10 @@ internal fun formatShiftTime(value: String): String = runCatching {
 }.getOrDefault(value)
 
 internal fun shouldNavigateToHomeFromShift(
-    autoNavigateToHome: Boolean,
+    entryMode: Screen.Shift.EntryMode,
     selectedOutletId: String,
     shift: Shift?,
-): Boolean = autoNavigateToHome && shift?.let { activeShift ->
+): Boolean = entryMode == Screen.Shift.EntryMode.GATE && shift?.let { activeShift ->
     activeShift.status.equals("OPEN", ignoreCase = true) &&
         activeShift.outletId == selectedOutletId
 } == true

@@ -7,7 +7,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -15,6 +14,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.core.datastore.toSessionIdentity
@@ -31,6 +31,8 @@ import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
 import com.kasirkita.pos.presentation.heldorder.HeldOrdersScreen
 import com.kasirkita.pos.presentation.modifier.ModifierGroupScreen
+import com.kasirkita.pos.presentation.more.MoreRouteKey
+import com.kasirkita.pos.presentation.more.MoreScreen
 import com.kasirkita.pos.presentation.offline.OfflineRecoveryScreen
 import com.kasirkita.pos.presentation.outlet.OutletScreen
 import com.kasirkita.pos.presentation.product.CategoryManagementScreen
@@ -96,6 +98,9 @@ fun AppNavigation(
             val shiftRoute = authenticatedSession
                 ?.role
                 ?.let(::shiftRouteFor)
+            val shiftManageRoute = authenticatedSession
+                ?.role
+                ?.let(::shiftManageRouteFor)
             val transactionHistoryRoute = authenticatedSession
                 ?.role
                 ?.let(::transactionHistoryRouteFor)
@@ -112,11 +117,24 @@ fun AppNavigation(
                 ?.role
                 ?.let(::receiptTemplateSettingsRouteFor)
             val startDestination = startupRouteFor(currentState)
+            val currentBackStackEntry by navController.currentBackStackEntryAsState()
+            val currentRoute = currentBackStackEntry?.destination?.route
+            val role = authenticatedSession?.role
 
-            NavHost(
-                navController = navController,
-                startDestination = startDestination,
-            ) {
+            AdaptiveNavigationScaffold(
+                role = role,
+                currentRoute = currentRoute,
+                onDestinationSelected = { route ->
+                    role?.takeIf { isRouteAuthorizedForRole(route, it) }?.let {
+                        navigateToTopLevelDestination(navController, route)
+                    }
+                },
+            ) { contentModifier ->
+                NavHost(
+                    navController = navController,
+                    startDestination = startDestination,
+                    modifier = contentModifier,
+                ) {
                 composable(AuthV2Screen.Graph.route) {
                     AuthV2Navigation(
                         onAuthenticated = { session ->
@@ -132,7 +150,9 @@ fun AppNavigation(
                 composable(Screen.Outlet.route) {
                     OutletScreen(
                         onOutletSelected = {
-                            navController.navigate(Screen.Shift.route) {
+                            navController.navigate(
+                                Screen.Shift.createRoute(Screen.Shift.EntryMode.GATE),
+                            ) {
                                 popUpTo(Screen.Outlet.route) { inclusive = true }
                                 launchSingleTop = true
                             }
@@ -142,36 +162,47 @@ fun AppNavigation(
 
                 composable(Screen.Shift.route) { backStackEntry ->
                     val outlet = selectedOutlet
-                    if (shouldRecoverShiftToOutlet(outlet)) {
+                    val entryMode = Screen.Shift.parseEntryMode(
+                        backStackEntry.arguments?.getString(ENTRY_MODE_ARGUMENT),
+                    )
+                    if (entryMode == null) {
+                        LaunchedEffect(backStackEntry) {
+                            if (authenticatedSession == null) {
+                                navigateToSessionBoundary(
+                                    navController = navController,
+                                    route = AuthV2Screen.Graph.route,
+                                )
+                            } else if (outlet == null) {
+                                navigateToSessionBoundary(
+                                    navController = navController,
+                                    route = Screen.Outlet.route,
+                                )
+                            } else if (isSafeAuthenticatedBackTarget(navController.previousBackStackEntry?.destination?.route)) {
+                                navController.popBackStack()
+                            } else {
+                                navigateToTopLevelDestination(navController, Screen.Home.route)
+                            }
+                        }
+                        SessionLoadingContent()
+                    } else if (shouldRecoverShiftToOutlet(outlet)) {
                         LaunchedEffect(Unit) {
                             navController.navigate(Screen.Outlet.route) {
-                                popUpTo(Screen.Shift.route) { inclusive = true }
+                                popUpTo(backStackEntry.destination.id) { inclusive = true }
                                 launchSingleTop = true
                             }
                         }
                         SessionLoadingContent()
                     } else {
                         val outletForShift = checkNotNull(outlet)
-                        val isGateEntry = remember(backStackEntry) {
-                            isShiftGateEntry(
-                                previousRoute = navController
-                                    .previousBackStackEntry
-                                    ?.destination
-                                    ?.route,
-                            )
-                        }
                         ShiftScreen(
                             outletId = outletForShift.id,
                             outletName = outletForShift.name,
                             cashierName = (authenticatedSession as? NavigationSession.AuthV2)
                                 ?.value
                                 ?.userName,
-                            autoNavigateToHome = isGateEntry,
+                            entryMode = entryMode,
                             onShiftOpen = {
-                                navController.navigate(Screen.Products.route) {
-                                    popUpTo(Screen.Shift.route) { inclusive = true }
-                                    launchSingleTop = true
-                                }
+                                navigateToTopLevelDestination(navController, Screen.Products.route)
                             },
                         )
                     }
@@ -180,53 +211,59 @@ fun AppNavigation(
                 composable(Screen.Home.route) {
                     HomeScreen(
                         onProductsClick = {
-                            navController.navigate(Screen.Products.route)
-                        },
-                        onCartClick = {
-                            navController.navigate(Screen.Cart.route)
+                            role?.let { currentRole ->
+                                if (isRouteAuthorizedForRole(Screen.Products.route, currentRole)) {
+                                    navigateToTopLevelDestination(navController, Screen.Products.route)
+                                }
+                            }
                         },
                         onShiftClick = {
-                            shiftRoute?.let(navController::navigate)
-                        },
-                        onManageProductsClick = productManagementRoute?.let { route ->
-                            { navController.navigate(route) }
-                        },
-                        onTransactionsClick = transactionHistoryRoute?.let { route ->
-                            { navController.navigate(route) }
-                        },
-                        onReportsClick = reportsRoute?.let { route ->
-                            { navController.navigate(route) }
-                        },
-                        onReceiptTemplateSettingsClick = receiptTemplateSettingsRoute?.let { route ->
-                            { navController.navigate(route) }
-                        },
-                        onOfflineProblemsClick = {
-                            navController.navigate(Screen.OfflineRecovery.route)
+                            shiftRoute?.let { route ->
+                                role?.takeIf { isRouteAuthorizedForRole(route, it) }?.let {
+                                    navController.navigate(route)
+                                }
+                            }
                         },
                         currentUserName = (authenticatedSession as? NavigationSession.AuthV2)
                             ?.value
                             ?.userName,
                         currentOutletName = selectedOutlet?.name,
                         currentShift = currentShift,
-                        onLogoutComplete = {
-                            viewModel.onLoggedOut()
-                            navController.navigate(AuthV2Screen.Graph.route) {
-                                popUpTo(navController.graph.id)
-                                launchSingleTop = true
-                            }
-                        },
                     )
                 }
 
+                composable(Screen.More.route) {
+                    val currentRole = role
+                    if (currentRole == null) {
+                        SessionLoadingContent()
+                    } else {
+                        MoreScreen(
+                            role = currentRole,
+                            onDestinationClick = { destination ->
+                                navigateFromMore(
+                                    destination = destination,
+                                    role = currentRole,
+                                    navController = navController,
+                                    productManagementRoute = productManagementRoute,
+                                    categoryManagementRoute = categoryManagementRoute,
+                                    printerSettingsRoute = printerSettingsRoute,
+                                    receiptTemplateSettingsRoute = receiptTemplateSettingsRoute,
+                                    shiftManageRoute = shiftManageRoute,
+                                )
+                            },
+                            onLogoutComplete = {
+                                viewModel.onLoggedOut()
+                                navController.navigate(AuthV2Screen.Graph.route) {
+                                    popUpTo(navController.graph.id) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                        )
+                    }
+                }
+
                 composable(Screen.Products.route) {
-                    val role = authenticatedSession?.role
                     ProductScreen(
-                        railDestinations = role?.let(::posWorkspaceRailDestinationsFor).orEmpty(),
-                        onRailDestinationClick = { destination ->
-                            navController.navigate(destination.route) {
-                                launchSingleTop = true
-                            }
-                        },
                         onCartClick = {
                             navController.navigate(Screen.Cart.route)
                         },
@@ -392,7 +429,7 @@ fun AppNavigation(
                         onCheckoutSuccess = { transactionId ->
                             val destination = receiptDestination(transactionId)
                             navController.navigate(destination.route) {
-                                popUpTo(destination.popUpToRoute) {
+                                popUpTo(existingSalesFlowPopUpRoute(navController, destination.popUpToRoute)) {
                                     inclusive = destination.popUpToInclusive
                                 }
                                 launchSingleTop = true
@@ -412,7 +449,7 @@ fun AppNavigation(
                         onNewTransaction = {
                             val destination = newTransactionDestination()
                             navController.navigate(destination.route) {
-                                popUpTo(destination.popUpToRoute) {
+                                popUpTo(existingSalesFlowPopUpRoute(navController, destination.popUpToRoute)) {
                                     inclusive = destination.popUpToInclusive
                                 }
                                 launchSingleTop = true
@@ -455,27 +492,71 @@ fun AppNavigation(
 
                 printerSettingsRoute?.let { route ->
                     composable(route) {
-                        PrinterSettingsScreen()
+                        PrinterSettingsScreen(onBack = navController::popBackStack)
                     }
                 }
-                composable(Screen.ReceiptTemplateSettings.route) {
-                    val session = (authenticatedSession as? NavigationSession.AuthV2)?.value
-                    ReceiptTemplateSettingsScreen(
-                        context = ReceiptSettingsContext(
-                            tenantId = session?.tenantId.orEmpty(),
-                            outletId = selectedOutlet?.id ?: session?.outletId,
-                            role = session?.role ?: UserRole.CASHIER,
-                        ),
-                        onBack = navController::popBackStack,
-                    )
+                receiptTemplateSettingsRoute?.let { route ->
+                    composable(route) {
+                        val session = (authenticatedSession as? NavigationSession.AuthV2)?.value
+                        ReceiptTemplateSettingsScreen(
+                            context = ReceiptSettingsContext(
+                                tenantId = session?.tenantId.orEmpty(),
+                                outletId = selectedOutlet?.id ?: session?.outletId,
+                                role = session?.role ?: UserRole.CASHIER,
+                            ),
+                            onBack = navController::popBackStack,
+                        )
+                    }
                 }
+            }
             }
         }
     }
 }
 
-internal fun isShiftGateEntry(previousRoute: String?): Boolean =
-    previousRoute != Screen.Home.route
+private fun navigateFromMore(
+    destination: MoreRouteKey,
+    role: UserRole,
+    navController: androidx.navigation.NavHostController,
+    productManagementRoute: String?,
+    categoryManagementRoute: String?,
+    printerSettingsRoute: String?,
+    receiptTemplateSettingsRoute: String?,
+    shiftManageRoute: String?,
+) {
+    val route = moreDestinationRouteFor(
+        destination = destination,
+        productManagementRoute = productManagementRoute,
+        categoryManagementRoute = categoryManagementRoute,
+        printerSettingsRoute = printerSettingsRoute,
+        receiptTemplateSettingsRoute = receiptTemplateSettingsRoute,
+        shiftManageRoute = shiftManageRoute,
+    ) ?: return
+
+    if (!isRouteAuthorizedForRole(route, role)) return
+
+    navController.navigate(route) {
+        launchSingleTop = true
+    }
+}
+
+internal fun moreDestinationRouteFor(
+    destination: MoreRouteKey,
+    productManagementRoute: String?,
+    categoryManagementRoute: String?,
+    printerSettingsRoute: String?,
+    receiptTemplateSettingsRoute: String?,
+    shiftManageRoute: String?,
+): String? = when (destination) {
+    MoreRouteKey.ProductManagement -> productManagementRoute
+    MoreRouteKey.Categories -> categoryManagementRoute
+    MoreRouteKey.Modifiers -> Screen.ModifierGroups.route
+    MoreRouteKey.Shift -> shiftManageRoute
+    MoreRouteKey.Printer -> printerSettingsRoute
+    MoreRouteKey.ReceiptTemplate -> receiptTemplateSettingsRoute
+    MoreRouteKey.OfflineRecovery -> Screen.OfflineRecovery.route
+    MoreRouteKey.HeldOrders -> Screen.HeldOrders.route
+}
 
 internal data class SalesFlowDestination(
     val route: String,
@@ -494,6 +575,111 @@ internal fun newTransactionDestination(): SalesFlowDestination =
         route = Screen.Products.route,
         popUpToRoute = Screen.Home.route,
     )
+
+internal fun salesFlowPopUpRoute(hasPreferredRoute: Boolean): String =
+    if (hasPreferredRoute) Screen.Home.route else Screen.Products.route
+
+internal data class TopLevelNavigationPlan(
+    val operations: List<TopLevelNavigationOperation>,
+)
+
+internal data class TopLevelNavigationOperation(
+    val route: String,
+    val popUpTo: TopLevelPopUpTarget,
+    val inclusive: Boolean = false,
+    val launchSingleTop: Boolean = true,
+    val saveState: Boolean = false,
+    val restoreState: Boolean = false,
+)
+
+internal enum class TopLevelPopUpTarget {
+    NONE,
+    HOME,
+    AUTHENTICATED_GRAPH,
+}
+
+internal fun topLevelNavigationPlan(
+    destination: String,
+    homePresent: Boolean,
+): TopLevelNavigationPlan = if (homePresent) {
+    TopLevelNavigationPlan(
+        operations = listOf(
+            TopLevelNavigationOperation(
+                route = destination,
+                popUpTo = TopLevelPopUpTarget.HOME,
+                saveState = true,
+                restoreState = true,
+            ),
+        ),
+    )
+} else {
+    TopLevelNavigationPlan(
+        operations = buildList {
+            add(
+                TopLevelNavigationOperation(
+                    route = Screen.Home.route,
+                    popUpTo = TopLevelPopUpTarget.AUTHENTICATED_GRAPH,
+                ),
+            )
+            if (destination != Screen.Home.route) {
+                add(
+                    TopLevelNavigationOperation(
+                        route = destination,
+                        popUpTo = TopLevelPopUpTarget.HOME,
+                        saveState = true,
+                        restoreState = true,
+                    ),
+                )
+            }
+        },
+    )
+}
+
+private fun navigateToTopLevelDestination(
+    navController: androidx.navigation.NavHostController,
+    destination: String,
+) {
+    val homePresent = runCatching {
+        navController.getBackStackEntry(Screen.Home.route)
+    }.isSuccess
+    val plan = topLevelNavigationPlan(destination, homePresent)
+    plan.operations.forEach { operation ->
+        navController.navigate(operation.route) {
+            when (operation.popUpTo) {
+                TopLevelPopUpTarget.NONE -> Unit
+                TopLevelPopUpTarget.HOME -> popUpTo(Screen.Home.route) {
+                    inclusive = operation.inclusive
+                    saveState = operation.saveState
+                }
+                TopLevelPopUpTarget.AUTHENTICATED_GRAPH -> popUpTo(navController.graph.id) {
+                    inclusive = true
+                }
+            }
+            launchSingleTop = operation.launchSingleTop
+            restoreState = operation.restoreState
+        }
+    }
+}
+
+private fun navigateToSessionBoundary(
+    navController: androidx.navigation.NavHostController,
+    route: String,
+) {
+    navController.navigate(route) {
+        popUpTo(navController.graph.id) { inclusive = true }
+        launchSingleTop = true
+    }
+}
+
+internal fun isSafeAuthenticatedBackTarget(route: String?): Boolean =
+    topLevelRouteFor(route) != null
+
+private fun existingSalesFlowPopUpRoute(
+    navController: androidx.navigation.NavHostController,
+    preferredRoute: String,
+): String = runCatching {
+    navController.getBackStackEntry(preferredRoute)
+}.let { result -> salesFlowPopUpRoute(result.isSuccess) }
 
 internal data class HeldOrdersNavigationDestination(
     val route: String,
@@ -515,7 +701,14 @@ internal fun shiftRouteFor(role: UserRole): String = when (role) {
     UserRole.OWNER,
     UserRole.ADMIN,
     UserRole.CASHIER,
-    -> Screen.Shift.route
+    -> Screen.Shift.createRoute(Screen.Shift.EntryMode.GATE)
+}
+
+internal fun shiftManageRouteFor(role: UserRole): String = when (role) {
+    UserRole.OWNER,
+    UserRole.ADMIN,
+    UserRole.CASHIER,
+    -> Screen.Shift.createRoute(Screen.Shift.EntryMode.MANAGE)
 }
 
 internal fun productManagementRouteFor(role: UserRole): String? = when (role) {
@@ -588,36 +781,11 @@ internal fun receiptTemplateSettingsRouteFor(role: UserRole): String? = when (ro
     UserRole.CASHIER -> null
 }
 
-internal data class PosWorkspaceRailDestination(
-    val route: String,
-    val label: String,
-    val selected: Boolean,
-)
-
-internal fun posWorkspaceRailDestinationsFor(role: UserRole): List<PosWorkspaceRailDestination> = buildList {
-    add(PosWorkspaceRailDestination(Screen.Products.route, "POS", selected = true))
-    add(PosWorkspaceRailDestination(transactionHistoryRouteFor(role), "Riwayat", selected = false))
-    if (productManagementRouteFor(role) != null) {
-        add(PosWorkspaceRailDestination(Screen.ProductManagement.route, "Produk", selected = false))
-    }
-    if (reportsRouteFor(role) != null) {
-        add(PosWorkspaceRailDestination(Screen.Reports.route, "Laporan", selected = false))
-    }
-    if (printerSettingsRouteFor(role) != null) {
-        add(PosWorkspaceRailDestination(Screen.PrinterSettings.route, "Printer", selected = false))
-    }
-    if (receiptTemplateSettingsRouteFor(role) != null) {
-        add(PosWorkspaceRailDestination(Screen.ReceiptTemplateSettings.route, "Template", selected = false))
-    }
-}
-
-internal fun posWorkspaceShowsRail(layoutMode: com.kasirkita.pos.presentation.product.PosLayoutMode): Boolean =
-    layoutMode == com.kasirkita.pos.presentation.product.PosLayoutMode.Wide
-
 internal const val PRODUCT_CREATED_RESULT_KEY = "product_created"
 internal const val PRODUCT_UPDATED_RESULT_KEY = "product_updated"
 internal const val STOCK_ADJUSTED_RESULT_KEY = "stock_adjusted"
 private const val PRODUCT_ID_ARGUMENT = "productId"
+private const val ENTRY_MODE_ARGUMENT = "entryMode"
 
 @Composable
 private fun SessionLoadingContent() {

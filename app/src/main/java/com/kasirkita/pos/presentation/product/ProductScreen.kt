@@ -18,10 +18,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
-import com.kasirkita.pos.presentation.navigation.PosWorkspaceRailDestination
-import com.kasirkita.pos.presentation.navigation.posWorkspaceShowsRail
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -61,8 +57,6 @@ import java.util.Locale
 internal fun ProductScreen(
     onCartClick: () -> Unit,
     onHeldOrders: () -> Unit,
-    railDestinations: List<PosWorkspaceRailDestination> = emptyList(),
-    onRailDestinationClick: (PosWorkspaceRailDestination) -> Unit = {},
     viewModel: ProductCatalogViewModel = hiltViewModel(),
     cartViewModel: CartViewModel = hiltViewModel(),
 ) {
@@ -82,20 +76,7 @@ internal fun ProductScreen(
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val layoutMode = posLayoutMode(maxWidth.value.toInt())
-        Row(modifier = Modifier.fillMaxSize()) {
-            if (posWorkspaceShowsRail(layoutMode)) {
-                NavigationRail(modifier = Modifier.fillMaxHeight()) {
-                    railDestinations.forEach { destination ->
-                        NavigationRailItem(
-                            selected = destination.selected,
-                            onClick = { onRailDestinationClick(destination) },
-                            icon = { Text(destination.label.take(1)) },
-                            label = { Text(destination.label) },
-                        )
-                    }
-                }
-            }
-            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+        Box(modifier = Modifier.fillMaxSize()) {
         when (layoutMode) {
             PosLayoutMode.Wide -> WideProductLayout(
                 state = state,
@@ -116,7 +97,6 @@ internal fun ProductScreen(
                 onCartClick = onCartClick,
             )
         }
-            }
         }
     }
 }

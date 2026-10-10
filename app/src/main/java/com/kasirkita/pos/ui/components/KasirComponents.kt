@@ -73,13 +73,24 @@ fun KasirSecondaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    destructive: Boolean = false,
 ) {
     OutlinedButton(
         onClick = onClick,
         modifier = modifier.heightIn(min = KasirSpacing.ButtonMinHeight),
         enabled = enabled,
         shape = RoundedCornerShape(KasirSpacing.CornerRadius),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        colors = if (destructive) {
+            ButtonDefaults.outlinedButtonColors(
+                contentColor = MaterialTheme.colorScheme.error,
+            )
+        } else {
+            ButtonDefaults.outlinedButtonColors()
+        },
+        border = BorderStroke(
+            1.dp,
+            if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
+        ),
     ) {
         Text(text = text)
     }

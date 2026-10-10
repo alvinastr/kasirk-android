@@ -1057,6 +1057,34 @@ Status: **CLOSED — M18B implemented, pushed, installed, and physical QA PASS.*
 - Focused M18B 231/231, full unit 798/798, Kotlin compilation, `lintDebug`, debug/release builds, and diff checks passed. No card or other sensitive payment data is collected or stored. CASH and QRIS regression behavior remains preserved.
 - Backend M18A is deployed and production EDC is available. M18 overall is CLOSED; no unrelated future milestone is marked complete.
 
+## M19A — Adaptive Navigation Foundation
+
+Status: **IMPLEMENTED — automated verification and tablet physical QA PASS; phone NavigationBar physical QA remains pending.**
+
+- OWNER and ADMIN top-level destinations are Beranda, Kasir, Transaksi, Laporan, and Lainnya. CASHIER receives Beranda, Kasir, Transaksi, and Lainnya; inaccessible administrative destinations are not exposed.
+- Phone uses one role-aware Material 3 `NavigationBar`; tablet/wide layouts use one app-wide `NavigationRail` at the established applicable 840dp boundary. The wide Kasir workspace preserves the product catalog and embedded cart, with no ProductScreen-owned duplicate rail.
+- Shift entry is explicit and type-safe: `GATE` is used for startup, outlet, and shift-opening flows; `MANAGE` is used from Lainnya. Strict parsing rejects malformed modes without falling back to GATE.
+- Home is the authenticated top-level anchor. First-shift and Home-absent navigation normalize to Home → Kasir or Home → the selected destination, while logout and session invalidation clear protected navigation history.
+- Products, Cart, and Held Orders continue to share the single root-scoped `CartViewModel`; no global Held Orders badge or duplicate state owner was introduced.
+- Home and Lainnya use bounded, operational layouts. Light and dark themes use semantic surfaces and KasirKita green for selected navigation and primary actions; M19A adds no dashboard metrics, charts, product media, or decorative content.
+
+### Verification
+
+- Focused UI/navigation policy tests: **55 passed**.
+- Full `:app:testDebugUnitTest`: **816 passed**, with zero failures, errors, or skipped tests.
+- `lintDebug`, debug build, and signed release build passed. The release package remains `com.kasirkita.pos`, the API URL remains `https://api.bekasirk.tech/`, and the signer certificate SHA-256 remains `f1b37763c7da2cf7d3e03c6cfe7b630887901acf08dd8e115063a00e872b193b`.
+
+### Physical QA
+
+- Tablet QA on RR2N50016ZZ (1200×2000, 213 dpi; approximately 901dp portrait) passed in system light and dark modes for Home, Kasir, Lainnya, selected green NavigationRail state, bounded layouts, Shift management, top-level/back behavior, repeated destination selection, cart persistence, focused-route chrome hiding, and logout protection.
+- Physical phone NavigationBar QA was not performed; automated policy coverage includes widths 839dp, 840dp, and 841dp. Phone NavigationBar behavior remains a device-QA risk.
+
+### Scope boundaries
+
+- M19B Home Dashboard remains a separate future milestone; no sales metrics, charts, or fabricated totals are marked complete here.
+- Customer Management, Staff/User Management, and Product Media are not implemented by M19A and remain future feature milestones.
+- No backend, API, Room/DataStore, payment, offline queue, printer, receipt, signing, package, or version behavior was changed.
+
 ## Next Milestones
 
 1. Receipt Template Settings / Receipt V2.

@@ -1,15 +1,16 @@
 package com.kasirkita.pos.presentation.home
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -23,8 +24,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Shift
-import com.kasirkita.pos.presentation.authv2.LogoutState
-import com.kasirkita.pos.presentation.authv2.LogoutViewModel
 import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirPrimaryButton
 import com.kasirkita.pos.ui.components.KasirSecondaryButton
@@ -32,7 +31,6 @@ import com.kasirkita.pos.ui.components.PriceDisplay
 import com.kasirkita.pos.ui.components.StatusBadge
 import com.kasirkita.pos.ui.components.StatusBadgeTone
 import com.kasirkita.pos.ui.theme.KasirSpacing
-import com.kasirkita.pos.ui.theme.KasirSuccess
 import com.kasirkita.pos.ui.theme.KasirWarning
 import com.kasirkita.pos.ui.theme.body
 import com.kasirkita.pos.ui.theme.screenTitle
@@ -48,72 +46,76 @@ import java.util.Locale
 @Composable
 fun HomeScreen(
     onProductsClick: () -> Unit,
-    onCartClick: () -> Unit,
     onShiftClick: () -> Unit,
-    onManageProductsClick: (() -> Unit)? = null,
-    onTransactionsClick: (() -> Unit)? = null,
-    onReportsClick: (() -> Unit)? = null,
-    onReceiptTemplateSettingsClick: (() -> Unit)? = null,
-    onOfflineProblemsClick: () -> Unit,
-    onLogoutComplete: () -> Unit,
     currentUserName: String? = null,
     currentOutletName: String? = null,
     currentShift: Shift? = null,
     viewModel: HomeViewModel = hiltViewModel(),
-    logoutViewModel: LogoutViewModel = hiltViewModel(),
 ) {
     val syncState by viewModel.syncState.collectAsState()
-    val logoutState by logoutViewModel.state.collectAsState()
     val numberFormat = NumberFormat.getNumberInstance(Locale("id", "ID"))
+    val hasActiveShift = currentShift?.status == "OPEN"
 
-    LaunchedEffect(logoutState) {
-        if (logoutState == LogoutState.LoggedOut) {
-            logoutViewModel.acknowledgeLoggedOut()
-            onLogoutComplete()
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val isWide = homeUsesWideLayout(maxWidth.value.toInt())
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopCenter,
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .widthIn(max = if (isWide) 960.dp else 1200.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(KasirSpacing.ScreenPadding),
+                verticalArrangement = Arrangement.spacedBy(KasirSpacing.SectionGap),
+            ) {
+                HomeHeader(userName = currentUserName)
+
+                if (isWide) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(KasirSpacing.SectionGap),
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        OperationalContextCard(
+                            outletName = currentOutletName,
+                            currentShift = currentShift,
+                            numberFormat = numberFormat,
+                            onShiftClick = onShiftClick,
+                            modifier = Modifier.weight(1f),
+                        )
+                        PrimaryCashierActionCard(
+                            hasActiveShift = hasActiveShift,
+                            onProductsClick = onProductsClick,
+                            onShiftClick = onShiftClick,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                } else {
+                    OperationalContextCard(
+                        outletName = currentOutletName,
+                        currentShift = currentShift,
+                        numberFormat = numberFormat,
+                        onShiftClick = onShiftClick,
+                    )
+                    PrimaryCashierActionCard(
+                        hasActiveShift = hasActiveShift,
+                        onProductsClick = onProductsClick,
+                        onShiftClick = onShiftClick,
+                    )
+                }
+
+                SyncStatusCard(
+                    syncState = syncState,
+                    onSyncNow = viewModel::syncNow,
+                )
+            }
         }
     }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(KasirSpacing.ScreenPadding),
-        verticalArrangement = Arrangement.spacedBy(KasirSpacing.SectionGap),
-    ) {
-        HomeHeader(userName = currentUserName)
-
-        OperationalContextCard(
-            outletName = currentOutletName,
-            currentShift = currentShift,
-            numberFormat = numberFormat,
-            onShiftClick = onShiftClick,
-        )
-
-        PrimaryCashierActionCard(onProductsClick = onProductsClick)
-
-        SyncStatusCard(
-            syncState = syncState,
-            onSyncNow = viewModel::syncNow,
-            onOfflineProblemsClick = onOfflineProblemsClick,
-        )
-
-        NavigationActionsCard(
-            onProductsClick = onProductsClick,
-            onCartClick = onCartClick,
-            onShiftClick = onShiftClick,
-            onManageProductsClick = onManageProductsClick,
-            onTransactionsClick = onTransactionsClick,
-            onReportsClick = onReportsClick,
-            onReceiptTemplateSettingsClick = onReceiptTemplateSettingsClick,
-            onOfflineProblemsClick = onOfflineProblemsClick,
-        )
-
-        LogoutSection(
-            logoutState = logoutState,
-            onLogoutClick = logoutViewModel::logout,
-        )
-    }
 }
+
+internal fun homeUsesWideLayout(widthDp: Int): Boolean = widthDp >= 840
 
 @Composable
 private fun HomeHeader(userName: String?) {
@@ -126,13 +128,15 @@ private fun HomeHeader(userName: String?) {
             style = MaterialTheme.typography.screenTitle,
             color = MaterialTheme.colorScheme.onBackground,
         )
-        Text(
-            text = userName?.takeIf(String::isNotBlank)?.let { "Siap melayani, $it" } ?: "Dashboard kasir",
-            style = MaterialTheme.typography.supporting,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        userName?.takeIf(String::isNotBlank)?.let {
+            Text(
+                text = it,
+                style = MaterialTheme.typography.supporting,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
@@ -142,9 +146,10 @@ private fun OperationalContextCard(
     currentShift: Shift?,
     numberFormat: NumberFormat,
     onShiftClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val shiftIsOpen = currentShift?.status == "OPEN"
-    KasirCard(modifier = Modifier.fillMaxWidth()) {
+    KasirCard(modifier = modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -178,8 +183,7 @@ private fun OperationalContextCard(
                 label = "Kas awal",
                 value = formatRupiah(shift.openingCash, numberFormat),
             )
-            val openedText = tryFormatOpenedAt(shift.openedAt)
-            if (openedText != null) {
+            tryFormatOpenedAt(shift.openedAt)?.let { openedText ->
                 Text(
                     text = "Dibuka $openedText",
                     style = MaterialTheme.typography.supporting,
@@ -197,21 +201,30 @@ private fun OperationalContextCard(
 }
 
 @Composable
-private fun PrimaryCashierActionCard(onProductsClick: () -> Unit) {
-    KasirCard(modifier = Modifier.fillMaxWidth()) {
+private fun PrimaryCashierActionCard(
+    hasActiveShift: Boolean,
+    onProductsClick: () -> Unit,
+    onShiftClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    KasirCard(modifier = modifier.fillMaxWidth()) {
         Text(
-            text = "Mulai transaksi",
+            text = if (hasActiveShift) "Kasir siap" else "Mulai operasional",
             style = MaterialTheme.typography.sectionTitle,
             color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
-            text = "Buka kasir untuk pilih produk dan melayani pembayaran.",
+            text = if (hasActiveShift) {
+                "Pilih produk untuk melayani transaksi."
+            } else {
+                "Buka shift sebelum menerima transaksi."
+            },
             style = MaterialTheme.typography.supporting,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         KasirPrimaryButton(
-            text = "Buka Kasir",
-            onClick = onProductsClick,
+            text = if (hasActiveShift) "Buka Kasir" else "Buka Shift",
+            onClick = if (hasActiveShift) onProductsClick else onShiftClick,
             modifier = Modifier.fillMaxWidth(),
         )
     }
@@ -221,7 +234,6 @@ private fun PrimaryCashierActionCard(onProductsClick: () -> Unit) {
 private fun SyncStatusCard(
     syncState: HomeSyncState,
     onSyncNow: () -> Unit,
-    onOfflineProblemsClick: () -> Unit,
 ) {
     val hasPending = syncState.pendingCount > 0
     val hasActionRequired = syncState.actionRequiredCount > 0
@@ -278,108 +290,12 @@ private fun SyncStatusCard(
             )
         }
 
-        Row(
+        KasirPrimaryButton(
+            text = if (syncState.isSyncing) "Sinkronisasi..." else "Sync Sekarang",
+            onClick = onSyncNow,
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
-        ) {
-            KasirPrimaryButton(
-                text = if (syncState.isSyncing) "Sinkronisasi..." else "Sync Sekarang",
-                onClick = onSyncNow,
-                modifier = Modifier.weight(1f),
-                enabled = hasPending,
-                isLoading = syncState.isSyncing,
-            )
-            KasirSecondaryButton(
-                text = "Masalah",
-                onClick = onOfflineProblemsClick,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun NavigationActionsCard(
-    onProductsClick: () -> Unit,
-    onCartClick: () -> Unit,
-    onShiftClick: () -> Unit,
-    onManageProductsClick: (() -> Unit)?,
-    onTransactionsClick: (() -> Unit)?,
-    onReportsClick: (() -> Unit)?,
-    onReceiptTemplateSettingsClick: (() -> Unit)?,
-    onOfflineProblemsClick: () -> Unit,
-) {
-    KasirCard(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = "Operasional",
-            style = MaterialTheme.typography.sectionTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        HomeActionRow(
-            primaryText = "Produk",
-            onPrimaryClick = onProductsClick,
-            secondaryText = "Cart",
-            onSecondaryClick = onCartClick,
-        )
-        HomeActionRow(
-            primaryText = "Shift",
-            onPrimaryClick = onShiftClick,
-            secondaryText = "Masalah Sync",
-            onSecondaryClick = onOfflineProblemsClick,
-        )
-        onTransactionsClick?.let { onClick ->
-            HomeActionRow(
-                primaryText = "Riwayat Transaksi",
-                onPrimaryClick = onClick,
-                secondaryText = "Laporan",
-                onSecondaryClick = onReportsClick,
-            )
-        } ?: onReportsClick?.let { onClick ->
-            KasirSecondaryButton(
-                text = "Laporan",
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        onManageProductsClick?.let { onClick ->
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            KasirSecondaryButton(
-                text = "Kelola Produk",
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        onReceiptTemplateSettingsClick?.let { onClick ->
-            KasirSecondaryButton(
-                text = "Template Struk",
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-    }
-}
-
-@Composable
-private fun HomeActionRow(
-    primaryText: String,
-    onPrimaryClick: () -> Unit,
-    secondaryText: String,
-    onSecondaryClick: (() -> Unit)?,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
-    ) {
-        KasirSecondaryButton(
-            text = primaryText,
-            onClick = onPrimaryClick,
-            modifier = Modifier.weight(1f),
-        )
-        KasirSecondaryButton(
-            text = secondaryText,
-            onClick = onSecondaryClick ?: {},
-            modifier = Modifier.weight(1f),
-            enabled = onSecondaryClick != null,
+            enabled = hasPending,
+            isLoading = syncState.isSyncing,
         )
     }
 }
@@ -408,35 +324,10 @@ private fun HomeMetricRow(
     }
 }
 
-@Composable
-private fun LogoutSection(
-    logoutState: LogoutState,
-    onLogoutClick: () -> Unit,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
-    ) {
-        KasirSecondaryButton(
-            text = if (logoutState == LogoutState.Loading) "Keluar..." else "Keluar",
-            onClick = onLogoutClick,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = logoutState != LogoutState.Loading,
-        )
-        (logoutState as? LogoutState.Error)?.let { state ->
-            Text(
-                text = state.message,
-                style = MaterialTheme.typography.supporting,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-    }
-}
-
 private fun formatRupiah(
     amount: Long?,
     numberFormat: NumberFormat,
-): String = if (amount == null) "—" else "Rp${numberFormat.format(amount)}"
+): String = if (amount == null) "-" else "Rp${numberFormat.format(amount)}"
 
 private fun tryFormatOpenedAt(isoTimestamp: String?): String? {
     if (isoTimestamp.isNullOrBlank()) return null
@@ -452,7 +343,7 @@ private fun tryFormatOpenedAt(isoTimestamp: String?): String? {
         } else {
             localDateTime.format(dateTimeFormatter)
         }
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }

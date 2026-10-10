@@ -2,8 +2,26 @@ package com.kasirkita.pos.presentation.navigation
 
 sealed class Screen(val route: String) {
     data object Outlet : Screen("outlet")
-    data object Shift : Screen("shift")
+    data object Shift : Screen("shift/{entryMode}") {
+        enum class EntryMode(val routeValue: String) {
+            GATE("gate"),
+            MANAGE("manage"),
+        }
+
+        fun createRoute(entryMode: EntryMode): String =
+            "shift/${entryMode.routeValue}"
+
+        fun parseEntryMode(value: String?): EntryMode? =
+            EntryMode.entries.firstOrNull { it.routeValue == value }
+
+        fun parseRoute(route: String?): EntryMode? {
+            val value = route?.removePrefix("shift/") ?: return null
+            if (value == route || value.contains('/')) return null
+            return parseEntryMode(value)
+        }
+    }
     data object Home : Screen("home")
+    data object More : Screen("more")
     data object Products : Screen("products")
     data object ProductManagement : Screen("products/manage")
     data object ProductCreate : Screen("products/manage/create")

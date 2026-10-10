@@ -41,7 +41,14 @@ class ShiftNavigationGuardTest {
     @Test
     fun everyAuthenticatedRole_canAccessShiftRoute() {
         UserRole.entries.forEach { role ->
-            assertEquals(Screen.Shift.route, shiftRouteFor(role))
+            assertEquals(
+                Screen.Shift.createRoute(Screen.Shift.EntryMode.GATE),
+                shiftRouteFor(role),
+            )
+            assertEquals(
+                Screen.Shift.createRoute(Screen.Shift.EntryMode.MANAGE),
+                shiftManageRouteFor(role),
+            )
         }
     }
 
@@ -49,7 +56,7 @@ class ShiftNavigationGuardTest {
     fun initialShiftGate_withMatchingOpenShift_navigatesToHome() {
         assertTrue(
             shouldNavigateToHomeFromShift(
-                autoNavigateToHome = isShiftGateEntry(previousRoute = null),
+                entryMode = Screen.Shift.EntryMode.GATE,
                 selectedOutletId = OUTLET_ID,
                 shift = shift(status = "OPEN"),
             ),
@@ -57,10 +64,10 @@ class ShiftNavigationGuardTest {
     }
 
     @Test
-    fun shiftOpenedFromHome_doesNotRedirectBackToHome() {
+    fun manageEntry_withMatchingOpenShift_staysOnShift() {
         assertFalse(
             shouldNavigateToHomeFromShift(
-                autoNavigateToHome = isShiftGateEntry(previousRoute = Screen.Home.route),
+                entryMode = Screen.Shift.EntryMode.MANAGE,
                 selectedOutletId = OUTLET_ID,
                 shift = shift(status = "OPEN"),
             ),
@@ -71,7 +78,7 @@ class ShiftNavigationGuardTest {
     fun openShiftForDifferentOutlet_doesNotPassGate() {
         assertFalse(
             shouldNavigateToHomeFromShift(
-                autoNavigateToHome = true,
+                entryMode = Screen.Shift.EntryMode.GATE,
                 selectedOutletId = "another-outlet",
                 shift = shift(status = "OPEN"),
             ),
@@ -82,7 +89,7 @@ class ShiftNavigationGuardTest {
     fun nonOpenShift_doesNotPassGate() {
         assertFalse(
             shouldNavigateToHomeFromShift(
-                autoNavigateToHome = true,
+                entryMode = Screen.Shift.EntryMode.GATE,
                 selectedOutletId = OUTLET_ID,
                 shift = shift(status = "CLOSED"),
             ),

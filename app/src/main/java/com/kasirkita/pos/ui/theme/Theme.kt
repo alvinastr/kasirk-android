@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalContext
 private val DarkColorScheme = darkColorScheme(
     primary = KasirDarkPrimary,
     onPrimary = KasirDarkOnPrimary,
+    primaryContainer = KasirDarkPrimaryContainer,
+    onPrimaryContainer = KasirDarkOnPrimaryContainer,
     background = KasirDarkBackground,
     onBackground = KasirDarkOnBackground,
     surface = KasirDarkSurface,

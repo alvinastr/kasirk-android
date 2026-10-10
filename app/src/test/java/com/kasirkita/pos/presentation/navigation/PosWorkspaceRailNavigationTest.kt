@@ -1,7 +1,6 @@
 package com.kasirkita.pos.presentation.navigation
 
 import com.kasirkita.pos.domain.model.UserRole
-import com.kasirkita.pos.presentation.product.PosLayoutMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -10,67 +9,85 @@ import org.junit.Test
 class PosWorkspaceRailNavigationTest {
 
     @Test
-    fun cashierRail_containsOnlyCashierAllowedDestinations() {
-        val destinations = posWorkspaceRailDestinationsFor(UserRole.CASHIER)
+    fun ownerAndAdmin_haveFiveTopLevelDestinations() {
+        val expected = listOf(
+            Screen.Home.route,
+            Screen.Products.route,
+            Screen.Transactions.route,
+            Screen.Reports.route,
+            Screen.More.route,
+        )
+
+        assertEquals(expected, topLevelDestinationsFor(UserRole.OWNER).map { it.route })
+        assertEquals(expected, topLevelDestinationsFor(UserRole.ADMIN).map { it.route })
+    }
+
+    @Test
+    fun cashier_hasNoReportsDestination() {
+        val destinations = topLevelDestinationsFor(UserRole.CASHIER)
 
         assertEquals(
             listOf(
+                Screen.Home.route,
                 Screen.Products.route,
                 Screen.Transactions.route,
+                Screen.More.route,
             ),
             destinations.map { it.route },
         )
-        assertFalse(destinations.any { it.route == Screen.ProductManagement.route })
         assertFalse(destinations.any { it.route == Screen.Reports.route })
-        assertFalse(destinations.any { it.route == Screen.PrinterSettings.route })
-        assertFalse(destinations.any { it.route == Screen.ReceiptTemplateSettings.route })
     }
 
     @Test
-    fun ownerRail_containsReceiptTemplateSettings() {
-        val destinations = posWorkspaceRailDestinationsFor(UserRole.OWNER)
+    fun topLevelRoutes_mapFocusedWorkflowsToTheirOwningDestination() {
+        assertEquals(Screen.Products.route, topLevelRouteFor(Screen.Cart.route))
+        assertEquals(Screen.Products.route, topLevelRouteFor(Screen.Checkout.route))
+        assertEquals(Screen.Transactions.route, topLevelRouteFor(Screen.TransactionDetail.route))
+        assertEquals(Screen.More.route, topLevelRouteFor(Screen.PrinterSettings.route))
+        assertEquals(Screen.More.route, topLevelRouteFor(Screen.OfflineRecovery.route))
+    }
 
+    @Test
+    fun persistentNavigation_isHiddenForFocusedFlows() {
+        assertTrue(shouldShowPersistentNavigation(Screen.Home.route))
+        assertTrue(shouldShowPersistentNavigation(Screen.Products.route))
+        assertFalse(shouldShowPersistentNavigation(Screen.Cart.route))
+        assertFalse(shouldShowPersistentNavigation(Screen.Checkout.route))
+        assertFalse(shouldShowPersistentNavigation(Screen.Receipt.route))
+        assertFalse(shouldShowPersistentNavigation(Screen.ProductCreate.route))
+        assertFalse(shouldShowPersistentNavigation(Screen.PrinterSettings.route))
+    }
+
+    @Test
+    fun adaptiveChrome_usesBottomBarOnPhoneAndRailOnTablet() {
         assertEquals(
-            listOf(
-                Screen.Products.route,
-                Screen.Transactions.route,
-                Screen.ProductManagement.route,
-                Screen.Reports.route,
-                Screen.PrinterSettings.route,
-                Screen.ReceiptTemplateSettings.route,
-            ),
-            destinations.map { it.route },
+            NavigationChrome.BottomBar,
+            navigationChromeFor(UserRole.CASHIER, Screen.Products.route, 411),
+        )
+        assertEquals(
+            NavigationChrome.Rail,
+            navigationChromeFor(UserRole.CASHIER, Screen.Products.route, 840),
+        )
+        assertEquals(
+            NavigationChrome.Hidden,
+            navigationChromeFor(UserRole.CASHIER, Screen.Checkout.route, 1024),
         )
     }
 
     @Test
-    fun adminRail_containsReceiptTemplateSettings() {
-        val destinations = posWorkspaceRailDestinationsFor(UserRole.ADMIN)
+    fun widePos_usesTheGlobalScaffoldBoundary() {
+        assertFalse(usesTabletNavigation(839))
+        assertTrue(usesTabletNavigation(840))
+        assertTrue(usesTabletNavigation(841))
+        assertEquals(Screen.Products.route, topLevelRouteFor(Screen.Products.route))
+        assertEquals("Beranda", topLevelDestinationsFor(UserRole.CASHIER).first().label)
+    }
 
+    @Test
+    fun nullRole_hasNoNavigationChrome() {
         assertEquals(
-            listOf(
-                Screen.Products.route,
-                Screen.Transactions.route,
-                Screen.ProductManagement.route,
-                Screen.Reports.route,
-                Screen.PrinterSettings.route,
-                Screen.ReceiptTemplateSettings.route,
-            ),
-            destinations.map { it.route },
+            NavigationChrome.Hidden,
+            navigationChromeFor(null, Screen.Home.route, 1024),
         )
-    }
-
-    @Test
-    fun posDestination_isSelectedInWorkspace() {
-        val destinations = posWorkspaceRailDestinationsFor(UserRole.CASHIER)
-
-        assertEquals(Screen.Products.route, destinations.single { it.selected }.route)
-        assertEquals("POS", destinations.single { it.selected }.label)
-    }
-
-    @Test
-    fun wideModeExposesRailAndNarrowModeDoesNot() {
-        assertTrue(posWorkspaceShowsRail(PosLayoutMode.Wide))
-        assertFalse(posWorkspaceShowsRail(PosLayoutMode.Narrow))
     }
 }

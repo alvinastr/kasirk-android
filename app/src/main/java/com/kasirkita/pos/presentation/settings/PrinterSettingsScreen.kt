@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
@@ -24,10 +28,12 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.PaperWidth
 import com.kasirkita.pos.domain.printer.PrinterManager
+import com.kasirkita.pos.ui.components.KasirTopBar
 import kotlinx.coroutines.launch
 
 @Composable
 fun PrinterSettingsScreen(
+    onBack: (() -> Unit)? = null,
     viewModel: PrinterSettingsViewModel = hiltViewModel(),
 ) {
     val context = LocalContext.current
@@ -40,7 +46,23 @@ fun PrinterSettingsScreen(
         viewModel.loadPairedDevices()
     }
 
-    Scaffold { paddingValues ->
+    Scaffold(
+        topBar = {
+            onBack?.let { navigateBack ->
+                KasirTopBar(
+                    title = "Printer",
+                    navigationIcon = {
+                        IconButton(onClick = navigateBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Kembali",
+                            )
+                        }
+                    },
+                )
+            }
+        },
+    ) { paddingValues ->
         Column(
             modifier = Modifier
                 .padding(paddingValues)
@@ -48,10 +70,12 @@ fun PrinterSettingsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                text = "Printer Settings",
-                style = MaterialTheme.typography.headlineSmall,
-            )
+            if (onBack == null) {
+                Text(
+                    text = "Printer Settings",
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+            }
 
             viewModel.errorMessage?.let { message ->
                 Card(modifier = Modifier.fillMaxWidth()) {
