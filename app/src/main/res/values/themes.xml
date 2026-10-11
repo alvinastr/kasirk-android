@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.MyApplication" parent="android:Theme.Material.Light.NoActionBar" />
+    <style name="Theme.KasirKita" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.KasirKita.Launcher" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/brand_green</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/kk_symbol_splash</item>
+        <item name="postSplashScreenTheme">@style/Theme.KasirKita</item>
+    </style>
 </resources>
