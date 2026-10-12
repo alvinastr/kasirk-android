@@ -1,6 +1,7 @@
 package com.kasirkita.pos.presentation.product
 
 import com.kasirkita.pos.domain.model.Category
+import com.kasirkita.pos.domain.model.Cart
 import com.kasirkita.pos.domain.model.Product
 import com.kasirkita.pos.domain.model.Stock
 
@@ -58,7 +59,7 @@ internal fun buildCategoryFilters(
     items: List<ProductCatalogItem>,
 ): List<CategoryFilter> {
     val availableIds = items.mapNotNull { it.product.categoryId }.toSet()
-    return listOf(CategoryFilter(id = null, label = "Semua")) + categories
+    return listOf(CategoryFilter(id = null, label = "Semua kategori")) + categories
         .filter { it.id in availableIds }
         .distinctBy(Category::id)
         .map { CategoryFilter(id = it.id, label = it.name) }
@@ -90,3 +91,6 @@ internal fun mapProductsWithStock(
         )
     }
 }
+
+internal fun cartQuantitiesByProductId(cart: Cart): Map<String, Int> =
+    cart.items.groupingBy { it.productId }.fold(0) { total, item -> total + item.quantity }

@@ -1,6 +1,10 @@
 package com.kasirkita.pos.presentation.product
 
 import com.kasirkita.pos.domain.model.Category
+import com.kasirkita.pos.domain.model.Cart
+import com.kasirkita.pos.domain.model.CartItem
+import com.kasirkita.pos.domain.model.CartLineKey
+import com.kasirkita.pos.domain.model.CartModifierSelectionSnapshot
 import com.kasirkita.pos.domain.model.ModifierGroup
 import com.kasirkita.pos.domain.model.Product
 import com.kasirkita.pos.domain.model.Stock
@@ -151,7 +155,7 @@ class ProductCatalogStateTest {
             items = catalogItems(),
         )
 
-        assertEquals("Semua", filters.first().label)
+        assertEquals("Semua kategori", filters.first().label)
         assertEquals("Minuman", filters[1].label)
         assertFalse(filters.any { it.label == "cat-drink" })
     }
@@ -192,6 +196,21 @@ class ProductCatalogStateTest {
         )
 
         assertEquals(ProductTapAction.RequiresModifierSelection, action)
+    }
+
+    @Test
+    fun cartQuantities_aggregateModifierLinesByProduct() {
+        val quantities = cartQuantitiesByProductId(
+            Cart(
+                items = listOf(
+                    cartItem(productId = "coffee", quantity = 2),
+                    cartItem(productId = "coffee", quantity = 3, modifierOptionId = "large"),
+                    cartItem(productId = "tea", quantity = 1),
+                ),
+            ),
+        )
+
+        assertEquals(mapOf("coffee" to 5, "tea" to 1), quantities)
     }
 
     @Test
@@ -247,6 +266,21 @@ class ProductCatalogStateTest {
         quantity = quantity,
         updatedAt = "2026-09-28T00:00:00.000Z",
     )
+
+    private fun cartItem(productId: String, quantity: Int, modifierOptionId: String? = null) =
+        CartItem(
+            lineKey = CartLineKey.from(productId, listOfNotNull(modifierOptionId), null),
+            productId = productId,
+            name = productId,
+            sku = productId,
+            basePrice = 10_000,
+            quantity = quantity,
+            modifierSelections = listOfNotNull(
+                modifierOptionId?.let {
+                    CartModifierSelectionSnapshot(optionId = it, optionName = it)
+                },
+            ),
+        )
 
     private fun category(id: String, name: String) = Category(
         id = id,

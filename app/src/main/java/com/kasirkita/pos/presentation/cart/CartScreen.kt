@@ -11,8 +11,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ShoppingBasket
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -36,19 +40,12 @@ import com.kasirkita.pos.core.policy.HELD_ORDER_CHECKOUT_ENABLED
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Cart
 import com.kasirkita.pos.domain.model.CartItem
-import com.kasirkita.pos.ui.components.KasirCard
-import com.kasirkita.pos.ui.components.KasirEmptyState
 import com.kasirkita.pos.presentation.heldorder.heldOrderErrorMessage
 import com.kasirkita.pos.ui.components.KasirPrimaryButton
 import com.kasirkita.pos.ui.components.KasirSecondaryButton
-import com.kasirkita.pos.ui.components.KasirTopBar
-import com.kasirkita.pos.ui.components.PriceDisplay
 import com.kasirkita.pos.ui.components.PriceText
-import com.kasirkita.pos.ui.components.StatusBadge
-import com.kasirkita.pos.ui.components.StatusBadgeTone
 import com.kasirkita.pos.ui.theme.KasirSpacing
 import com.kasirkita.pos.ui.theme.body
-import com.kasirkita.pos.ui.theme.sectionTitle
 import com.kasirkita.pos.ui.theme.supporting
 import java.text.NumberFormat
 import java.util.Locale
@@ -120,7 +117,7 @@ private fun CartContent(
                 .padding(horizontal = KasirSpacing.CompactScreenPadding),
             verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
         ) {
-            KasirTopBar(title = "Keranjang")
+            CartHeader(itemCount = cart.totalItems())
 
             state.heldOrderId?.let {
                 Row(
@@ -144,36 +141,31 @@ private fun CartContent(
                 }
             }
 
-            Text(
-                text = "${cart.totalItems()} item dalam pesanan",
-                style = MaterialTheme.typography.supporting,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
             if (cart.items.isEmpty()) {
-                KasirEmptyState(
-                    message = "Keranjang masih kosong. Tambahkan produk dari layar Kasir.",
-                    modifier = Modifier.weight(1f),
-                )
+                CartEmptyState(modifier = Modifier.weight(1f))
             } else {
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
-                    contentPadding = PaddingValues(bottom = KasirSpacing.SectionGap),
-                    verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+                    contentPadding = PaddingValues(bottom = KasirSpacing.Small),
                 ) {
-                    items(
+                    itemsIndexed(
                         items = cart.items,
-                        key = { item -> item.lineKey.value },
-                    ) { item ->
-                        CartItemCard(
-                            item = item,
-                            numberFormat = numberFormat,
-                            onDecreaseQuantity = { onDecreaseQuantity(item.lineKey.value) },
-                            onIncreaseQuantity = { onIncreaseQuantity(item.lineKey.value) },
-                            onRemove = { onRemoveProduct(item.lineKey.value) },
-                        )
+                        key = { _, item -> item.lineKey.value },
+                    ) { index, item ->
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            CartItemRow(
+                                item = item,
+                                numberFormat = numberFormat,
+                                onDecreaseQuantity = { onDecreaseQuantity(item.lineKey.value) },
+                                onIncreaseQuantity = { onIncreaseQuantity(item.lineKey.value) },
+                                onRemove = { onRemoveProduct(item.lineKey.value) },
+                            )
+                            if (index < cart.items.lastIndex) {
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            }
+                        }
                     }
                 }
             }
@@ -249,59 +241,119 @@ private fun CartContent(
 }
 
 @Composable
-private fun CartItemCard(
+private fun CartHeader(itemCount: Int) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = KasirSpacing.Small),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = "Keranjang",
+            style = MaterialTheme.typography.titleLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = "$itemCount item",
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun CartEmptyState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(KasirSpacing.Small, Alignment.CenterVertically),
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.ShoppingBasket,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "Keranjang masih kosong",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Text(
+            text = "Pilih produk untuk mulai transaksi",
+            style = MaterialTheme.typography.supporting,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun CartItemRow(
     item: CartItem,
     numberFormat: NumberFormat,
     onDecreaseQuantity: () -> Unit,
     onIncreaseQuantity: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    KasirCard(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = item.name,
-            style = MaterialTheme.typography.sectionTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = KasirSpacing.Small),
+        verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(KasirSpacing.Small),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
+            ) {
+                Text(
+                    text = item.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (item.modifierSelections.isNotEmpty()) {
+                    Text(
+                        text = item.modifierSelections.joinToString(" • ") { selection ->
+                            selection.groupName?.takeIf { it.isNotBlank() }?.let {
+                                "$it: ${selection.optionName}"
+                            } ?: selection.optionName
+                        },
+                        style = MaterialTheme.typography.supporting,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                item.note?.let { note ->
+                    Text(
+                        text = "Catatan: $note",
+                        style = MaterialTheme.typography.supporting,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    text = "Satuan Rp${numberFormat.format(item.price)}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                )
+            }
 
-        if (item.sku.isNotBlank()) {
             Text(
-                text = "SKU: ${item.sku}",
-                style = MaterialTheme.typography.supporting,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+                text = "Rp${numberFormat.format(item.subtotal())}",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.align(Alignment.CenterVertically),
             )
         }
-
-        if (item.modifierSelections.isNotEmpty()) {
-            Text(
-                text = item.modifierSelections.joinToString(" • ") { it.optionName },
-                style = MaterialTheme.typography.supporting,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        item.note?.let { note ->
-            Text(
-                text = "Catatan: $note",
-                style = MaterialTheme.typography.supporting,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-
-        Text(
-            text = "Harga satuan: Rp${numberFormat.format(item.price)}",
-            style = MaterialTheme.typography.body,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        StockPresentation(item = item)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -325,11 +377,6 @@ private fun CartItemCard(
                 )
             }
         }
-
-        PriceDisplay(
-            label = "Subtotal",
-            value = "Rp${numberFormat.format(item.subtotal())}",
-        )
     }
 }
 
@@ -388,36 +435,6 @@ private fun QuantityButton(
 }
 
 @Composable
-private fun StockPresentation(item: CartItem) {
-    val text: String
-    val tone: StatusBadgeTone
-
-    when {
-        !item.trackStock -> {
-            text = "Stok tidak dikelola"
-            tone = StatusBadgeTone.Neutral
-        }
-        item.availableStock == null -> {
-            text = "Stok belum tersedia"
-            tone = StatusBadgeTone.Warning
-        }
-        else -> {
-            text = "Stok tersedia: ${item.availableStock}"
-            tone = if (item.quantity >= item.availableStock) {
-                StatusBadgeTone.Warning
-            } else {
-                StatusBadgeTone.Success
-            }
-        }
-    }
-
-    StatusBadge(
-        text = text,
-        tone = tone,
-    )
-}
-
-@Composable
 private fun OrderSummary(
     cart: Cart,
     state: CartState,
@@ -437,7 +454,7 @@ private fun OrderSummary(
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
     ) {
                 Column(
-                    modifier = Modifier.padding(KasirSpacing.Large),
+                    modifier = Modifier.padding(KasirSpacing.Medium),
                     verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
                 ) {
                     if (state.isEditingHeldOrder) {
@@ -475,21 +492,26 @@ private fun OrderSummary(
                         }
                     } else {
                         if (HELD_ORDER_CHECKOUT_ENABLED) {
-                        KasirSecondaryButton(
-                            text = "Simpan Order",
-                            onClick = onSaveClicked,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = cart.items.isNotEmpty() && state.heldOrderOperation == null,
-                        )
-                        KasirSecondaryButton(
-                            text = when (val total = heldOrderBadgeCount(state.heldOrderTotalState)) {
-                                null -> "Order Tersimpan"
-                                else -> "Order Tersimpan ($total)"
-                            },
-                            onClick = onHeldOrders,
-                            modifier = Modifier.fillMaxWidth(),
-                            enabled = state.heldOrderOperation == null,
-                        )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(KasirSpacing.Small),
+                            ) {
+                                KasirSecondaryButton(
+                                    text = "Simpan Order",
+                                    onClick = onSaveClicked,
+                                    modifier = Modifier.weight(1f),
+                                    enabled = cart.items.isNotEmpty() && state.heldOrderOperation == null,
+                                )
+                                KasirSecondaryButton(
+                                    text = when (val total = heldOrderBadgeCount(state.heldOrderTotalState)) {
+                                        null -> "Order Tersimpan"
+                                        else -> "Order Tersimpan ($total)"
+                                    },
+                                    onClick = onHeldOrders,
+                                    modifier = Modifier.weight(1f),
+                                    enabled = state.heldOrderOperation == null,
+                                )
+                            }
                         }
                     }
                     Row(
@@ -514,7 +536,8 @@ private fun OrderSummary(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     KasirPrimaryButton(
-                        text = if (state.isEditingHeldOrder) "Proses Bayar" else "Lanjut ke Checkout",
+                        text = (if (state.isEditingHeldOrder) "Proses Bayar" else "Checkout") +
+                            " · Rp${numberFormat.format(cart.totalAmount())}",
                         onClick = onCheckout,
                         modifier = Modifier.fillMaxWidth(),
                         enabled = cart.items.isNotEmpty() && state.heldOrderOperation == null,

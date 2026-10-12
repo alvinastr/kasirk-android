@@ -1,6 +1,7 @@
 package com.kasirkita.pos.presentation.product
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -10,16 +11,33 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Clear
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,26 +47,25 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Cart
 import com.kasirkita.pos.presentation.cart.CartScreen
 import com.kasirkita.pos.presentation.cart.CartViewModel
-import com.kasirkita.pos.ui.components.KasirCard
 import com.kasirkita.pos.ui.components.KasirEmptyState
 import com.kasirkita.pos.ui.components.KasirErrorState
 import com.kasirkita.pos.ui.components.KasirLoadingState
 import com.kasirkita.pos.ui.components.KasirPrimaryButton
-import com.kasirkita.pos.ui.components.KasirSecondaryButton
-import com.kasirkita.pos.ui.components.KasirTextField
 import com.kasirkita.pos.ui.components.KasirTopBar
 import com.kasirkita.pos.ui.components.PriceText
-import com.kasirkita.pos.ui.components.StatusBadge
-import com.kasirkita.pos.ui.components.StatusBadgeTone
 import com.kasirkita.pos.ui.theme.KasirSpacing
 import com.kasirkita.pos.ui.theme.body
-import com.kasirkita.pos.ui.theme.sectionTitle
 import com.kasirkita.pos.ui.theme.supporting
 import java.text.NumberFormat
 import java.util.Locale
@@ -113,7 +130,11 @@ private fun WideProductLayout(
     onHeldOrders: () -> Unit,
     cartViewModel: CartViewModel,
 ) {
-    Row(modifier = Modifier.fillMaxSize()) {
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+    ) {
         Box(
             modifier = Modifier
                 .weight(0.65f)
@@ -128,6 +149,7 @@ private fun WideProductLayout(
                 is ProductCatalogState.Success -> ProductCatalogPanel(
                     items = state.items,
                     categories = state.categories,
+                    cart = cart,
                     message = state.message,
                     onRefresh = onRefresh,
                     onAddToCart = onAddToCart,
@@ -161,7 +183,11 @@ private fun NarrowProductLayout(
     onAddToCart: (ProductCatalogItem) -> Unit,
     onCartClick: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .imePadding(),
+    ) {
         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             when (state) {
                 ProductCatalogState.Loading -> KasirLoadingState(message = "Memuat produk...")
@@ -172,6 +198,7 @@ private fun NarrowProductLayout(
                 is ProductCatalogState.Success -> ProductCatalogPanel(
                     items = state.items,
                     categories = state.categories,
+                    cart = cart,
                     message = state.message,
                     onRefresh = onRefresh,
                     onAddToCart = onAddToCart,
@@ -190,6 +217,7 @@ private fun NarrowProductLayout(
 private fun ProductCatalogPanel(
     items: List<ProductCatalogItem>,
     categories: List<com.kasirkita.pos.domain.model.Category>,
+    cart: Cart,
     message: String?,
     onRefresh: () -> Unit,
     onAddToCart: (ProductCatalogItem) -> Unit,
@@ -197,6 +225,11 @@ private fun ProductCatalogPanel(
 ) {
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var selectedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var isSearchExpanded by rememberSaveable { mutableStateOf(false) }
+    var isCategoryMenuExpanded by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     val numberFormat = remember {
         NumberFormat.getNumberInstance(Locale.forLanguageTag("id-ID"))
@@ -209,6 +242,17 @@ private fun ProductCatalogPanel(
     val filteredItems = remember(items, searchQuery, selectedCategoryId) {
         filterProductCatalog(items, searchQuery, selectedCategoryId)
     }
+    val cartQuantities = remember(cart) { cartQuantitiesByProductId(cart) }
+
+    LaunchedEffect(isSearchExpanded) {
+        if (isSearchExpanded) {
+            focusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
+    val selectedCategory = categoryFilters.firstOrNull { it.id == selectedCategoryId }
+        ?: categoryFilters.first()
 
     Column(
         modifier = modifier
@@ -216,29 +260,77 @@ private fun ProductCatalogPanel(
             .padding(horizontal = KasirSpacing.CompactScreenPadding),
         verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
     ) {
-        KasirTopBar(title = "Kasir")
-
-        KasirTextField(
-            value = searchQuery,
-            onValueChange = { searchQuery = it },
-            label = "Cari produk atau SKU",
-            modifier = Modifier.fillMaxWidth(),
+        KasirTopBar(
+            title = if (isSearchExpanded) "" else "Kasir",
+            actions = {
+                if (isSearchExpanded) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        modifier = Modifier
+                            .widthIn(min = 180.dp, max = 260.dp)
+                            .focusRequester(focusRequester),
+                        label = { Text("Cari produk atau SKU") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(KasirSpacing.CornerRadius),
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Clear,
+                                        contentDescription = "Hapus pencarian",
+                                    )
+                                }
+                            }
+                        },
+                    )
+                    IconButton(
+                        onClick = {
+                            isSearchExpanded = false
+                            focusManager.clearFocus(force = true)
+                            keyboardController?.hide()
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "Tutup pencarian",
+                        )
+                    }
+                } else {
+                    IconButton(onClick = { isSearchExpanded = true }) {
+                        Icon(
+                            imageVector = Icons.Outlined.Search,
+                            contentDescription = "Cari produk atau SKU",
+                        )
+                    }
+                }
+                IconButton(onClick = onRefresh) {
+                    Icon(
+                        imageVector = Icons.Outlined.Refresh,
+                        contentDescription = "Refresh produk",
+                    )
+                }
+            },
         )
 
-        if (categoryFilters.size > 1) {
-            LazyRow(
+        if (!isSearchExpanded && searchQuery.isNotBlank()) {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
-                contentPadding = PaddingValues(0.dp),
+                horizontalArrangement = Arrangement.spacedBy(KasirSpacing.Small),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                items(categoryFilters) { filter ->
-                    val isSelected = (filter.id == null && selectedCategoryId == null) ||
-                        (filter.id == selectedCategoryId)
-                    KasirSecondaryButton(
-                        text = filter.label,
-                        onClick = { selectedCategoryId = filter.id },
-                        enabled = true,
-                        modifier = if (isSelected) Modifier else Modifier,
+                Text(
+                    text = "Pencarian: ${searchQuery.trim()}",
+                    style = MaterialTheme.typography.supporting,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { searchQuery = "" }) {
+                    Icon(
+                        imageVector = Icons.Outlined.Clear,
+                        contentDescription = "Hapus pencarian",
                     )
                 }
             }
@@ -246,17 +338,21 @@ private fun ProductCatalogPanel(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            CategoryDropdown(
+                filters = categoryFilters,
+                selectedFilter = selectedCategory,
+                expanded = isCategoryMenuExpanded,
+                onExpandedChange = { isCategoryMenuExpanded = it },
+                onFilterSelected = { selectedCategoryId = it },
+                modifier = Modifier.weight(1f),
+            )
             Text(
                 text = "${filteredItems.size} produk",
                 style = MaterialTheme.typography.supporting,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            KasirSecondaryButton(
-                text = "Refresh",
-                onClick = onRefresh,
             )
         }
 
@@ -275,7 +371,7 @@ private fun ProductCatalogPanel(
             )
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 260.dp),
+                columns = GridCells.Adaptive(minSize = 160.dp),
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
                 horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
@@ -287,6 +383,7 @@ private fun ProductCatalogPanel(
                 ) { item ->
                     ProductCard(
                         item = item,
+                        cartQuantity = cartQuantities[item.product.id] ?: 0,
                         numberFormat = numberFormat,
                         onAddToCart = onAddToCart,
                     )
@@ -299,89 +396,156 @@ private fun ProductCatalogPanel(
 @Composable
 private fun ProductCard(
     item: ProductCatalogItem,
+    cartQuantity: Int,
     numberFormat: NumberFormat,
     onAddToCart: (ProductCatalogItem) -> Unit,
 ) {
     val addEnabled = item.product.isActive && item.canAddToCart
 
-    KasirCard(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = item.product.name,
-            style = MaterialTheme.typography.sectionTitle,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = "SKU: ${item.product.sku}",
-            style = MaterialTheme.typography.body,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        PriceText(
-            text = "Rp${numberFormat.format(item.product.price)}",
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        StockStatus(item = item)
-        KasirPrimaryButton(
-            text = "Tambah ke Keranjang",
-            onClick = { onAddToCart(item) },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = addEnabled,
-        )
+    Card(
+        onClick = { onAddToCart(item) },
+        enabled = addEnabled,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(KasirSpacing.CornerRadius),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(88.dp)
+                .background(productPlaceholderColor(item.product.id)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = productInitials(item.product.name),
+                style = MaterialTheme.typography.headlineMedium,
+                color = productPlaceholderContentColor(item.product.id),
+            )
+            if (cartQuantity > 0) {
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(KasirSpacing.Small),
+                    shape = RoundedCornerShape(999.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Text(
+                        text = cartQuantity.toString(),
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
+                        style = MaterialTheme.typography.labelMedium,
+                    )
+                }
+            }
+        }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(KasirSpacing.Medium),
+            verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
+        ) {
+            Text(
+                text = item.product.name,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = "Rp${numberFormat.format(item.product.price)}",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+            )
+            if (!addEnabled) {
+                Text(
+                    text = productUnavailableLabel(item),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 
 @Composable
-private fun StockStatus(item: ProductCatalogItem) {
-    val badgeTone: StatusBadgeTone
-    val badgeText: String
-    val detailText: String
+private fun productPlaceholderColor(productId: String): Color = when (
+    (productId.hashCode() and Int.MAX_VALUE) % 4
+) {
+    0 -> MaterialTheme.colorScheme.primaryContainer
+    1 -> MaterialTheme.colorScheme.secondaryContainer
+    2 -> MaterialTheme.colorScheme.tertiaryContainer
+    else -> MaterialTheme.colorScheme.surfaceVariant
+}
 
-    when {
-        !item.product.isActive -> {
-            badgeTone = StatusBadgeTone.Error
-            badgeText = "Tidak aktif"
-            detailText = "Produk tidak aktif"
-        }
-        !item.product.trackStock -> {
-            badgeTone = StatusBadgeTone.Neutral
-            badgeText = "Tanpa pelacakan"
-            detailText = "Stok tidak dikelola"
-        }
-        item.stockQuantity == null -> {
-            badgeTone = StatusBadgeTone.Warning
-            badgeText = "Stok belum tersedia"
-            detailText = "Tetap dapat dijual offline"
-        }
-        item.stockQuantity <= 0 -> {
-            badgeTone = StatusBadgeTone.Error
-            badgeText = "Habis"
-            detailText = "Stok: ${item.stockQuantity}"
-        }
-        else -> {
-            badgeTone = StatusBadgeTone.Success
-            badgeText = "Tersedia"
-            detailText = "Stok: ${item.stockQuantity}"
-        }
-    }
+@Composable
+private fun productPlaceholderContentColor(productId: String): Color = when (
+    (productId.hashCode() and Int.MAX_VALUE) % 4
+) {
+    0 -> MaterialTheme.colorScheme.onPrimaryContainer
+    1 -> MaterialTheme.colorScheme.onSecondaryContainer
+    2 -> MaterialTheme.colorScheme.onTertiaryContainer
+    else -> MaterialTheme.colorScheme.onSurfaceVariant
+}
 
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(KasirSpacing.XSmall),
+private fun productInitials(name: String): String = name
+    .trim()
+    .split(Regex("\\s+"))
+    .filter { it.isNotEmpty() }
+    .take(2)
+    .joinToString(separator = "") { it.first().uppercaseChar().toString() }
+    .ifEmpty { "?" }
+
+private fun productUnavailableLabel(item: ProductCatalogItem): String = when {
+    !item.product.isActive -> "Tidak tersedia"
+    item.product.trackStock && item.stockQuantity == 0 -> "Habis"
+    else -> "Tidak tersedia"
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun CategoryDropdown(
+    filters: List<CategoryFilter>,
+    selectedFilter: CategoryFilter,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    onFilterSelected: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = onExpandedChange,
+        modifier = modifier,
     ) {
-        Text(
-            text = detailText,
-            style = MaterialTheme.typography.supporting,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+        OutlinedTextField(
+            value = selectedFilter.label,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Kategori") },
+            modifier = Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape(KasirSpacing.CornerRadius),
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
         )
-        StatusBadge(
-            text = badgeText,
-            tone = badgeTone,
-        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { onExpandedChange(false) },
+        ) {
+            filters.forEach { filter ->
+                DropdownMenuItem(
+                    text = { Text(filter.label) },
+                    onClick = {
+                        onFilterSelected(filter.id)
+                        onExpandedChange(false)
+                    },
+                )
+            }
+        }
     }
 }
 
