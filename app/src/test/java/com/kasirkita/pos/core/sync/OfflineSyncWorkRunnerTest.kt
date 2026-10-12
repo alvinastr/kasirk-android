@@ -1,5 +1,6 @@
 package com.kasirkita.pos.core.sync
 import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
+import com.kasirkita.pos.core.policy.LegacyOfflineQueuePolicy
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -35,7 +36,11 @@ class OfflineSyncWorkRunnerTest {
     fun setUp() {
         sessionStore = AuthSessionDataStoreTestHelper.createTestStore()
         repository = FakeOfflineSyncRepository()
-        runner = OfflineSyncWorkRunner(sessionStore, repository)
+        runner = OfflineSyncWorkRunner(
+            sessionStore,
+            repository,
+            LegacyOfflineQueuePolicy { true },
+        )
     }
 
     @Test
@@ -109,6 +114,22 @@ class OfflineSyncWorkRunnerTest {
             OfflineSyncWorkResult.FAILURE,
             runner.run(TENANT_ID, USER_ID),
         )
+    }
+
+    @Test
+    fun disabledPolicy_completesAlreadyScheduledWorkWithoutCallingRepository() = runBlocking {
+        sessionStore.saveSession(session())
+        val isolatedRunner = OfflineSyncWorkRunner(
+            sessionStore,
+            repository,
+            LegacyOfflineQueuePolicy { false },
+        )
+
+        assertEquals(
+            OfflineSyncWorkResult.SUCCESS,
+            isolatedRunner.run(TENANT_ID, USER_ID),
+        )
+        assertEquals(null, repository.requestedAccount)
     }
 
     @Test

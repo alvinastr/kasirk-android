@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kasirkita.pos.core.policy.HELD_ORDER_CHECKOUT_ENABLED
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.Cart
 import com.kasirkita.pos.domain.model.CartItem
@@ -56,6 +57,7 @@ import java.util.Locale
 fun CartScreen(
     onCheckout: () -> Unit,
     onHeldOrders: () -> Unit,
+    onAddProducts: () -> Unit = {},
     embedded: Boolean = false,
     viewModel: CartViewModel = hiltViewModel(),
 ) {
@@ -78,6 +80,8 @@ fun CartScreen(
         onRemoveProduct = viewModel::removeProduct,
         onCheckout = onCheckout,
         onHeldOrders = onHeldOrders,
+        onAddProducts = onAddProducts,
+        showAddProductsAction = !embedded,
         onSaveHeldOrder = viewModel::saveHeldOrder,
         onSaveHeldOrderChanges = viewModel::updateHeldOrder,
         onCancelHeldOrder = viewModel::cancelAttachedHeldOrder,
@@ -94,6 +98,8 @@ private fun CartContent(
     onRemoveProduct: (String) -> Unit,
     onCheckout: () -> Unit,
     onHeldOrders: () -> Unit,
+    onAddProducts: () -> Unit,
+    showAddProductsAction: Boolean,
     onSaveHeldOrder: (String?) -> Unit,
     onSaveHeldOrderChanges: (String?) -> Unit,
     onCancelHeldOrder: () -> Unit,
@@ -187,6 +193,8 @@ private fun CartContent(
             numberFormat = numberFormat,
             onCheckout = onCheckout,
             onHeldOrders = onHeldOrders,
+            onAddProducts = onAddProducts,
+            showAddProductsAction = showAddProductsAction,
             onSaveClicked = { showSaveDialog = true },
             onCancelEditClicked = { showCancelDialog = true },
             modifier = Modifier.fillMaxWidth(),
@@ -416,6 +424,8 @@ private fun OrderSummary(
     numberFormat: NumberFormat,
     onCheckout: () -> Unit,
     onHeldOrders: () -> Unit,
+    onAddProducts: () -> Unit,
+    showAddProductsAction: Boolean,
     onSaveClicked: () -> Unit,
     onCancelEditClicked: () -> Unit,
     modifier: Modifier = Modifier,
@@ -431,6 +441,14 @@ private fun OrderSummary(
                     verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
                 ) {
                     if (state.isEditingHeldOrder) {
+                        if (showAddProductsAction) {
+                            KasirSecondaryButton(
+                                text = "Tambah Pesanan",
+                                onClick = onAddProducts,
+                                modifier = Modifier.fillMaxWidth(),
+                                enabled = state.heldOrderOperation == null,
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
@@ -456,6 +474,7 @@ private fun OrderSummary(
                             )
                         }
                     } else {
+                        if (HELD_ORDER_CHECKOUT_ENABLED) {
                         KasirSecondaryButton(
                             text = "Simpan Order",
                             onClick = onSaveClicked,
@@ -471,6 +490,7 @@ private fun OrderSummary(
                             modifier = Modifier.fillMaxWidth(),
                             enabled = state.heldOrderOperation == null,
                         )
+                        }
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -494,10 +514,10 @@ private fun OrderSummary(
                         color = MaterialTheme.colorScheme.onSurface,
                     )
                     KasirPrimaryButton(
-                        text = if (state.isEditingHeldOrder) "Checkout tidak tersedia saat edit order tersimpan" else "Lanjut ke Checkout",
+                        text = if (state.isEditingHeldOrder) "Proses Bayar" else "Lanjut ke Checkout",
                         onClick = onCheckout,
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = cart.items.isNotEmpty() && !state.isEditingHeldOrder,
+                        enabled = cart.items.isNotEmpty() && state.heldOrderOperation == null,
                     )
                 }
             }

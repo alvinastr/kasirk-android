@@ -39,23 +39,13 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrate1To4_preservesProductsAndCreatesAccountScopedOfflineQueue() = runBlocking {
+    fun migrate1To6_preservesProductsAndCreatesAccountScopedOfflineQueue() = runBlocking {
         createVersionOneDatabase()
 
-        database = Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            TEST_DATABASE_NAME,
-        )
-            .addMigrations(
-                AppDatabase.MIGRATION_1_2,
-                AppDatabase.MIGRATION_2_3,
-                AppDatabase.MIGRATION_3_4,
-                AppDatabase.MIGRATION_4_5,
-            )
-            .build()
+        database = openVersionSixDatabase()
 
         val migrated = requireNotNull(database)
+        assertFinalVersionSixSchema(migrated)
         assertTrue(migrated.productDao().getProducts(TENANT_ID).single().trackStock)
         assertTrue(
             migrated.offlineTransactionDao()
@@ -65,35 +55,26 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrate2To4_existingProductDefaultsToTrackedStock() = runBlocking {
+    fun migrate2To6_existingProductDefaultsToTrackedStock() = runBlocking {
         createVersionTwoDatabase()
 
-        database = Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            TEST_DATABASE_NAME,
-        )
-            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
-            .build()
+        database = openVersionSixDatabase()
 
-        val product = requireNotNull(database).productDao().getProducts(TENANT_ID).single()
+        val migrated = requireNotNull(database)
+        assertFinalVersionSixSchema(migrated)
+        val product = migrated.productDao().getProducts(TENANT_ID).single()
 
         assertTrue(product.trackStock)
     }
 
     @Test
-    fun migrate3To4_preservesProductsAndDiscardsUnownedOfflineRows() = runBlocking {
+    fun migrate3To6_preservesProductsAndDiscardsUnownedOfflineRows() = runBlocking {
         createVersionThreeDatabase()
 
-        database = Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            TEST_DATABASE_NAME,
-        )
-            .addMigrations(AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
-            .build()
+        database = openVersionSixDatabase()
 
         val migrated = requireNotNull(database)
+        assertFinalVersionSixSchema(migrated)
         assertEquals(1, migrated.productDao().getProducts(TENANT_ID).size)
         assertTrue(
             migrated.offlineTransactionDao()
@@ -103,18 +84,13 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
-    fun migrate4To5_preservesExistingDataAndCreatesMetadataTables() = runBlocking {
+    fun migrate4To6_preservesExistingDataAndCreatesMetadataTables() = runBlocking {
         createVersionFourDatabase()
 
-        database = Room.databaseBuilder(
-            context,
-            AppDatabase::class.java,
-            TEST_DATABASE_NAME,
-        )
-            .addMigrations(AppDatabase.MIGRATION_4_5)
-            .build()
+        database = openVersionSixDatabase()
 
         val migrated = requireNotNull(database)
+        assertFinalVersionSixSchema(migrated)
         val product = migrated.productDao().getProducts(TENANT_ID).single()
         val offlineTransaction = migrated.offlineTransactionDao()
             .getPendingTransactions(TENANT_ID, USER_ID, 100)
@@ -186,6 +162,54 @@ class AppDatabaseMigrationTest {
         assertTableRowCount(sqlite, "product_modifier_groups", 0)
     }
 
+    @Test
+    fun migrate5To6_preservesExistingDataAndCreatesOnlineJournalTable() = runBlocking {
+        createVersionFiveDatabase()
+
+        database = Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            TEST_DATABASE_NAME,
+        )
+            .addMigrations(AppDatabase.MIGRATION_5_6)
+            .build()
+
+        val migrated = requireNotNull(database)
+        assertEquals("legacy-product", migrated.productDao().getProducts(TENANT_ID).single().id)
+        val offlineTransaction = migrated.offlineTransactionDao()
+            .getPendingTransactions(TENANT_ID, USER_ID, 100)
+            .single()
+        assertEquals("legacy-client", offlineTransaction.clientTransactionId)
+        assertEquals(LEGACY_PAYLOAD_JSON, offlineTransaction.payloadJson)
+
+        val sqlite = migrated.openHelper.writableDatabase
+        sqlite.query(
+            "PRAGMA table_info(`online_transaction_journal`)",
+        ).use { cursor ->
+            val names = mutableSetOf<String>()
+            var primaryKeyColumns = 0
+            val nameIndex = cursor.getColumnIndexOrThrow("name")
+            val primaryKeyIndex = cursor.getColumnIndexOrThrow("pk")
+            while (cursor.moveToNext()) {
+                names += cursor.getString(nameIndex)
+                if (cursor.getInt(primaryKeyIndex) > 0) primaryKeyColumns++
+            }
+            assertEquals(
+                setOf(
+                    "tenantId", "userId", "outletId", "clientTransactionId",
+                    "requestType", "requestJson", "paymentMethod", "state",
+                    "serverTransactionId", "lastError", "createdAt", "updatedAt",
+                ),
+                names,
+            )
+            assertEquals(4, primaryKeyColumns)
+        }
+        sqlite.query(
+            "SELECT name FROM sqlite_master WHERE type = 'index' " +
+                "AND name = 'index_online_transaction_journal_tenantId_userId_state'",
+        ).use { cursor -> assertTrue(cursor.moveToFirst()) }
+    }
+
     private fun assertForeignKeyAction(
         database: SupportSQLiteDatabase,
         table: String,
@@ -222,6 +246,28 @@ class AppDatabaseMigrationTest {
             assertTrue(cursor.moveToFirst())
             assertEquals(expectedCount, cursor.getInt(0))
         }
+    }
+
+    private fun openVersionSixDatabase(): AppDatabase = Room.databaseBuilder(
+        context,
+        AppDatabase::class.java,
+        TEST_DATABASE_NAME,
+    )
+        .addMigrations(
+            AppDatabase.MIGRATION_1_2,
+            AppDatabase.MIGRATION_2_3,
+            AppDatabase.MIGRATION_3_4,
+            AppDatabase.MIGRATION_4_5,
+            AppDatabase.MIGRATION_5_6,
+        )
+        .build()
+
+    private fun assertFinalVersionSixSchema(database: AppDatabase) {
+        assertEquals(6, database.openHelper.readableDatabase.version)
+        database.openHelper.readableDatabase.query(
+            "SELECT name FROM sqlite_master " +
+                "WHERE type = 'table' AND name = 'online_transaction_journal'",
+        ).use { cursor -> assertTrue(cursor.moveToFirst()) }
     }
 
     @Test
@@ -570,6 +616,30 @@ class AppDatabaseMigrationTest {
                     oldVersion: Int,
                     newVersion: Int,
                 ) = Unit
+            })
+            .build()
+
+        FrameworkSQLiteOpenHelperFactory()
+            .create(configuration)
+            .use { helper -> helper.writableDatabase }
+    }
+
+    private fun createVersionFiveDatabase() {
+        createVersionFourDatabase()
+        val configuration = SupportSQLiteOpenHelper.Configuration.builder(context)
+            .name(TEST_DATABASE_NAME)
+            .callback(object : SupportSQLiteOpenHelper.Callback(5) {
+                override fun onCreate(db: SupportSQLiteDatabase) = Unit
+
+                override fun onUpgrade(
+                    db: SupportSQLiteDatabase,
+                    oldVersion: Int,
+                    newVersion: Int,
+                ) {
+                    assertEquals(4, oldVersion)
+                    assertEquals(5, newVersion)
+                    AppDatabase.MIGRATION_4_5.migrate(db)
+                }
             })
             .build()
 

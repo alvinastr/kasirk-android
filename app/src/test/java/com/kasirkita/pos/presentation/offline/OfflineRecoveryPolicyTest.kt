@@ -2,7 +2,6 @@ package com.kasirkita.pos.presentation.offline
 
 import com.kasirkita.pos.domain.model.OfflineTransactionFailureType
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,25 +15,19 @@ class OfflineRecoveryPolicyTest {
     }
 
     @Test
-    fun rejectedTransaction_canOnlyRetryOrDelete() {
+    fun rejectedTransaction_hasNoManualActionDuringIsolation() {
         val actions = recoveryActionsFor(OfflineTransactionFailureType.REJECTED)
 
-        assertEquals(
-            setOf(OfflineRecoveryAction.RETRY, OfflineRecoveryAction.DELETE),
-            actions,
-        )
-        assertFalse(OfflineRecoveryAction.ACKNOWLEDGE in actions)
+        assertTrue(actions.isEmpty())
     }
 
     @Test
-    fun reconciliationTransaction_canOnlyBeAcknowledged() {
+    fun reconciliationTransaction_hasNoManualActionDuringIsolation() {
         val actions = recoveryActionsFor(
             OfflineTransactionFailureType.RECONCILIATION_REQUIRED,
         )
 
-        assertEquals(setOf(OfflineRecoveryAction.ACKNOWLEDGE), actions)
-        assertFalse(OfflineRecoveryAction.RETRY in actions)
-        assertFalse(OfflineRecoveryAction.DELETE in actions)
+        assertTrue(actions.isEmpty())
     }
 
     @Test

@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.core.session.SessionBoundaryCleaner
+import com.kasirkita.pos.domain.repository.OfflineSyncRepository
+import com.kasirkita.pos.domain.repository.OnlineTransactionJournalRepository
 import com.kasirkita.pos.domain.usecase.LogoutUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
@@ -11,6 +13,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -20,6 +23,8 @@ class LogoutViewModel @Inject constructor(
     private val logoutUseCase: LogoutUseCase,
     private val authSessionDataStore: AuthSessionDataStore,
     private val sessionBoundaryCleaner: SessionBoundaryCleaner,
+    private val offlineSyncRepository: OfflineSyncRepository,
+    private val onlineTransactionJournalRepository: OnlineTransactionJournalRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow<LogoutState>(LogoutState.Idle)
@@ -30,6 +35,32 @@ class LogoutViewModel @Inject constructor(
 
         _state.value = LogoutState.Loading
         viewModelScope.launch {
+            val unresolvedCount = try {
+                val session = authSessionDataStore.getSession()
+                val legacyCount = offlineSyncRepository.observeQueueSummary().first().let { summary ->
+                    summary.pendingCount + summary.failedCount
+                }
+                val journalCount = session?.let {
+                    onlineTransactionJournalRepository.observeUnresolvedCount(
+                        tenantId = it.tenantId,
+                        userId = it.userId,
+                    ).first()
+                } ?: 0
+                legacyCount + journalCount
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                _state.value = LogoutState.Error(
+                    "Transaksi offline belum dapat diperiksa. Selesaikan sinkronisasi lalu coba lagi.",
+                )
+                return@launch
+            }
+
+            if (unresolvedCount > 0) {
+                _state.value = LogoutState.Blocked(unresolvedCount)
+                return@launch
+            }
+
             val refreshToken = readRefreshToken()
 
             try {

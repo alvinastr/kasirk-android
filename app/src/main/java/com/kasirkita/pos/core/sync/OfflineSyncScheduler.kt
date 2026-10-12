@@ -13,7 +13,7 @@ import androidx.work.workDataOf
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.core.datastore.SessionIdentity
 import com.kasirkita.pos.core.datastore.toSessionIdentity
-import com.kasirkita.pos.domain.repository.OfflineSyncRepository
+import com.kasirkita.pos.core.policy.LegacyOfflineQueuePolicy
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 class OfflineSyncScheduler @Inject constructor(
     @ApplicationContext context: Context,
     private val authSessionDataStore: AuthSessionDataStore,
-    private val offlineSyncRepository: OfflineSyncRepository,
+    private val legacyOfflineQueuePolicy: LegacyOfflineQueuePolicy,
 ) {
     private val workManager by lazy { WorkManager.getInstance(context) }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -39,11 +39,16 @@ class OfflineSyncScheduler @Inject constructor(
     fun start() {
         if (!started.compareAndSet(false, true)) return
 
+        if (!legacyOfflineQueuePolicy.allowsSynchronization()) {
+            scope.launch { cancelPersistedSyncForActiveSession() }
+            return
+        }
+
         scope.launch { observeSessionBoundaries() }
-        scope.launch { observePendingTransactions() }
     }
 
     fun enqueue(tenantId: String, userId: String) {
+        if (!legacyOfflineQueuePolicy.allowsSynchronization()) return
         workManager.enqueueUniqueWork(
             uniqueWorkName(tenantId, userId),
             ExistingWorkPolicy.KEEP,
@@ -64,13 +69,10 @@ class OfflineSyncScheduler @Inject constructor(
             }
     }
 
-    private suspend fun observePendingTransactions() {
-        offlineSyncRepository.observeQueueSummary().collect { summary ->
-            if (summary.pendingCount == 0) return@collect
-            authSessionDataStore.getSession()
-                ?.toSessionIdentity()
-                ?.let { identity -> enqueue(identity.tenantId, identity.userId) }
-        }
+    private suspend fun cancelPersistedSyncForActiveSession() {
+        authSessionDataStore.getSession()
+            ?.toSessionIdentity()
+            ?.let(::cancel)
     }
 
     private fun cancel(identity: SessionIdentity) {

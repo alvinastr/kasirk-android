@@ -6,6 +6,8 @@ import com.kasirkita.pos.core.database.entity.OfflineTransactionEntity
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.core.datastore.SessionIdentity
 import com.kasirkita.pos.core.datastore.toSessionIdentity
+import com.kasirkita.pos.core.policy.OfflineQueueCreationPolicy
+import com.kasirkita.pos.core.policy.LegacyOfflineQueuePolicy
 import com.kasirkita.pos.data.api.SyncApi
 import com.kasirkita.pos.data.model.CreateTransactionItemRequest
 import com.kasirkita.pos.data.model.CreateTransactionRequest
@@ -55,6 +57,8 @@ class OfflineSyncRepositoryImpl @Inject constructor(
     private val syncApi: SyncApi,
     private val gson: Gson,
     private val authSessionDataStore: AuthSessionDataStore,
+    private val offlineQueueCreationPolicy: OfflineQueueCreationPolicy,
+    private val legacyOfflineQueuePolicy: LegacyOfflineQueuePolicy,
 ) : OfflineSyncRepository {
 
     private val syncMutex = Mutex()
@@ -67,6 +71,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         paymentAmount: Long,
         financialSnapshot: OfflineFinancialSnapshot,
     ): Result<OfflineTransaction> = runCatching {
+        check(offlineQueueCreationPolicy.allowsNewRecords()) { OFFLINE_QUEUE_DISABLED }
         val identity = requireIdentity()
         val request = createTransactionRequest(
             clientTransactionId = clientTransactionId,
@@ -119,6 +124,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         request: V1TransactionRequest,
         financialSnapshot: OfflineFinancialSnapshot,
     ): Result<OfflineTransaction> = runCatching {
+        check(offlineQueueCreationPolicy.allowsNewRecords()) { OFFLINE_QUEUE_DISABLED }
         val identity = requireIdentity()
         require(request.cashierSessionId.isNotBlank()) { "cashier_session_id is required" }
         require(request.items.isNotEmpty()) { "items are required" }
@@ -255,7 +261,10 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         .distinctUntilChanged()
 
     override suspend fun syncPendingTransactions(): Result<SyncOutcome> =
-        runSynchronizedSync { identity -> syncPendingTransactions(identity) }
+        runSynchronizedSync { identity ->
+            check(legacyOfflineQueuePolicy.allowsSynchronization()) { LEGACY_SYNC_DISABLED }
+            syncPendingTransactions(identity)
+        }
 
     override suspend fun syncPendingTransactionsForAccount(
         tenantId: String,
@@ -263,12 +272,14 @@ class OfflineSyncRepositoryImpl @Inject constructor(
     ): Result<SyncOutcome> = runSynchronizedSync(
         expectedIdentity = SessionIdentity(tenantId = tenantId, userId = userId),
     ) { identity ->
+        check(legacyOfflineQueuePolicy.allowsSynchronization()) { LEGACY_SYNC_DISABLED }
         syncPendingTransactions(identity)
     }
 
     override suspend fun retryFailedTransaction(
         clientTransactionId: String,
     ): Result<SyncOutcome> = runSynchronizedSync { identity ->
+        check(legacyOfflineQueuePolicy.allowsSynchronization()) { LEGACY_SYNC_DISABLED }
         val transaction = offlineTransactionDao.getByClientTransactionId(
             tenantId = identity.tenantId,
             userId = identity.userId,
@@ -288,6 +299,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
     override suspend fun deleteFailedTransaction(
         clientTransactionId: String,
     ): Result<Unit> = runSynchronizedAccountAction { identity ->
+        check(legacyOfflineQueuePolicy.allowsSynchronization()) { LEGACY_SYNC_DISABLED }
         val deleted = offlineTransactionDao.deleteFailedTransaction(
             tenantId = identity.tenantId,
             userId = identity.userId,
@@ -299,6 +311,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
     override suspend fun acknowledgeReconciliation(
         clientTransactionId: String,
     ): Result<Unit> = runSynchronizedAccountAction { identity ->
+        check(legacyOfflineQueuePolicy.allowsSynchronization()) { LEGACY_SYNC_DISABLED }
         val deleted = offlineTransactionDao.acknowledgeReconciliation(
             tenantId = identity.tenantId,
             userId = identity.userId,
@@ -309,6 +322,7 @@ class OfflineSyncRepositoryImpl @Inject constructor(
 
     override suspend fun retryFailedTransactions(): Result<SyncOutcome> =
         runSynchronizedSync { identity ->
+            check(legacyOfflineQueuePolicy.allowsSynchronization()) { LEGACY_SYNC_DISABLED }
             offlineTransactionDao.retryFailedTransactions(
                 tenantId = identity.tenantId,
                 userId = identity.userId,
@@ -733,5 +747,9 @@ class OfflineSyncRepositoryImpl @Inject constructor(
         const val BUSINESS_FAILURE = "Transaction sync requires action"
         const val EMPTY_RESPONSE = "Sync service returned an empty response"
         const val INCOMPLETE_RESPONSE = "Sync service returned an incomplete response"
+        const val OFFLINE_QUEUE_DISABLED =
+            "Offline transaction queue creation is disabled for this online-only release"
+        const val LEGACY_SYNC_DISABLED =
+            "Legacy offline transaction synchronization is disabled for this release"
     }
 }

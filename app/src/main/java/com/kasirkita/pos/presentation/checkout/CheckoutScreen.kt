@@ -40,7 +40,9 @@ import java.util.Locale
 
 @Composable
 fun CheckoutScreen(
-    onCheckoutSuccess: (String) -> Unit = {},
+    onCheckoutConfirmed: (String) -> Unit = {},
+    onViewReceipt: (String) -> Unit = {},
+    onNewTransaction: () -> Unit = {},
     onBackToHeldOrders: () -> Unit = {},
     viewModel: CheckoutViewModel = hiltViewModel(),
 ) {
@@ -51,9 +53,9 @@ fun CheckoutScreen(
     val transaction = state.transaction
     val queuedClientTransactionId = state.offlineQueuedClientTransactionId
 
-    LaunchedEffect(transaction?.id, state.printerWarning) {
-        if (transaction != null && state.printerWarning == null) {
-            onCheckoutSuccess(transaction.id)
+    LaunchedEffect(transaction?.id) {
+        transaction?.let { confirmedTransaction ->
+            onCheckoutConfirmed(confirmedTransaction.id)
         }
     }
 
@@ -130,7 +132,8 @@ fun CheckoutScreen(
                         transaction = transaction,
                         numberFormat = numberFormat,
                         printerWarning = state.printerWarning,
-                        onViewReceipt = { onCheckoutSuccess(transaction.id) },
+                        onViewReceipt = { onViewReceipt(transaction.id) },
+                        onNewTransaction = onNewTransaction,
                     )
                 }
                 return@LazyColumn
@@ -224,7 +227,7 @@ fun CheckoutScreen(
         if (state.reconciliationNeeded) {
             KasirPrimaryButton(
                 text = if (state.isLoading) "Mengonfirmasi..." else "Konfirmasi Ulang Pembayaran",
-                onClick = viewModel::retryHeldOrderCheckout,
+                onClick = viewModel::retryPayment,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = KasirSpacing.CompactScreenPadding, vertical = KasirSpacing.ItemGap),
@@ -304,6 +307,7 @@ private fun CheckoutSuccessContent(
     numberFormat: NumberFormat,
     printerWarning: String? = null,
     onViewReceipt: () -> Unit = {},
+    onNewTransaction: () -> Unit = {},
 ) {
     KasirCard(modifier = Modifier.fillMaxWidth()) {
         Text(
@@ -333,13 +337,16 @@ private fun CheckoutSuccessContent(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        if (printerWarning != null) {
-            KasirPrimaryButton(
-                text = "Lihat Struk",
-                onClick = onViewReceipt,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        KasirPrimaryButton(
+            text = "Transaksi Baru",
+            onClick = onNewTransaction,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        KasirSecondaryButton(
+            text = "Lihat Struk",
+            onClick = onViewReceipt,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 

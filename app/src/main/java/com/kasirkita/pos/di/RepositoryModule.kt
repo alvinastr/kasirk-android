@@ -6,6 +6,7 @@ import com.kasirkita.pos.data.repository.CategoryRepositoryImpl
 import com.kasirkita.pos.data.repository.ModifierRepositoryImpl
 import com.kasirkita.pos.data.repository.OutletRepositoryImpl
 import com.kasirkita.pos.data.repository.OfflineSyncRepositoryImpl
+import com.kasirkita.pos.data.repository.OnlineTransactionJournalRepositoryImpl
 import com.kasirkita.pos.data.repository.ProductRepositoryImpl
 import com.kasirkita.pos.data.repository.ReportRepositoryImpl
 import com.kasirkita.pos.data.repository.HeldOrderRepositoryImpl
@@ -21,6 +22,7 @@ import com.kasirkita.pos.domain.repository.CategoryRepository
 import com.kasirkita.pos.domain.repository.ModifierRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
+import com.kasirkita.pos.domain.repository.OnlineTransactionJournalRepository
 import com.kasirkita.pos.domain.repository.ProductRepository
 import com.kasirkita.pos.domain.repository.ReportRepository
 import com.kasirkita.pos.domain.repository.ReceiptRepository
@@ -91,6 +93,12 @@ abstract class RepositoryModule {
     abstract fun bindOfflineSyncRepository(
         implementation: OfflineSyncRepositoryImpl,
     ): OfflineSyncRepository
+
+    @Binds
+    @Singleton
+    abstract fun bindOnlineTransactionJournalRepository(
+        implementation: OnlineTransactionJournalRepositoryImpl,
+    ): OnlineTransactionJournalRepository
 
     @Binds
     @Singleton

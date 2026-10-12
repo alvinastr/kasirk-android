@@ -32,6 +32,7 @@ import com.kasirkita.pos.domain.usecase.RemoveFromCartUseCase
 import com.kasirkita.pos.domain.usecase.UpdateCartQuantityUseCase
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -409,9 +410,29 @@ class CartViewModelHeldOrderOperationsTest {
         assertEquals(7, request.expectedVersion)
         assertEquals("New", request.label)
         assertEquals(HeldOrderItemRequest("prod-1", 3, emptyList(), null), request.items!!.single())
-        assertEquals(8, viewModel.state.value.heldOrderExpectedVersion)
-        assertEquals("New", viewModel.state.value.heldOrderLabel)
+        assertTrue(viewModel.state.value.cart.items.isEmpty())
+        assertNull(viewModel.state.value.heldOrderId)
+        assertEquals(false, viewModel.state.value.isEditingHeldOrder)
         assertEquals(listOf("held-1"), viewModel.state.value.heldOrders.map { it.id })
+    }
+
+    @Test
+    fun updateHeldOrder_success_emitsCompletionEventAfterClearingEditingCart() {
+        cartRepository.replaceCart(listOf(cartLine("prod-1", quantity = 2)))
+        viewModel.attachHeldOrder("held-1", 7, "Old")
+        heldOrderRepository.updateResult = Result.success(order("held-1", version = 8, label = "New"))
+
+        val events = mutableListOf<CartEvent>()
+        val collection = kotlinx.coroutines.CoroutineScope(dispatcher).launch {
+            viewModel.events.collect { events += it }
+        }
+
+        viewModel.updateHeldOrder("New")
+
+        assertEquals(listOf(CartEvent.HeldOrderUpdated), events)
+        assertTrue(viewModel.state.value.cart.items.isEmpty())
+        assertNull(viewModel.state.value.heldOrderId)
+        collection.cancel()
     }
 
     @Test
@@ -625,16 +646,16 @@ class CartViewModelHeldOrderOperationsTest {
     fun duplicateSaveTap_isBlockedWhileOperationInFlight() {
         cartRepository.replaceCart(listOf(cartLine("prod-1", quantity = 1)))
         viewModel.attachHeldOrder("held-1", 1, "Label")
-        heldOrderRepository.updateResult = Result.success(order("held-1", version = 2))
+        val updateDeferred = CompletableDeferred<Result<HeldOrder>>()
+        heldOrderRepository.updateDeferred = updateDeferred
 
         viewModel.updateHeldOrder("Label")
         viewModel.updateHeldOrder("Label")
 
-        // Unconfined dispatcher completes synchronously, so a second call after
-        // completion is legitimate; the in-flight guard is asserted separately by
-        // verifying only one request is issued per completed operation.
-        assertEquals(2, heldOrderRepository.updateRequests.size)
-        assertEquals(listOf(1, 2), heldOrderRepository.updateRequests.map { it.expectedVersion })
+        assertEquals(1, heldOrderRepository.updateRequests.size)
+        updateDeferred.complete(Result.success(order("held-1", version = 2)))
+        assertTrue(viewModel.state.value.cart.items.isEmpty())
+        assertNull(viewModel.state.value.heldOrderId)
     }
 
     private class FakeHeldOrderRepository : HeldOrderRepository {
@@ -652,6 +673,7 @@ class CartViewModelHeldOrderOperationsTest {
         var createResult: Result<HeldOrder> = Result.success(order("created"))
         var onCreate: (() -> Unit)? = null
         var updateResult: Result<HeldOrder> = Result.success(order("updated"))
+        var updateDeferred: CompletableDeferred<Result<HeldOrder>>? = null
         var cancelResult: Result<HeldOrder> = Result.success(order("cancelled", status = "CANCELLED"))
         val getResults = mutableMapOf<String, Result<HeldOrder>>()
         override suspend fun create(request: HeldOrderCreateRequest): Result<HeldOrder> {
@@ -673,7 +695,10 @@ class CartViewModelHeldOrderOperationsTest {
             requestedGetIds += id
             return getResults[id] ?: Result.failure(AssertionError("unexpected get $id"))
         }
-        override suspend fun update(request: HeldOrderUpdateRequest): Result<HeldOrder> { updateRequests += request; return updateResult }
+        override suspend fun update(request: HeldOrderUpdateRequest): Result<HeldOrder> {
+            updateRequests += request
+            return updateDeferred?.await() ?: updateResult
+        }
         override suspend fun cancel(id: String, expectedVersion: Int): Result<HeldOrder> { cancelCalls += id to expectedVersion; return cancelResult }
         override suspend fun checkout(request: HeldOrderCheckoutRequest): Result<HeldOrderCheckoutResult> = TODO()
     }

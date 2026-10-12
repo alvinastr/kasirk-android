@@ -7,6 +7,7 @@ import com.kasirkita.pos.core.database.dao.CategoryDao
 import com.kasirkita.pos.core.database.dao.ModifierGroupDao
 import com.kasirkita.pos.core.database.dao.ModifierOptionDao
 import com.kasirkita.pos.core.database.dao.OfflineTransactionDao
+import com.kasirkita.pos.core.database.dao.OnlineTransactionJournalDao
 import com.kasirkita.pos.core.database.dao.ProductDao
 import com.kasirkita.pos.core.database.dao.ProductModifierGroupDao
 import dagger.Module
@@ -34,6 +35,7 @@ object DatabaseModule {
             AppDatabase.MIGRATION_2_3,
             AppDatabase.MIGRATION_3_4,
             AppDatabase.MIGRATION_4_5,
+            AppDatabase.MIGRATION_5_6,
         )
         .build()
 
@@ -46,6 +48,12 @@ object DatabaseModule {
     fun provideOfflineTransactionDao(
         database: AppDatabase,
     ): OfflineTransactionDao = database.offlineTransactionDao()
+
+    @Provides
+    @Singleton
+    fun provideOnlineTransactionJournalDao(
+        database: AppDatabase,
+    ): OnlineTransactionJournalDao = database.onlineTransactionJournalDao()
 
     @Provides
     @Singleton

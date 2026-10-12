@@ -27,6 +27,9 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -48,6 +51,8 @@ class CartViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(CartState())
     val state: StateFlow<CartState> = _state.asStateFlow()
+    private val _events = MutableSharedFlow<CartEvent>(extraBufferCapacity = 1)
+    val events: SharedFlow<CartEvent> = _events.asSharedFlow()
 
     /**
      * Lightweight Held Order editing identity, persisted across process death.
@@ -324,7 +329,10 @@ class CartViewModel @Inject constructor(
                 HeldOrderUpdateRequest(id, version, normalizeLabel(label), _state.value.cart.items.map(::toHeldOrderItemRequest)),
             ).onSuccess { updated ->
                 attachHeldOrder(updated.id, updated.version, updated.label)
+                cartRepository.clearCart()
+                detachHeldOrder()
                 revalidateHeldOrders()
+                _events.tryEmit(CartEvent.HeldOrderUpdated)
             }.onFailure { error -> _state.update { it.copy(heldOrderError = mapHeldOrderError(error)) } }
             _state.update { it.copy(heldOrderOperation = null) }
         }
@@ -603,6 +611,10 @@ data class OperationalContext(
     val outletId: String,
     val cashierSessionId: String,
 )
+
+sealed interface CartEvent {
+    data object HeldOrderUpdated : CartEvent
+}
 
 enum class OperationalContextRejection {
     NO_OUTLET,

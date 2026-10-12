@@ -19,14 +19,4 @@ enum class OfflineRecoveryAction {
 
 internal fun recoveryActionsFor(
     failureType: OfflineTransactionFailureType?,
-): Set<OfflineRecoveryAction> = when (failureType) {
-    OfflineTransactionFailureType.RETRYABLE -> emptySet()
-    OfflineTransactionFailureType.REJECTED -> setOf(
-        OfflineRecoveryAction.RETRY,
-        OfflineRecoveryAction.DELETE,
-    )
-    OfflineTransactionFailureType.RECONCILIATION_REQUIRED -> setOf(
-        OfflineRecoveryAction.ACKNOWLEDGE,
-    )
-    null -> emptySet()
-}
+): Set<OfflineRecoveryAction> = emptySet()

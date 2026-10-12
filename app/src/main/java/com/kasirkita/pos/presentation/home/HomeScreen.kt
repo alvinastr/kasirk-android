@@ -22,6 +22,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.kasirkita.pos.core.policy.HELD_ORDER_CHECKOUT_ENABLED
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -159,11 +160,13 @@ fun HomeScreen(
                     },
                 )
 
-                HeldOrdersSummary(
-                    totalState = cartState.heldOrderTotalState,
-                    onRetry = cartViewModel::refreshHeldOrders,
-                    onOpen = onHeldOrdersClick,
-                )
+                if (HELD_ORDER_CHECKOUT_ENABLED) {
+                    HeldOrdersSummary(
+                        totalState = cartState.heldOrderTotalState,
+                        onRetry = cartViewModel::refreshHeldOrders,
+                        onOpen = onHeldOrdersClick,
+                    )
+                }
 
                 SyncStatusCard(
                     syncState = syncState,

@@ -31,6 +31,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import com.kasirkita.pos.core.policy.HELD_ORDER_CHECKOUT_ENABLED
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -98,11 +99,13 @@ internal fun moreSectionsFor(role: UserRole): List<MoreSection> = when (role) {
     UserRole.CASHIER -> listOf(
         MoreSection(
             title = "Operasional",
-            destinations = listOf(
-                MoreDestination("Shift", Icons.Outlined.MoreTime, MoreRouteKey.Shift),
-                MoreDestination("Pesanan Tersimpan", Icons.Outlined.ReceiptLong, MoreRouteKey.HeldOrders),
-                MoreDestination("Pemulihan Offline", Icons.Outlined.SettingsBackupRestore, MoreRouteKey.OfflineRecovery),
-            ),
+            destinations = buildList {
+                add(MoreDestination("Shift", Icons.Outlined.MoreTime, MoreRouteKey.Shift))
+                if (HELD_ORDER_CHECKOUT_ENABLED) {
+                    add(MoreDestination("Pesanan Tersimpan", Icons.Outlined.ReceiptLong, MoreRouteKey.HeldOrders))
+                }
+                add(MoreDestination("Pemulihan Offline", Icons.Outlined.SettingsBackupRestore, MoreRouteKey.OfflineRecovery))
+            },
         ),
     )
 }
@@ -183,6 +186,13 @@ internal fun MoreScreen(
                 (logoutState as? LogoutState.Error)?.let { state ->
                     Text(
                         text = state.message,
+                        style = MaterialTheme.typography.supporting,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                (logoutState as? LogoutState.Blocked)?.let { state ->
+                    Text(
+                        text = "Tidak dapat keluar: ${state.unresolvedCount} transaksi tertunda belum terselesaikan. Sinkronkan atau selesaikan pemulihan terlebih dahulu.",
                         style = MaterialTheme.typography.supporting,
                         color = MaterialTheme.colorScheme.error,
                     )

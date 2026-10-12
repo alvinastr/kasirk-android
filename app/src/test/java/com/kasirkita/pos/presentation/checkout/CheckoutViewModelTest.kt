@@ -1,6 +1,8 @@
 package com.kasirkita.pos.presentation.checkout
 
 import androidx.lifecycle.SavedStateHandle
+import com.kasirkita.pos.core.policy.HeldOrderPilotPolicy
+import com.google.gson.Gson
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.domain.model.*
 import com.kasirkita.pos.domain.repository.*
@@ -38,6 +40,7 @@ class CheckoutViewModelTest {
     private val offline = FakeQueue()
     private val receiptRepository = FakeReceiptRepository()
     private val printAfterCheckout = FakePrintAfterCheckoutUseCase()
+    private val journal = FakeOnlineTransactionJournalRepository()
     private val heldOrders = ConfigurableHeldOrders()
     private val handle = SavedStateHandle(mapOf(CheckoutTransactionIdentity.KEY to "sale-id"))
     private val outlet = Outlet("selected-outlet", "tenant", "Outlet", null, true, "now")
@@ -48,6 +51,11 @@ class CheckoutViewModelTest {
         receiptRepository.requestedIds.clear()
         printAfterCheckout.invocations.clear()
         printAfterCheckout.result = PrintAfterCheckoutUseCase.Result.Success(printed = true, drawerOpened = true)
+        journal.clear()
+        journal.beforePrepare = null
+        journal.failPrepare = false
+        journal.failConfirm = false
+        online.onCall = null
     }
     @After fun teardown() { Dispatchers.resetMain() }
 
@@ -61,21 +69,23 @@ class CheckoutViewModelTest {
         ), note = "Sedikit es",
     )
 
-    private fun viewModel(): CheckoutViewModel {
+    private fun viewModel(savedStateHandle: SavedStateHandle = handle): CheckoutViewModel {
         // The repository fake uses the production cart implementation; its seeded line is identical to item().
         val product = Product("coffee", "tenant", "category", "Americano", "AM", 20_000, 0, 0, false, true, "now")
         cart.addConfiguredProduct(product, item().modifierSelections, item().note)
         cart.updateQuantity(item().lineKey.value, 2)
         return CheckoutViewModel(
             online,
-            QueueOfflineTransactionUseCase(offline),
             cart,
             heldOrders,
             FakeOutlet(outlet),
             FakeShift(shift),
             GetReceiptUseCase(receiptRepository),
             printAfterCheckout,
-            handle
+            savedStateHandle,
+            Gson(),
+            journal,
+            HeldOrderPilotPolicy { true },
         )
     }
 
@@ -87,14 +97,16 @@ class CheckoutViewModelTest {
         cart.addConfiguredProduct(product, hot, "Tanpa gula")
         return CheckoutViewModel(
             online,
-            QueueOfflineTransactionUseCase(offline),
             cart,
             heldOrders,
             FakeOutlet(outlet),
             FakeShift(shift),
             GetReceiptUseCase(receiptRepository),
             printAfterCheckout,
-            handle
+            handle,
+            Gson(),
+            journal,
+            HeldOrderPilotPolicy { true },
         )
     }
 
@@ -114,6 +126,78 @@ class CheckoutViewModelTest {
         assertNull(vm.state.value.printerWarning)
     }
 
+    @Test fun journalIsPersistedBeforeNetworkSubmission() = runTest(dispatcher) {
+        val events = mutableListOf<String>()
+        journal.beforePrepare = { events += "journal" }
+        online.onCall = { events += "network" }
+        val vm = viewModel()
+        runCurrent()
+
+        vm.checkout(60_000)
+        runCurrent()
+
+        assertEquals(listOf("journal", "network"), events)
+        assertEquals("sale-id", journal.entry("sale-id")?.clientTransactionId)
+    }
+
+    @Test fun journalPersistenceFailurePreventsNetworkSubmission() = runTest(dispatcher) {
+        journal.failPrepare = true
+        val vm = viewModel()
+        runCurrent()
+
+        vm.checkout(60_000)
+        advanceUntilIdle()
+
+        assertTrue(online.requests.isEmpty())
+        assertTrue(vm.state.value.reconciliationNeeded)
+    }
+
+    @Test fun processDeathRestoresJournalAndRetriesWithOriginalClientTransactionId() = runTest(dispatcher) {
+        val first = viewModel()
+        runCurrent()
+        first.checkout(60_000)
+        runCurrent()
+        online.complete(Result.failure(IOException("timeout after commit")))
+        advanceUntilIdle()
+
+        val recreated = viewModel(SavedStateHandle())
+        runCurrent()
+        assertTrue(recreated.state.value.reconciliationNeeded)
+
+        recreated.retryPayment()
+        runCurrent()
+        assertEquals(2, online.requests.size)
+        assertEquals("sale-id", online.requests[0].clientTransactionId)
+        assertEquals("sale-id", online.requests[1].clientTransactionId)
+    }
+
+    @Test fun processDeathDuringSubmittingRequiresExplicitReconciliationAcrossRestarts() = runTest(dispatcher) {
+        val first = viewModel()
+        runCurrent()
+        first.checkout(60_000)
+        runCurrent()
+
+        assertEquals(1, online.requests.size)
+        assertEquals(OnlineTransactionJournalState.SUBMITTING, journal.entry("sale-id")?.state)
+
+        val restarted = viewModel(SavedStateHandle())
+        runCurrent()
+        assertTrue(restarted.state.value.reconciliationNeeded)
+        assertEquals(OnlineTransactionJournalState.REQUIRES_RECONCILIATION, journal.entry("sale-id")?.state)
+        assertEquals(1, online.requests.size)
+
+        val restartedAgain = viewModel(SavedStateHandle())
+        runCurrent()
+        assertTrue(restartedAgain.state.value.reconciliationNeeded)
+        assertEquals(1, online.requests.size)
+
+        restartedAgain.retryPayment()
+        runCurrent()
+        assertEquals(2, online.requests.size)
+        assertEquals(online.requests[0], online.requests[1])
+        assertEquals("sale-id", online.requests[1].clientTransactionId)
+    }
+
     @Test fun autoPrintFailureKeepsTransactionSuccessfulAndSurfacesWarning() = runTest(dispatcher) {
         printAfterCheckout.result = PrintAfterCheckoutUseCase.Result.Failure(
             transactionSuccessful = true,
@@ -130,6 +214,7 @@ class CheckoutViewModelTest {
         assertEquals("sale-id", vm.state.value.transaction?.clientTransactionId)
         assertEquals("Printer offline", vm.state.value.printerWarning)
         assertNull(vm.state.value.errorMessage)
+        assertTrue(cart.getCart().value.items.isEmpty())
     }
 
     @Test fun onlineRequestUsesOutletShiftModifiersNoteAndTenderWithoutEarlyClear() = runTest(dispatcher) {
@@ -155,33 +240,46 @@ class CheckoutViewModelTest {
         assertEquals("sale-id", vm.state.value.transaction?.clientTransactionId)
     }
 
-    @Test fun networkFailureQueuesIdenticalRequestAndConfiguredFinancialSnapshotThenClears() = runTest(dispatcher) {
+    @Test fun networkFailureDoesNotQueueOrClearAndRequiresReconciliation() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()
         vm.checkout(60_000)
         runCurrent()
         online.complete(Result.failure(IOException("offline")))
         advanceUntilIdle()
-        val sent = online.requests.single()
-        assertEquals(sent, offline.requests.single())
-        assertEquals("sale-id", offline.requests.single().clientTransactionId)
-        assertEquals("active-shift", offline.requests.single().cashierSessionId)
-        assertEquals(listOf("ice", "shot"), offline.requests.single().items.single().modifierOptionIds)
-        assertEquals("Sedikit es", offline.requests.single().items.single().note)
-        assertEquals(25_000L, item().price)
-        assertEquals(50_000L, item().subtotal())
-        assertEquals(50_000L, offline.snapshots.single().subtotal)
-        assertEquals(50_000L, offline.snapshots.single().total)
-        assertEquals(60_000L, offline.snapshots.single().paymentAmount)
-        assertEquals(0L, offline.snapshots.single().discount)
-        assertEquals(0L, offline.snapshots.single().tax)
-        assertTrue(cart.getCart().value.items.isEmpty())
-        assertEquals("sale-id", vm.state.value.offlineQueuedClientTransactionId)
+        assertTrue(offline.requests.isEmpty())
+        assertTrue(offline.snapshots.isEmpty())
+        assertTrue(cart.getCart().value.items.isNotEmpty())
+        assertTrue(vm.state.value.reconciliationNeeded)
+        assertEquals("sale-id", online.requests.single().clientTransactionId)
         assertEquals(1, online.requests.size)
     }
 
-    @Test fun failedOnlineAndQueueRetainsCartAndSameSaleIdentityForRetry() = runTest(dispatcher) {
-        offline.result = Result.failure(IOException("storage"))
+    @Test fun unresolvedJournalFromAnotherOutletBlocksNewCheckout() = runTest(dispatcher) {
+        journal.seed(
+            OnlineTransactionJournal(
+                tenantId = "tenant",
+                userId = "cashier",
+                outletId = "other-outlet",
+                clientTransactionId = "other-sale",
+                requestType = "V1_TRANSACTION",
+                requestJson = "{}",
+                paymentMethod = "CASH",
+                state = OnlineTransactionJournalState.REQUIRES_RECONCILIATION,
+                serverTransactionId = null,
+                lastError = "unknown",
+            ),
+        )
+        val vm = viewModel()
+        runCurrent()
+
+        assertTrue(vm.state.value.reconciliationNeeded)
+        vm.confirmPayment()
+        runCurrent()
+        assertTrue(online.requests.isEmpty())
+    }
+
+    @Test fun timeoutAfterPossibleCommitReusesSameRequestAndDoesNotDuplicate() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()
         vm.selectQuickTender(60_000)
@@ -190,14 +288,14 @@ class CheckoutViewModelTest {
         online.complete(Result.failure(IOException("offline")))
         advanceUntilIdle()
         assertEquals(1, cart.getCart().value.items.size)
-        assertNull(vm.state.value.offlineQueuedClientTransactionId)
+        assertTrue(offline.requests.isEmpty())
         assertFalse(vm.state.value.isLoading)
         assertTrue(vm.state.value.payment.canSubmit)
-        assertTrue(vm.state.value.errorMessage.orEmpty().contains("tidak dapat disimpan offline"))
-        assertEquals("sale-id", offline.requests.single().clientTransactionId)
-        vm.checkout(60_000)
+        assertTrue(vm.state.value.reconciliationNeeded)
+        vm.retryPayment()
         runCurrent()
         assertEquals(listOf("sale-id", "sale-id"), online.requests.map { it.clientTransactionId })
+        assertEquals(online.requests[0], online.requests[1])
         online.complete(Result.success(transaction()))
         advanceUntilIdle()
         assertTrue(cart.getCart().value.items.isEmpty())
@@ -245,7 +343,7 @@ class CheckoutViewModelTest {
         assertNull(request.payment.amountReceived)
     }
 
-    @Test fun qrisNetworkFailureQueuesV2SnapshotWithTotalAndSameRequest() = runTest(dispatcher) {
+    @Test fun qrisNetworkFailureDoesNotCreateOfflineRecord() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()
         vm.selectPaymentMethod(CheckoutPaymentMethod.QRIS)
@@ -254,15 +352,10 @@ class CheckoutViewModelTest {
         online.complete(Result.failure(IOException("offline")))
         advanceUntilIdle()
 
-        assertEquals(online.requests.single(), offline.requests.single())
-        assertEquals("sale-id", offline.requests.single().clientTransactionId)
-        assertEquals("active-shift", offline.requests.single().cashierSessionId)
-        assertEquals("QRIS", offline.requests.single().payment.method)
-        assertNull(offline.requests.single().payment.amountReceived)
-        assertEquals(50_000L, offline.snapshots.single().paymentAmount)
-        assertEquals(listOf("ice", "shot"), offline.requests.single().items.single().modifierOptionIds)
-        assertEquals("Sedikit es", offline.requests.single().items.single().note)
-        assertTrue(cart.getCart().value.items.isEmpty())
+        assertTrue(offline.requests.isEmpty())
+        assertTrue(offline.snapshots.isEmpty())
+        assertTrue(vm.state.value.reconciliationNeeded)
+        assertTrue(cart.getCart().value.items.isNotEmpty())
     }
 
     @Test fun edcCanSubmitWithoutTenderAndSendsMethodOnlyPayment() = runTest(dispatcher) {
@@ -282,7 +375,7 @@ class CheckoutViewModelTest {
         assertNull(request.payment.amountReceived)
     }
 
-    @Test fun edcNetworkFailureQueuesV2SnapshotWithTotalAndNoTender() = runTest(dispatcher) {
+    @Test fun edcNetworkFailureDoesNotCreateOfflineRecord() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()
         vm.selectPaymentMethod(CheckoutPaymentMethod.EDC)
@@ -291,12 +384,12 @@ class CheckoutViewModelTest {
         online.complete(Result.failure(IOException("offline")))
         advanceUntilIdle()
 
-        assertEquals("EDC", offline.requests.single().payment.method)
-        assertNull(offline.requests.single().payment.amountReceived)
-        assertEquals(50_000L, offline.snapshots.single().paymentAmount)
+        assertTrue(offline.requests.isEmpty())
+        assertTrue(offline.snapshots.isEmpty())
+        assertTrue(vm.state.value.reconciliationNeeded)
     }
 
-    @Test fun cashNetworkFailureQueuesV2SnapshotWithTenderAndSameRequest() = runTest(dispatcher) {
+    @Test fun cashNetworkFailureDoesNotCreateOfflineRecord() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()
         vm.selectQuickTender(100_000L)
@@ -305,13 +398,10 @@ class CheckoutViewModelTest {
         online.complete(Result.failure(IOException("offline")))
         advanceUntilIdle()
 
-        assertEquals(online.requests.single(), offline.requests.single())
-        assertEquals("sale-id", offline.requests.single().clientTransactionId)
-        assertEquals("active-shift", offline.requests.single().cashierSessionId)
-        assertEquals("CASH", offline.requests.single().payment.method)
-        assertEquals(100_000L, offline.requests.single().payment.amountReceived)
-        assertEquals(100_000L, offline.snapshots.single().paymentAmount)
-        assertTrue(cart.getCart().value.items.isEmpty())
+        assertTrue(offline.requests.isEmpty())
+        assertTrue(offline.snapshots.isEmpty())
+        assertTrue(vm.state.value.reconciliationNeeded)
+        assertTrue(cart.getCart().value.items.isNotEmpty())
     }
 
     @Test fun duplicateConfirmWhileSubmittingIsGuarded() = runTest(dispatcher) {
@@ -364,7 +454,7 @@ class CheckoutViewModelTest {
         assertEquals("sale-id", online.requests.single().clientTransactionId)
     }
 
-    @Test fun offlineFallbackPreservesDuplicateConfiguredCartLines() = runTest(dispatcher) {
+    @Test fun networkFailurePreservesDuplicateConfiguredCartLinesForReconciliation() = runTest(dispatcher) {
         val vm = viewModelWithDuplicateConfiguredLines()
         runCurrent()
         assertEquals(2, cart.getCart().value.items.size)
@@ -374,15 +464,9 @@ class CheckoutViewModelTest {
         online.complete(Result.failure(IOException("offline")))
         advanceUntilIdle()
 
-        val queued = offline.requests.single()
-        assertEquals("sale-id", queued.clientTransactionId)
-        assertEquals("active-shift", queued.cashierSessionId)
-        assertEquals(2, queued.items.size)
-        assertEquals(listOf("ice"), queued.items[0].modifierOptionIds)
-        assertEquals("Sedikit es", queued.items[0].note)
-        assertEquals(listOf("hot"), queued.items[1].modifierOptionIds)
-        assertEquals("Tanpa gula", queued.items[1].note)
-        assertTrue(cart.getCart().value.items.isEmpty())
+        assertTrue(offline.requests.isEmpty())
+        assertTrue(vm.state.value.reconciliationNeeded)
+        assertEquals(2, cart.getCart().value.items.size)
     }
 
     @Test fun stableIdAcrossAllPaymentActions() = runTest(dispatcher) {
@@ -456,28 +540,20 @@ class CheckoutViewModelTest {
         assertTrue(heldOrders.checkoutCalls.isEmpty())
     }
 
-    @Test fun offlineQueueSuccessClearsCartOnlyAfterQueuePersistenceCompletes() = runTest(dispatcher) {
-        offline.suspendUntilCompleted = true
+    @Test fun networkFailureDoesNotWaitForOrWriteOfflineQueue() = runTest(dispatcher) {
         val vm = viewModel()
         runCurrent()
         vm.selectExactCash()
         vm.confirmPayment()
         runCurrent()
-
         online.complete(Result.failure(IOException("offline")))
-        runCurrent()
-
-        assertEquals(1, offline.requests.size)
-        assertTrue(vm.state.value.isLoading)
-        assertEquals(1, cart.getCart().value.items.size)
-        assertNull(vm.state.value.offlineQueuedClientTransactionId)
-
-        offline.complete(Result.success(offlineTransaction()))
         advanceUntilIdle()
 
+        assertTrue(offline.requests.isEmpty())
         assertFalse(vm.state.value.isLoading)
-        assertEquals("sale-id", vm.state.value.offlineQueuedClientTransactionId)
-        assertTrue(cart.getCart().value.items.isEmpty())
+        assertEquals(1, cart.getCart().value.items.size)
+        assertNull(vm.state.value.offlineQueuedClientTransactionId)
+        assertTrue(vm.state.value.reconciliationNeeded)
     }
 
     private fun transaction() = Transaction(
@@ -495,8 +571,10 @@ class CheckoutViewModelTest {
     private class FakeTransactions : TransactionRepository {
         val requests = mutableListOf<V1TransactionRequest>()
         var clearObserved = 0
+        var onCall: (() -> Unit)? = null
         private var pending: kotlinx.coroutines.CompletableDeferred<Result<Transaction>>? = null
         override suspend fun createV1Transaction(request: V1TransactionRequest): Result<Transaction> {
+            onCall?.invoke()
             requests += request
             pending = kotlinx.coroutines.CompletableDeferred()
             return pending!!.await()

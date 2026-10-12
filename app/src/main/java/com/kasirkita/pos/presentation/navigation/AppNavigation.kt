@@ -7,6 +7,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -19,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.core.datastore.toSessionIdentity
 import com.kasirkita.pos.core.network.RefreshTokenCoordinator
+import com.kasirkita.pos.core.policy.HELD_ORDER_CHECKOUT_ENABLED
 import com.kasirkita.pos.core.session.SessionBoundaryCleaner
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.Outlet
@@ -26,6 +30,7 @@ import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.domain.repository.OutletRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.presentation.cart.CartScreen
+import com.kasirkita.pos.presentation.cart.CartEvent
 import com.kasirkita.pos.presentation.cart.CartViewModel
 import com.kasirkita.pos.presentation.checkout.CheckoutScreen
 import com.kasirkita.pos.presentation.home.HomeScreen
@@ -74,10 +79,25 @@ fun AppNavigation(
         SessionState.Unauthenticated,
         -> {
             val navController = rememberNavController()
-            val onHeldOrders = heldOrdersNavigationAction { destination ->
-                navController.navigate(destination.route) {
-                    launchSingleTop = destination.launchSingleTop
+            var heldOrderSuccessMessage by remember { mutableStateOf<String?>(null) }
+            LaunchedEffect(cartViewModel, navController) {
+                cartViewModel.events.collect { event ->
+                    when (event) {
+                        CartEvent.HeldOrderUpdated -> {
+                            heldOrderSuccessMessage = "Perubahan order berhasil disimpan."
+                            navigateToTopLevelDestination(navController, Screen.HeldOrders.route)
+                        }
+                    }
                 }
+            }
+            val onHeldOrders: () -> Unit = if (HELD_ORDER_CHECKOUT_ENABLED) {
+                heldOrdersNavigationAction { destination ->
+                    navController.navigate(destination.route) {
+                        launchSingleTop = destination.launchSingleTop
+                    }
+                }
+            } else {
+                {}
             }
             val authenticatedSession = (currentState as? SessionState.Authenticated)?.session
             val productManagementRoute = authenticatedSession
@@ -275,6 +295,12 @@ fun AppNavigation(
                             navController.navigate(Screen.Cart.route)
                         },
                         onHeldOrders = onHeldOrders,
+                        onCheckout = {
+                            navigateToHeldOrderContinuation(
+                                navController = navController,
+                                action = HeldOrderContinuationAction.PROCESS_PAYMENT,
+                            )
+                        },
                         cartViewModel = cartViewModel,
                     )
                 }
@@ -411,37 +437,60 @@ fun AppNavigation(
                 composable(Screen.Cart.route) {
                     CartScreen(
                         onCheckout = {
-                            navController.navigate(Screen.Checkout.route)
+                            navigateToHeldOrderContinuation(
+                                navController = navController,
+                                action = HeldOrderContinuationAction.PROCESS_PAYMENT,
+                            )
                         },
                         onHeldOrders = onHeldOrders,
+                        onAddProducts = {
+                            navigateToHeldOrderContinuation(
+                                navController = navController,
+                                action = HeldOrderContinuationAction.ADD_PRODUCTS,
+                            )
+                        },
                         viewModel = cartViewModel,
                     )
                 }
 
                 composable(Screen.HeldOrders.route) {
-                    HeldOrdersScreen(
-                        onBack = navController::popBackStack,
-                        onOpened = {
-                            navController.navigate(Screen.Cart.route) {
-                                popUpTo(Screen.HeldOrders.route) { inclusive = true }
-                                launchSingleTop = true
-                            }
-                        },
-                        viewModel = cartViewModel,
-                    )
+                    if (!HELD_ORDER_CHECKOUT_ENABLED) {
+                        LaunchedEffect(Unit) {
+                            navController.popBackStack()
+                        }
+                        SessionLoadingContent()
+                    } else {
+                        HeldOrdersScreen(
+                            onBack = navController::popBackStack,
+                            successMessage = heldOrderSuccessMessage,
+                            onSuccessMessageShown = { heldOrderSuccessMessage = null },
+                            onOpened = {
+                                navController.navigate(Screen.Cart.route) {
+                                    popUpTo(Screen.HeldOrders.route) { inclusive = true }
+                                    launchSingleTop = true
+                                }
+                            },
+                            viewModel = cartViewModel,
+                        )
+                    }
                 }
 
                 composable(Screen.Checkout.route) {
                     CheckoutScreen(
-                        onCheckoutSuccess = { transactionId ->
+                        onCheckoutConfirmed = {
                             cartViewModel.refreshHeldOrders()
-                            val destination = receiptDestination(transactionId)
-                            navController.navigate(destination.route) {
-                                popUpTo(existingSalesFlowPopUpRoute(navController, destination.popUpToRoute)) {
-                                    inclusive = destination.popUpToInclusive
-                                }
-                                launchSingleTop = true
-                            }
+                        },
+                        onViewReceipt = { transactionId ->
+                            navigateToSalesFlowDestination(
+                                navController = navController,
+                                destination = receiptDestination(transactionId),
+                            )
+                        },
+                        onNewTransaction = {
+                            navigateToSalesFlowDestination(
+                                navController = navController,
+                                destination = newTransactionDestination(),
+                            )
                         },
                         onBackToHeldOrders = {
                             navController.navigate(Screen.HeldOrders.route) {
@@ -455,13 +504,10 @@ fun AppNavigation(
                 composable(Screen.Receipt.route) {
                     ReceiptScreen(
                         onNewTransaction = {
-                            val destination = newTransactionDestination()
-                            navController.navigate(destination.route) {
-                                popUpTo(existingSalesFlowPopUpRoute(navController, destination.popUpToRoute)) {
-                                    inclusive = destination.popUpToInclusive
-                                }
-                                launchSingleTop = true
-                            }
+                            navigateToSalesFlowDestination(
+                                navController = navController,
+                                destination = newTransactionDestination(),
+                            )
                         },
                     )
                 }
@@ -563,7 +609,7 @@ internal fun moreDestinationRouteFor(
     MoreRouteKey.Printer -> printerSettingsRoute
     MoreRouteKey.ReceiptTemplate -> receiptTemplateSettingsRoute
     MoreRouteKey.OfflineRecovery -> Screen.OfflineRecovery.route
-    MoreRouteKey.HeldOrders -> Screen.HeldOrders.route
+    MoreRouteKey.HeldOrders -> Screen.HeldOrders.route.takeIf { HELD_ORDER_CHECKOUT_ENABLED }
 }
 
 internal data class SalesFlowDestination(
@@ -583,6 +629,51 @@ internal fun newTransactionDestination(): SalesFlowDestination =
         route = Screen.Products.route,
         popUpToRoute = Screen.Home.route,
     )
+
+internal enum class HeldOrderContinuationAction {
+    ADD_PRODUCTS,
+    PROCESS_PAYMENT,
+}
+
+internal data class HeldOrderContinuationDestination(
+    val route: String,
+    val launchSingleTop: Boolean = true,
+    val popUpToRoute: String? = null,
+)
+
+internal fun heldOrderContinuationDestination(
+    action: HeldOrderContinuationAction,
+): HeldOrderContinuationDestination = when (action) {
+    HeldOrderContinuationAction.ADD_PRODUCTS -> HeldOrderContinuationDestination(
+        route = Screen.Products.route,
+    )
+    HeldOrderContinuationAction.PROCESS_PAYMENT -> HeldOrderContinuationDestination(
+        route = Screen.Checkout.route,
+    )
+}
+
+private fun navigateToHeldOrderContinuation(
+    navController: androidx.navigation.NavHostController,
+    action: HeldOrderContinuationAction,
+) {
+    val destination = heldOrderContinuationDestination(action)
+    navController.navigate(destination.route) {
+        destination.popUpToRoute?.let { route -> popUpTo(route) }
+        launchSingleTop = destination.launchSingleTop
+    }
+}
+
+private fun navigateToSalesFlowDestination(
+    navController: androidx.navigation.NavHostController,
+    destination: SalesFlowDestination,
+) {
+    navController.navigate(destination.route) {
+        popUpTo(existingSalesFlowPopUpRoute(navController, destination.popUpToRoute)) {
+            inclusive = destination.popUpToInclusive
+        }
+        launchSingleTop = true
+    }
+}
 
 internal fun salesFlowPopUpRoute(hasPreferredRoute: Boolean): String =
     if (hasPreferredRoute) Screen.Home.route else Screen.Products.route
@@ -697,12 +788,14 @@ internal data class HeldOrdersNavigationDestination(
 internal fun heldOrdersNavigationAction(
     navigate: (HeldOrdersNavigationDestination) -> Unit,
 ): () -> Unit = {
-    navigate(
-        HeldOrdersNavigationDestination(
-            route = Screen.HeldOrders.route,
-            launchSingleTop = true,
-        ),
-    )
+    if (HELD_ORDER_CHECKOUT_ENABLED) {
+        navigate(
+            HeldOrdersNavigationDestination(
+                route = Screen.HeldOrders.route,
+                launchSingleTop = true,
+            ),
+        )
+    }
 }
 
 internal fun shiftRouteFor(role: UserRole): String = when (role) {

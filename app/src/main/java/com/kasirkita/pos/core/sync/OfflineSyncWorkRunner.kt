@@ -3,6 +3,7 @@ package com.kasirkita.pos.core.sync
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.core.datastore.SessionIdentity
 import com.kasirkita.pos.core.datastore.toSessionIdentity
+import com.kasirkita.pos.core.policy.LegacyOfflineQueuePolicy
 import com.kasirkita.pos.domain.model.SyncOutcome
 import com.kasirkita.pos.domain.repository.OfflineSyncRepository
 import javax.inject.Inject
@@ -10,8 +11,13 @@ import javax.inject.Inject
 class OfflineSyncWorkRunner @Inject constructor(
     private val authSessionDataStore: AuthSessionDataStore,
     private val offlineSyncRepository: OfflineSyncRepository,
+    private val legacyOfflineQueuePolicy: LegacyOfflineQueuePolicy,
 ) {
     suspend fun run(tenantId: String?, userId: String?): OfflineSyncWorkResult {
+        if (!legacyOfflineQueuePolicy.allowsSynchronization()) {
+            return OfflineSyncWorkResult.SUCCESS
+        }
+
         val expectedIdentity = SessionIdentity(
             tenantId = tenantId?.takeIf(String::isNotBlank)
                 ?: return OfflineSyncWorkResult.FAILURE,

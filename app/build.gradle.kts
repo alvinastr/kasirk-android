@@ -17,6 +17,10 @@ val releaseApiBaseUrl = providers
     .gradleProperty("kasirkita.releaseApiBaseUrl")
     .orElse("https://api.kasirkita.invalid/")
     .get()
+val uatApiBaseUrl = providers
+    .gradleProperty("kasirkita.uatApiBaseUrl")
+    .orElse("http://127.0.0.1:3001/")
+    .get()
 
 // Validation: ensure debug URL is valid
 val debugUrlUri: URI = try {
@@ -50,6 +54,20 @@ if (releaseUrlUri.host == null) {
 val releaseScheme = releaseUrlUri.scheme?.lowercase()
 if (releaseScheme != "https") {
     throw GradleException("Release API URL must use HTTPS, not $releaseScheme: $releaseApiBaseUrl")
+}
+
+// UAT is deliberately pinned to the USB reverse target. It must never be
+// possible to produce a UAT APK that points at the production API or a LAN host.
+val uatUrlUri: URI = try {
+    URI(uatApiBaseUrl)
+} catch (e: Exception) {
+    throw GradleException("Invalid UAT API URL: ${e.message}")
+}
+if (uatApiBaseUrl != "http://127.0.0.1:3001/") {
+    throw GradleException("UAT API URL must be exactly http://127.0.0.1:3001/")
+}
+if (uatUrlUri.host == "api.bekasirk.tech") {
+    throw GradleException("UAT API URL must not target production")
 }
 
 // Release signing configuration
@@ -94,8 +112,8 @@ android {
         applicationId = "com.kasirkita.pos"
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -126,6 +144,15 @@ android {
             optimization {
                 enable = false
             }
+        }
+
+        create("uat") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".uat"
+            versionNameSuffix = "-uat"
+            isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("String", "API_BASE_URL", "\"" + uatApiBaseUrl + "\"")
         }
     }
 

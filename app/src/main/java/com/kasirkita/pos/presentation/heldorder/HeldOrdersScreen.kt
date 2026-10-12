@@ -1,5 +1,6 @@
 package com.kasirkita.pos.presentation.heldorder
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -17,6 +18,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -25,6 +28,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.kasirkita.pos.domain.model.HeldOrder
 import com.kasirkita.pos.presentation.cart.CartViewModel
@@ -46,13 +50,23 @@ import com.kasirkita.pos.ui.theme.KasirSpacing
 fun HeldOrdersScreen(
     onBack: () -> Unit,
     onOpened: () -> Unit,
+    successMessage: String? = null,
+    onSuccessMessageShown: () -> Unit = {},
     viewModel: CartViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsState()
+    val snackbarHostState = remember { SnackbarHostState() }
     var cancelCandidate by remember { mutableStateOf<HeldOrder?>(null) }
     var openCandidate by remember { mutableStateOf<HeldOrder?>(null) }
     var discardConfirmed by remember { mutableStateOf(false) }
     var pendingOpenId by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(successMessage) {
+        successMessage?.let { message ->
+            snackbarHostState.showSnackbar(message)
+            onSuccessMessageShown()
+        }
+    }
 
     LaunchedEffect(Unit) { viewModel.listHeldOrders() }
     // Navigate back to Cart only once the target order is actually attached to the
@@ -68,53 +82,61 @@ fun HeldOrdersScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        KasirTopBar(
-            title = "Order Tersimpan",
-            navigationIcon = {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
-                }
-            },
-        )
-        when {
-            state.heldOrderOperation == HeldOrderOperation.LIST && state.heldOrders.isEmpty() ->
-                KasirLoadingState(message = "Memuat order tersimpan…", modifier = Modifier.fillMaxSize())
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            KasirTopBar(
+                title = "Order Tersimpan",
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                    }
+                },
+            )
+            when {
+                state.heldOrderOperation == HeldOrderOperation.LIST && state.heldOrders.isEmpty() ->
+                    KasirLoadingState(message = "Memuat order tersimpan…", modifier = Modifier.fillMaxSize())
 
-            state.heldOrderError != null && state.heldOrders.isEmpty() ->
-                KasirErrorState(
-                    message = heldOrderErrorMessage(state.heldOrderError),
-                    onRetry = viewModel::listHeldOrders,
-                    modifier = Modifier.fillMaxSize(),
-                )
-
-            state.heldOrders.isEmpty() ->
-                KasirEmptyState(
-                    message = "Belum ada order tersimpan yang masih terbuka.",
-                    modifier = Modifier.fillMaxSize(),
-                )
-
-            else -> LazyColumn(
-                contentPadding = PaddingValues(KasirSpacing.ScreenPadding),
-                verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
-            ) {
-                items(state.heldOrders, key = { it.id }) { order ->
-                    HeldOrderRow(
-                        order = order,
-                        busy = state.heldOrderOperation != null,
-                        onOpen = {
-                            if (state.cart.items.isEmpty()) {
-                                pendingOpenId = order.id
-                                viewModel.restoreHeldOrder(order.id)
-                            } else {
-                                openCandidate = order
-                            }
-                        },
-                        onCancel = { cancelCandidate = order },
+                state.heldOrderError != null && state.heldOrders.isEmpty() ->
+                    KasirErrorState(
+                        message = heldOrderErrorMessage(state.heldOrderError),
+                        onRetry = viewModel::listHeldOrders,
+                        modifier = Modifier.fillMaxSize(),
                     )
+
+                state.heldOrders.isEmpty() ->
+                    KasirEmptyState(
+                        message = "Belum ada order tersimpan yang masih terbuka.",
+                        modifier = Modifier.fillMaxSize(),
+                    )
+
+                else -> LazyColumn(
+                    contentPadding = PaddingValues(KasirSpacing.ScreenPadding),
+                    verticalArrangement = Arrangement.spacedBy(KasirSpacing.ItemGap),
+                ) {
+                    items(state.heldOrders, key = { it.id }) { order ->
+                        HeldOrderRow(
+                            order = order,
+                            busy = state.heldOrderOperation != null,
+                            onOpen = {
+                                if (state.cart.items.isEmpty()) {
+                                    pendingOpenId = order.id
+                                    viewModel.restoreHeldOrder(order.id)
+                                } else {
+                                    openCandidate = order
+                                }
+                            },
+                            onCancel = { cancelCandidate = order },
+                        )
+                    }
                 }
             }
         }
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(KasirSpacing.ScreenPadding),
+        )
     }
 
     cancelCandidate?.let { order ->

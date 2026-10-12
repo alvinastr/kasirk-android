@@ -1,5 +1,7 @@
 package com.kasirkita.pos.data.repository
 import com.kasirkita.pos.core.datastore.AuthSessionDataStoreTestHelper
+import com.kasirkita.pos.core.policy.OfflineQueueCreationPolicy
+import com.kasirkita.pos.core.policy.LegacyOfflineQueuePolicy
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
@@ -71,6 +73,8 @@ class OfflineSyncRepositoryImplTest {
             syncApi = api,
             gson = gson,
             authSessionDataStore = sessionStore,
+            offlineQueueCreationPolicy = OfflineQueueCreationPolicy { true },
+            legacyOfflineQueuePolicy = LegacyOfflineQueuePolicy { true },
         )
     }
 
@@ -83,6 +87,80 @@ class OfflineSyncRepositoryImplTest {
         assertEquals(TENANT_ID, queued.tenantId)
         assertEquals(USER_ID, queued.userId)
         assertEquals(1, dao.pendingCount())
+    }
+
+    @Test
+    fun onlineOnlyPolicy_rejectsLegacyAndV1QueueCreationWithoutWriting() = runBlocking {
+        val onlineOnlyRepository = OfflineSyncRepositoryImpl(
+            offlineTransactionDao = dao,
+            syncApi = api,
+            gson = gson,
+            authSessionDataStore = sessionStore,
+            offlineQueueCreationPolicy = OfflineQueueCreationPolicy { false },
+            legacyOfflineQueuePolicy = LegacyOfflineQueuePolicy { false },
+        )
+
+        val legacy = onlineOnlyRepository.queueTransaction(
+            clientTransactionId = "blocked-legacy",
+            outletId = OUTLET_ID,
+            customerId = null,
+            items = listOf(sampleCartItem()),
+            paymentAmount = 10_000L,
+            financialSnapshot = sampleFinancialSnapshot(),
+        )
+        val v1 = onlineOnlyRepository.queueV1Transaction(
+            request = V1TransactionRequest(
+                clientTransactionId = "blocked-v1",
+                outletId = OUTLET_ID,
+                cashierSessionId = "shift-1",
+                customerId = null,
+                items = listOf(V1TransactionItemRequest(PRODUCT_ID, 1, emptyList(), null)),
+                payment = V1Payment("CASH", 10_000L),
+            ),
+            financialSnapshot = sampleFinancialSnapshot(),
+        )
+
+        assertTrue(legacy.isFailure)
+        assertTrue(v1.isFailure)
+        assertTrue(legacy.exceptionOrNull()?.message.orEmpty().contains("online-only"))
+        assertEquals(0, dao.pendingCount())
+    }
+
+    @Test
+    fun onlineOnlyPolicy_preservesExistingPendingRecordsForRecoveryReads() = runBlocking {
+        val existing = queueTransaction("existing-pending")
+        val onlineOnlyRepository = OfflineSyncRepositoryImpl(
+            offlineTransactionDao = dao,
+            syncApi = api,
+            gson = gson,
+            authSessionDataStore = sessionStore,
+            offlineQueueCreationPolicy = OfflineQueueCreationPolicy { false },
+            legacyOfflineQueuePolicy = LegacyOfflineQueuePolicy { false },
+        )
+
+        val pending = onlineOnlyRepository.getPendingTransactions().getOrThrow()
+
+        assertEquals(listOf(existing.clientTransactionId), pending.map { it.clientTransactionId })
+        assertEquals(1, dao.pendingCount())
+    }
+
+    @Test
+    fun legacySyncIsolation_rejectsSynchronizationWithoutMutatingPendingRows() = runBlocking {
+        val existing = queueTransaction("historical-pending")
+        val isolatedRepository = OfflineSyncRepositoryImpl(
+            offlineTransactionDao = dao,
+            syncApi = api,
+            gson = gson,
+            authSessionDataStore = sessionStore,
+            offlineQueueCreationPolicy = OfflineQueueCreationPolicy { false },
+            legacyOfflineQueuePolicy = LegacyOfflineQueuePolicy { false },
+        )
+
+        val result = isolatedRepository.syncPendingTransactionsForAccount(TENANT_ID, USER_ID)
+
+        assertTrue(result.isFailure)
+        assertEquals(existing.payloadJson, dao.getByClientTransactionId(TENANT_ID, USER_ID, existing.clientTransactionId)?.payloadJson)
+        assertEquals(0, api.callCount)
     }
 
     @Test

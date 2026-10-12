@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import com.kasirkita.pos.core.policy.HELD_ORDER_CHECKOUT_ENABLED
 import com.kasirkita.pos.domain.model.UserRole
 
 internal data class TopLevelDestination(
@@ -92,11 +93,11 @@ internal fun navigationChromeFor(
 }
 
 internal fun isRouteAuthorizedForRole(route: String, role: UserRole): Boolean = when {
+    route == Screen.HeldOrders.route -> HELD_ORDER_CHECKOUT_ENABLED
     route in setOf(
         Screen.Home.route,
         Screen.Products.route,
         Screen.Cart.route,
-        Screen.HeldOrders.route,
         Screen.Checkout.route,
         Screen.Receipt.route,
         Screen.Transactions.route,

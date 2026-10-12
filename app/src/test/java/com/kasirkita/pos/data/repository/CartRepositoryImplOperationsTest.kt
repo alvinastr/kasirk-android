@@ -106,6 +106,27 @@ class CartRepositoryImplOperationsTest {
     }
 
     @Test
+    fun addingProductsToAttachedHeldOrder_preservesIdentityAndExistingLineData() {
+        val heldItem = product(id = "held-item", name = "Held Item", price = 25_000L)
+        val addedItem = product(id = "added-item", name = "Added Item", price = 15_000L)
+        val note = "Tanpa gula"
+
+        repo.addConfiguredProduct(heldItem, emptyList(), note)
+        repo.attachHeldOrderIdentity("held-123", expectedVersion = 4, label = "Meja 2")
+        repo.addProduct(addedItem)
+
+        val cart = repo.getCart().value
+        val identity = repo.getHeldOrderIdentity().value
+        assertEquals("held-123", identity?.heldOrderId)
+        assertEquals(4, identity?.expectedVersion)
+        assertEquals("Meja 2", identity?.label)
+        assertEquals(2, cart.items.size)
+        assertEquals(note, cart.items.first { it.productId == "held-item" }.note)
+        assertEquals(25_000L, cart.items.first { it.productId == "held-item" }.basePrice)
+        assertEquals(15_000L, cart.items.first { it.productId == "added-item" }.basePrice)
+    }
+
+    @Test
     fun removeTargetsExactLine() {
         val product = product()
         val ice = CartModifierSelectionSnapshot("ice", "temp", "Temperature", "Ice", 0L)

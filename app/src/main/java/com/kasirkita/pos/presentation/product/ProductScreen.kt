@@ -57,6 +57,7 @@ import java.util.Locale
 internal fun ProductScreen(
     onCartClick: () -> Unit,
     onHeldOrders: () -> Unit,
+    onCheckout: () -> Unit = onCartClick,
     viewModel: ProductCatalogViewModel = hiltViewModel(),
     cartViewModel: CartViewModel = hiltViewModel(),
 ) {
@@ -84,7 +85,7 @@ internal fun ProductScreen(
                 onRetry = viewModel::loadProducts,
                 onRefresh = viewModel::refresh,
                 onAddToCart = viewModel::addToCart,
-                onCheckout = { onCartClick() },
+                onCheckout = onCheckout,
                 onHeldOrders = onHeldOrders,
                 cartViewModel = cartViewModel,
             )

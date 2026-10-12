@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.emptyPreferences
 import com.kasirkita.pos.core.datastore.AuthSessionDataStore
 import com.kasirkita.pos.core.session.SessionBoundaryCleaner
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
+import com.kasirkita.pos.domain.model.*
 import com.kasirkita.pos.domain.model.AuthSession
 import com.kasirkita.pos.domain.model.AuthTokens
 import com.kasirkita.pos.domain.model.CurrentUser
@@ -17,6 +18,8 @@ import com.kasirkita.pos.domain.model.Shift
 import com.kasirkita.pos.domain.model.UserRole
 import com.kasirkita.pos.domain.repository.AuthV2Repository
 import com.kasirkita.pos.domain.repository.OutletRepository
+import com.kasirkita.pos.domain.repository.OfflineSyncRepository
+import com.kasirkita.pos.domain.repository.OnlineTransactionJournalRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.domain.usecase.LogoutUseCase
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +27,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -35,6 +39,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.IOException
+import com.kasirkita.pos.domain.model.OnlineTransactionJournal
+import com.kasirkita.pos.domain.model.OnlineTransactionJournalDraft
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class LogoutViewModelTest {
@@ -109,9 +115,35 @@ class LogoutViewModelTest {
         )
     }
 
+    @Test
+    fun logoutWithPendingTransactions_isBlockedWithoutClearingSession() = runBlocking {
+        val fixture = fixture(unresolvedCount = 1)
+
+        fixture.viewModel.logout()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(LogoutState.Blocked(1), fixture.viewModel.state.value)
+        assertEquals("refresh-token", fixture.authSessionDataStore.getSession()?.refreshToken)
+        assertNull(fixture.authRepository.lastLogoutToken)
+    }
+
+    @Test
+    fun logoutWithUnresolvedJournal_isBlockedWithoutClearingSession() = runBlocking {
+        val fixture = fixture(journalUnresolvedCount = 1)
+
+        fixture.viewModel.logout()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(LogoutState.Blocked(1), fixture.viewModel.state.value)
+        assertEquals("refresh-token", fixture.authSessionDataStore.getSession()?.refreshToken)
+        assertNull(fixture.authRepository.lastLogoutToken)
+    }
+
     private fun fixture(
         logoutResult: Result<Unit> = Result.success(Unit),
         outletClearFailure: Throwable? = null,
+        unresolvedCount: Int = 0,
+        journalUnresolvedCount: Int = 0,
     ): Fixture {
         val authSessionDataStore = AuthSessionDataStoreTestHelper.createTestStore()
         runBlocking {
@@ -131,6 +163,8 @@ class LogoutViewModelTest {
                 outletRepository = outletRepository,
                 shiftRepository = shiftRepository,
             ),
+            offlineSyncRepository = FakeOfflineSyncRepository(unresolvedCount),
+            onlineTransactionJournalRepository = FakeJournalRepository(journalUnresolvedCount),
         )
         return Fixture(
             viewModel = viewModel,
@@ -150,6 +184,88 @@ class LogoutViewModelTest {
         val cartRepository: CartRepositoryImpl,
         val shiftRepository: FakeShiftRepository,
     )
+
+    private class FakeOfflineSyncRepository(
+        private val unresolvedCount: Int,
+    ) : OfflineSyncRepository {
+        override suspend fun queueTransaction(
+            clientTransactionId: String,
+            outletId: String,
+            customerId: String?,
+            items: List<CartItem>,
+            paymentAmount: Long,
+            financialSnapshot: OfflineFinancialSnapshot,
+        ): Result<OfflineTransaction> = error("Not used")
+
+        override suspend fun queueV1Transaction(
+            request: V1TransactionRequest,
+            financialSnapshot: OfflineFinancialSnapshot,
+        ): Result<OfflineTransaction> = error("Not used")
+
+        override suspend fun getPendingTransactions(limit: Int): Result<List<OfflineTransaction>> = error("Not used")
+        override suspend fun getTransaction(clientTransactionId: String): Result<OfflineTransaction?> = error("Not used")
+        override suspend fun getFailedTransactions(limit: Int): Result<List<OfflineTransaction>> = error("Not used")
+        override suspend fun getActionRequiredTransactions(limit: Int): Result<List<OfflineTransaction>> = error("Not used")
+        override suspend fun getRecoveryTransactions(limit: Int): Result<List<OfflineTransaction>> = error("Not used")
+        override fun observeQueueSummary(): Flow<OfflineQueueSummary> =
+            flowOf(OfflineQueueSummary(pendingCount = unresolvedCount, failedCount = 0))
+        override fun observePendingCount(): Flow<Int> = flowOf(unresolvedCount)
+        override suspend fun syncPendingTransactions(): Result<SyncOutcome> = error("Not used")
+        override suspend fun syncPendingTransactionsForAccount(tenantId: String, userId: String): Result<SyncOutcome> = error("Not used")
+        override suspend fun retryFailedTransaction(clientTransactionId: String): Result<SyncOutcome> = error("Not used")
+        override suspend fun deleteFailedTransaction(clientTransactionId: String): Result<Unit> = error("Not used")
+        override suspend fun acknowledgeReconciliation(clientTransactionId: String): Result<Unit> = error("Not used")
+        override suspend fun retryFailedTransactions(): Result<SyncOutcome> = error("Not used")
+    }
+
+    private class FakeJournalRepository(
+        private val unresolvedCount: Int,
+    ) : OnlineTransactionJournalRepository {
+        override suspend fun prepare(draft: OnlineTransactionJournalDraft): Result<OnlineTransactionJournal> =
+            error("Not used")
+
+        override suspend fun getUnresolved(
+            tenantId: String,
+            userId: String,
+            outletId: String,
+        ): Result<OnlineTransactionJournal?> = Result.success(null)
+
+        override suspend fun getUnresolvedForAccount(
+            tenantId: String,
+            userId: String,
+        ): Result<OnlineTransactionJournal?> = Result.success(null)
+
+        override suspend fun recoverSubmittingForAccount(
+            tenantId: String,
+            userId: String,
+        ): Result<Int> = Result.success(0)
+
+        override fun observeUnresolvedCount(tenantId: String, userId: String): Flow<Int> =
+            flowOf(unresolvedCount)
+
+        override suspend fun markSubmitting(journal: OnlineTransactionJournal): Result<Boolean> =
+            error("Not used")
+
+        override suspend fun markUncertain(
+            journal: OnlineTransactionJournal,
+            error: String,
+        ): Result<Boolean> = error("Not used")
+
+        override suspend fun markRequiresReconciliation(
+            journal: OnlineTransactionJournal,
+            error: String,
+        ): Result<Boolean> = error("Not used")
+
+        override suspend fun markConfirmed(
+            journal: OnlineTransactionJournal,
+            serverTransactionId: String,
+        ): Result<Boolean> = error("Not used")
+
+        override suspend fun markRejected(
+            journal: OnlineTransactionJournal,
+            error: String,
+        ): Result<Boolean> = error("Not used")
+    }
 
     private class FakeAuthV2Repository(
         private val logoutResult: Result<Unit>,

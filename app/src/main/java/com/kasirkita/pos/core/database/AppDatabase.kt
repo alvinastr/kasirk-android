@@ -8,12 +8,14 @@ import com.kasirkita.pos.core.database.dao.CategoryDao
 import com.kasirkita.pos.core.database.dao.ModifierGroupDao
 import com.kasirkita.pos.core.database.dao.ModifierOptionDao
 import com.kasirkita.pos.core.database.dao.OfflineTransactionDao
+import com.kasirkita.pos.core.database.dao.OnlineTransactionJournalDao
 import com.kasirkita.pos.core.database.dao.ProductDao
 import com.kasirkita.pos.core.database.dao.ProductModifierGroupDao
 import com.kasirkita.pos.core.database.entity.CategoryEntity
 import com.kasirkita.pos.core.database.entity.ModifierGroupEntity
 import com.kasirkita.pos.core.database.entity.ModifierOptionEntity
 import com.kasirkita.pos.core.database.entity.OfflineTransactionEntity
+import com.kasirkita.pos.core.database.entity.OnlineTransactionJournalEntity
 import com.kasirkita.pos.core.database.entity.ProductEntity
 import com.kasirkita.pos.core.database.entity.ProductModifierGroupEntity
 
@@ -21,18 +23,20 @@ import com.kasirkita.pos.core.database.entity.ProductModifierGroupEntity
     entities = [
         ProductEntity::class,
         OfflineTransactionEntity::class,
+        OnlineTransactionJournalEntity::class,
         CategoryEntity::class,
         ModifierGroupEntity::class,
         ModifierOptionEntity::class,
         ProductModifierGroupEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun productDao(): ProductDao
     abstract fun offlineTransactionDao(): OfflineTransactionDao
+    abstract fun onlineTransactionJournalDao(): OnlineTransactionJournalDao
     abstract fun categoryDao(): CategoryDao
     abstract fun modifierGroupDao(): ModifierGroupDao
     abstract fun modifierOptionDao(): ModifierOptionDao
@@ -175,6 +179,37 @@ abstract class AppDatabase : RoomDatabase() {
                     """
                     CREATE INDEX `index_product_modifier_groups_tenantId_modifierGroupId`
                     ON `product_modifier_groups` (`tenantId`, `modifierGroupId`)
+                    """.trimIndent(),
+                )
+            }
+        }
+
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `online_transaction_journal` (
+                        `tenantId` TEXT NOT NULL,
+                        `userId` TEXT NOT NULL,
+                        `outletId` TEXT NOT NULL,
+                        `clientTransactionId` TEXT NOT NULL,
+                        `requestType` TEXT NOT NULL,
+                        `requestJson` TEXT NOT NULL,
+                        `paymentMethod` TEXT NOT NULL,
+                        `state` TEXT NOT NULL,
+                        `serverTransactionId` TEXT,
+                        `lastError` TEXT,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`tenantId`, `userId`, `outletId`, `clientTransactionId`)
+                    )
+                    """.trimIndent(),
+                )
+                db.execSQL(
+                    """
+                    CREATE INDEX IF NOT EXISTS
+                    `index_online_transaction_journal_tenantId_userId_state`
+                    ON `online_transaction_journal` (`tenantId`, `userId`, `state`)
                     """.trimIndent(),
                 )
             }

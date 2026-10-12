@@ -17,12 +17,21 @@ class ReceiptNavigationTest {
     }
 
     @Test
-    fun receiptSuccessAction_startsNewTransactionFromProducts() {
+    fun checkoutSuccessAction_startsNewTransactionFromProductsWithoutReceipt() {
         val destination = newTransactionDestination()
 
         assertEquals(Screen.Products.route, destination.route)
         assertEquals(Screen.Home.route, destination.popUpToRoute)
         assertFalse(destination.popUpToInclusive)
+    }
+
+    @Test
+    fun checkoutSuccessActions_keepReceiptAndNewTransactionIndependent() {
+        val receipt = receiptDestination("transaction-id")
+        val newTransaction = newTransactionDestination()
+
+        assertTrue(receipt.route != newTransaction.route)
+        assertEquals(receipt.popUpToRoute, newTransaction.popUpToRoute)
     }
 
     @Test

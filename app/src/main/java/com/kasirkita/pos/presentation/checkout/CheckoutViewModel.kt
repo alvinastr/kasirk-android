@@ -3,20 +3,22 @@ package com.kasirkita.pos.presentation.checkout
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
+import com.kasirkita.pos.core.policy.HeldOrderPilotPolicy
 import com.kasirkita.pos.data.model.buildV1TransactionRequest
 import com.kasirkita.pos.domain.error.HeldOrderError
 import com.kasirkita.pos.domain.model.HeldOrderCheckoutRequest
-import com.kasirkita.pos.domain.model.OfflineFinancialSnapshot
+import com.kasirkita.pos.domain.model.OnlineTransactionJournalDraft
 import com.kasirkita.pos.domain.model.Transaction
 import com.kasirkita.pos.domain.model.V1Payment
 import com.kasirkita.pos.domain.repository.CartRepository
 import com.kasirkita.pos.domain.repository.HeldOrderRepository
 import com.kasirkita.pos.domain.repository.OutletRepository
+import com.kasirkita.pos.domain.repository.OnlineTransactionJournalRepository
 import com.kasirkita.pos.domain.repository.ShiftRepository
 import com.kasirkita.pos.domain.repository.TransactionRepository
 import com.kasirkita.pos.domain.usecase.GetReceiptUseCase
 import com.kasirkita.pos.domain.usecase.PrintAfterCheckoutUseCase
-import com.kasirkita.pos.domain.usecase.QueueOfflineTransactionUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -33,7 +35,6 @@ import javax.inject.Inject
 @HiltViewModel
 class CheckoutViewModel @Inject constructor(
     private val transactionRepository: TransactionRepository,
-    private val queueOfflineTransaction: QueueOfflineTransactionUseCase,
     private val cartRepository: CartRepository,
     private val heldOrderRepository: HeldOrderRepository,
     outletRepository: OutletRepository,
@@ -41,11 +42,15 @@ class CheckoutViewModel @Inject constructor(
     private val getReceiptUseCase: GetReceiptUseCase,
     private val printAfterCheckoutUseCase: PrintAfterCheckoutUseCase,
     savedStateHandle: SavedStateHandle,
+    private val gson: Gson,
+    private val onlineTransactionJournalRepository: OnlineTransactionJournalRepository,
+    private val heldOrderPilotPolicy: HeldOrderPilotPolicy,
 ) : ViewModel() {
 
     private val transactionIdentity = CheckoutTransactionIdentity(savedStateHandle)
     private val pendingHeldOrder = PendingHeldOrderCheckoutContext(savedStateHandle)
     private val conflictContext = HeldOrderCheckoutConflictContext(savedStateHandle)
+    private val recoveredAccountKeys = mutableSetOf<String>()
 
     private val _state = MutableStateFlow(
         CheckoutState(
@@ -69,12 +74,52 @@ class CheckoutViewModel @Inject constructor(
                     shiftRepository.currentShift,
             ) { cart, outlet, shift -> Triple(cart, outlet, shift) }
                 .collect { (cart, outlet, shift) ->
+                    val accountKey = if (outlet != null && shift != null) {
+                        "${outlet.tenantId}|${shift.userId}"
+                    } else {
+                        null
+                    }
+                    if (accountKey != null && recoveredAccountKeys.add(accountKey)) {
+                        onlineTransactionJournalRepository.recoverSubmittingForAccount(
+                            tenantId = outlet!!.tenantId,
+                            userId = shift!!.userId,
+                        )
+                    }
+                    val journalResult = if (outlet != null && shift != null) {
+                        onlineTransactionJournalRepository.getUnresolvedForAccount(
+                            tenantId = outlet.tenantId,
+                            userId = shift.userId,
+                        )
+                    } else {
+                        Result.success(null)
+                    }
+                    val unresolvedJournal = journalResult.getOrNull()
+                    val journalReadFailed = journalResult.isFailure
+                    val heldReconciliation = pendingHeldOrder.reconciliationNeeded
                     _state.update { current ->
                         current.copy(
                             cart = cart,
                             selectedOutlet = outlet,
                             currentShift = shift,
                             payment = current.payment.withTotal(cart.totalAmount()),
+                            reconciliationNeeded = heldReconciliation ||
+                                unresolvedJournal != null || journalReadFailed,
+                            reconciliationMessage = when {
+                                heldReconciliation -> RECONCILIATION_REQUIRED_MESSAGE
+                                unresolvedJournal != null -> onlineJournalMessage(
+                                    unresolvedJournal.clientTransactionId,
+                                )
+                                journalReadFailed -> JOURNAL_UNAVAILABLE_MESSAGE
+                                else -> null
+                            },
+                            errorMessage = when {
+                                heldReconciliation -> RECONCILIATION_REQUIRED_MESSAGE
+                                unresolvedJournal != null -> onlineJournalMessage(
+                                    unresolvedJournal.clientTransactionId,
+                                )
+                                journalReadFailed -> JOURNAL_UNAVAILABLE_MESSAGE
+                                else -> current.errorMessage
+                            },
                         )
                     }
                 }
@@ -82,6 +127,7 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun selectPaymentMethod(method: CheckoutPaymentMethod) {
+        if (_state.value.reconciliationNeeded && !cartRepository.isAttachedToHeldOrder()) return
         _state.update { current ->
             current.copy(
                 payment = when (method) {
@@ -95,6 +141,7 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun selectExactCash() {
+        if (_state.value.reconciliationNeeded && !cartRepository.isAttachedToHeldOrder()) return
         _state.update { current ->
             current.copy(
                 payment = current.payment.selectExactCash(),
@@ -104,6 +151,7 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun selectQuickTender(amount: Long) {
+        if (_state.value.reconciliationNeeded && !cartRepository.isAttachedToHeldOrder()) return
         _state.update { current ->
             current.copy(
                 payment = current.payment.selectTender(amount),
@@ -113,6 +161,7 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun enterManualCash(input: String) {
+        if (_state.value.reconciliationNeeded && !cartRepository.isAttachedToHeldOrder()) return
         _state.update { current ->
             current.copy(
                 payment = current.payment.enterManualCash(input),
@@ -132,6 +181,11 @@ class CheckoutViewModel @Inject constructor(
             return
         }
 
+        if (cartRepository.isAttachedToHeldOrder() && !heldOrderPilotPolicy.allowsCheckout()) {
+            _state.update { it.copy(errorMessage = HELD_ORDER_DISABLED_MESSAGE) }
+            return
+        }
+
         // M16G-S2: if an attached Held Order has an unresolved outcome,
         // any payment confirmation must route to the safe frozen retry.
         if (cartRepository.isAttachedToHeldOrder() && snapshot.reconciliationNeeded) {
@@ -140,6 +194,7 @@ class CheckoutViewModel @Inject constructor(
         }
 
         if (snapshot.reconciliationNeeded) {
+            retryOnlineCheckout()
             return
         }
 
@@ -182,6 +237,15 @@ class CheckoutViewModel @Inject constructor(
         val cashierSessionId = shift?.id ?: return
         val clientTransactionId = transactionIdentity.getOrCreate()
 
+        val v1Request = buildV1TransactionRequest(
+            clientTransactionId = clientTransactionId,
+            outletId = outletId,
+            cashierSessionId = cashierSessionId,
+            items = snapshot.cart.items,
+            payment = snapshot.payment.toPayment(),
+            customerId = null,
+            discount = null,
+        )
         // Mark submitting synchronously so a duplicate confirmPayment() before the
         // coroutine resumes is guarded by isLoading rather than launching twice.
         _state.update {
@@ -193,20 +257,58 @@ class CheckoutViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            val v1Request = buildV1TransactionRequest(
-                clientTransactionId = clientTransactionId,
-                outletId = outletId,
-                cashierSessionId = cashierSessionId,
-                items = snapshot.cart.items,
-                payment = snapshot.payment.toPayment(),
-                customerId = null,
-                discount = null,
-            )
+            val journal = onlineTransactionJournalRepository.prepare(
+                OnlineTransactionJournalDraft(
+                    tenantId = outlet?.tenantId ?: return@launch,
+                    userId = shift?.userId ?: return@launch,
+                    outletId = outletId,
+                    clientTransactionId = clientTransactionId,
+                    requestType = REQUEST_TYPE_V1,
+                    requestJson = gson.toJson(v1Request),
+                    paymentMethod = snapshot.payment.method.name,
+                ),
+            ).getOrElse { error ->
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        reconciliationNeeded = true,
+                        reconciliationMessage = JOURNAL_UNAVAILABLE_MESSAGE,
+                        errorMessage = JOURNAL_UNAVAILABLE_MESSAGE,
+                    )
+                }
+                return@launch
+            }
+            if (!onlineTransactionJournalRepository.markSubmitting(journal).getOrDefault(false)) {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        reconciliationNeeded = true,
+                        reconciliationMessage = onlineJournalMessage(clientTransactionId),
+                        errorMessage = onlineJournalMessage(clientTransactionId),
+                    )
+                }
+                return@launch
+            }
 
             val onlineResult = transactionRepository.createV1Transaction(v1Request)
 
             val transaction = onlineResult.getOrNull()
             if (transaction != null) {
+                val confirmed = onlineTransactionJournalRepository.markConfirmed(
+                    journal,
+                    transaction.id,
+                ).getOrDefault(false)
+                if (!confirmed) {
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            reconciliationNeeded = true,
+                            reconciliationMessage = JOURNAL_UNAVAILABLE_MESSAGE,
+                            errorMessage = JOURNAL_UNAVAILABLE_MESSAGE,
+                        )
+                    }
+                    return@launch
+                }
                 completeAuthoritativeOnlineCheckout(
                     transaction = transaction,
                     paymentMethod = snapshot.payment.method.name,
@@ -218,47 +320,35 @@ class CheckoutViewModel @Inject constructor(
 
             val throwable = onlineResult.exceptionOrNull()
             if (throwable !is IOException) {
+                val rejected = onlineTransactionJournalRepository.markRejected(
+                    journal,
+                    checkoutErrorMessage(throwable),
+                ).getOrDefault(false)
+                transactionIdentity.clear()
                 _state.update {
                     it.copy(
                         isLoading = false,
-                        errorMessage = checkoutErrorMessage(throwable),
+                        reconciliationNeeded = !rejected,
+                        reconciliationMessage = if (rejected) null else JOURNAL_UNAVAILABLE_MESSAGE,
+                        errorMessage = if (rejected) checkoutErrorMessage(throwable) else JOURNAL_UNAVAILABLE_MESSAGE,
                     )
                 }
                 return@launch
             }
 
-            queueOfflineTransaction(
-                request = v1Request,
-                financialSnapshot = OfflineFinancialSnapshot(
-                    subtotal = snapshot.cart.totalAmount(),
-                    discount = 0L,
-                    tax = 0L,
-                    total = snapshot.cart.totalAmount(),
-                    paymentAmount = snapshot.payment.amountReceived ?: snapshot.cart.totalAmount(),
-                ),
-            ).fold(
-                onSuccess = {
-                    cartRepository.clearCart()
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            offlineQueuedClientTransactionId = clientTransactionId,
-                            errorMessage = null,
-                        )
-                    }
-                },
-                onFailure = { storageError ->
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            errorMessage = buildString {
-                                append("Koneksi gagal dan transaksi tidak dapat disimpan offline")
-                                storageError.message?.let { message -> append(": $message") }
-                            },
-                        )
-                    }
-                },
+            onlineTransactionJournalRepository.markUncertain(
+                journal,
+                throwable.message ?: "Network outcome is unknown",
             )
+
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    reconciliationNeeded = true,
+                    reconciliationMessage = onlineJournalMessage(clientTransactionId),
+                    errorMessage = onlineJournalMessage(clientTransactionId),
+                )
+            }
         }
     }
 
@@ -395,6 +485,12 @@ class CheckoutViewModel @Inject constructor(
     fun leaveHeldOrderConflict() {
         val snapshot = _state.value
         if (snapshot.reconciliationNeeded || snapshot.heldOrderCheckoutSubmitting) {
+            if (snapshot.reconciliationNeeded && !cartRepository.isAttachedToHeldOrder()) {
+                _state.update {
+                    it.copy(errorMessage = RECONCILIATION_REQUIRED_MESSAGE)
+                }
+                return
+            }
             _state.update { it.copy(showUnresolvedReconciliationLeaveConfirmation = true) }
             return
         }
@@ -406,7 +502,9 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun acknowledgeAndLeaveUnresolvedReconciliation() {
-        pendingHeldOrder.clear()
+        if (cartRepository.isAttachedToHeldOrder()) {
+            pendingHeldOrder.clear()
+        }
         clearHeldOrderCheckoutContext()
     }
 
@@ -429,6 +527,10 @@ class CheckoutViewModel @Inject constructor(
     }
 
     fun retryHeldOrderCheckout() {
+        if (!heldOrderPilotPolicy.allowsCheckout()) {
+            _state.update { it.copy(errorMessage = HELD_ORDER_DISABLED_MESSAGE) }
+            return
+        }
         val snapshot = _state.value
         if (snapshot.isLoading || !pendingHeldOrder.reconciliationNeeded) {
             return
@@ -539,6 +641,124 @@ class CheckoutViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Replays an ordinary online checkout after an unknown transport outcome.
+     * The exact request persisted before the first network call is reused; no
+     * queue row is created and no new client transaction ID is minted.
+     */
+    fun retryOnlineCheckout() {
+        val snapshot = _state.value
+        if (snapshot.isLoading || !snapshot.reconciliationNeeded) return
+
+        viewModelScope.launch {
+            val outlet = snapshot.selectedOutlet
+            val shift = snapshot.currentShift
+            val journal = if (outlet != null && shift != null) {
+                onlineTransactionJournalRepository.getUnresolvedForAccount(
+                    tenantId = outlet.tenantId,
+                    userId = shift.userId,
+                ).getOrNull()
+            } else {
+                null
+            }
+            if (journal == null || journal.requestType != REQUEST_TYPE_V1) {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        reconciliationNeeded = true,
+                        errorMessage = JOURNAL_UNAVAILABLE_MESSAGE,
+                    )
+                }
+                return@launch
+            }
+            val request = runCatching {
+                gson.fromJson(
+                    journal.requestJson,
+                    com.kasirkita.pos.domain.model.V1TransactionRequest::class.java,
+                )
+            }.getOrNull()
+            if (request == null || request.clientTransactionId != journal.clientTransactionId) {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        reconciliationNeeded = true,
+                        errorMessage = JOURNAL_UNAVAILABLE_MESSAGE,
+                    )
+                }
+                return@launch
+            }
+            if (!onlineTransactionJournalRepository.markSubmitting(journal).getOrDefault(false)) {
+                _state.update {
+                    it.copy(
+                        isLoading = false,
+                        reconciliationNeeded = true,
+                        errorMessage = onlineJournalMessage(journal.clientTransactionId),
+                    )
+                }
+                return@launch
+            }
+            _state.update { it.copy(isLoading = true, errorMessage = null) }
+
+            val result = transactionRepository.createV1Transaction(request)
+            val transaction = result.getOrNull()
+            if (transaction != null) {
+                if (!onlineTransactionJournalRepository.markConfirmed(journal, transaction.id)
+                        .getOrDefault(false)
+                ) {
+                    _state.update {
+                        it.copy(
+                            isLoading = false,
+                            reconciliationNeeded = true,
+                            errorMessage = JOURNAL_UNAVAILABLE_MESSAGE,
+                        )
+                    }
+                    return@launch
+                }
+                completeAuthoritativeOnlineCheckout(
+                    transaction = transaction,
+                    paymentMethod = request.payment.method,
+                    runAutomaticPhysicalEffects = true,
+                    receiptFailureWarning = null,
+                )
+                return@launch
+            }
+
+            val throwable = result.exceptionOrNull()
+            if (throwable is IOException) {
+                onlineTransactionJournalRepository.markUncertain(
+                    journal,
+                    throwable.message ?: "Network outcome is unknown",
+                )
+            } else {
+                onlineTransactionJournalRepository.markRejected(
+                    journal,
+                    checkoutErrorMessage(throwable),
+                )
+                transactionIdentity.clear()
+            }
+            _state.update {
+                it.copy(
+                    isLoading = false,
+                    reconciliationNeeded = throwable is IOException,
+                    reconciliationMessage = if (throwable is IOException) {
+                        onlineJournalMessage(journal.clientTransactionId)
+                    } else null,
+                    errorMessage = if (throwable is IOException) {
+                        onlineJournalMessage(journal.clientTransactionId)
+                    } else checkoutErrorMessage(throwable),
+                )
+            }
+        }
+    }
+
+    fun retryPayment() {
+        if (cartRepository.isAttachedToHeldOrder()) {
+            retryHeldOrderCheckout()
+        } else {
+            retryOnlineCheckout()
+        }
+    }
+
     private suspend fun completeHeldOrderCheckoutSuccess(
         transaction: Transaction,
         replayed: Boolean,
@@ -563,6 +783,9 @@ class CheckoutViewModel @Inject constructor(
         receiptFailureWarning: String?,
         heldOrderReplayed: Boolean? = null,
     ) {
+        if (heldOrderReplayed == null) {
+            transactionIdentity.clear()
+        }
         cartRepository.clearCart()
 
         if (!runAutomaticPhysicalEffects) {
@@ -656,6 +879,14 @@ class CheckoutViewModel @Inject constructor(
         const val OPEN_STATUS = "OPEN"
         const val RECONCILIATION_REQUIRED_MESSAGE =
             "Status pembayaran belum dapat dipastikan karena kendala koneksi. Silakan lakukan konfirmasi ulang."
+        const val JOURNAL_UNAVAILABLE_MESSAGE =
+            "Jurnal transaksi belum tersimpan atau tidak dapat dibaca. Transaksi diblokir; periksa perangkat sebelum melanjutkan."
+        const val HELD_ORDER_DISABLED_MESSAGE =
+            "Checkout order tersimpan dinonaktifkan untuk pilot ini."
+        const val REQUEST_TYPE_V1 = "V1_TRANSACTION"
+
+        fun onlineJournalMessage(clientTransactionId: String): String =
+            "Status transaksi belum dapat dipastikan. Jangan kirim ulang dengan ID baru. Periksa riwayat server menggunakan ID klien $clientTransactionId sebelum melanjutkan."
     }
 }
 

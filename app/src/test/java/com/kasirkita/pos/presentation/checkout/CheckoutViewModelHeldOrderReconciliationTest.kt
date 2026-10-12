@@ -1,6 +1,8 @@
 package com.kasirkita.pos.presentation.checkout
 
 import androidx.lifecycle.SavedStateHandle
+import com.kasirkita.pos.core.policy.HeldOrderPilotPolicy
+import com.google.gson.Gson
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.domain.error.HeldOrderError
 import com.kasirkita.pos.domain.model.CartItem
@@ -76,6 +78,7 @@ class CheckoutViewModelHeldOrderReconciliationTest {
     private val heldOrders = RecordingHeldOrderRepository()
     private val receipts = RecordingReceiptRepository()
     private val printUseCase = RecordingPrintAfterCheckoutUseCase()
+    private val journal = FakeOnlineTransactionJournalRepository()
 
     private val outlet = Outlet("outlet-1", "tenant-1", "Main", null, true, "now")
     private val shift = Shift("session-1", outlet.id, "cashier-1", null, null, null, null, "OPEN", "now", null)
@@ -124,7 +127,6 @@ class CheckoutViewModelHeldOrderReconciliationTest {
     private fun viewModel(handle: SavedStateHandle = freshHandle()): CheckoutViewModel =
         CheckoutViewModel(
             transactionRepository = transactions,
-            queueOfflineTransaction = QueueOfflineTransactionUseCase(offlineQueue),
             cartRepository = cart,
             heldOrderRepository = heldOrders,
             outletRepository = FakeOutlet(outlet),
@@ -132,6 +134,9 @@ class CheckoutViewModelHeldOrderReconciliationTest {
             getReceiptUseCase = GetReceiptUseCase(receipts),
             printAfterCheckoutUseCase = printUseCase,
             savedStateHandle = handle,
+            gson = Gson(),
+            onlineTransactionJournalRepository = journal,
+            heldOrderPilotPolicy = HeldOrderPilotPolicy { true },
         )
 
     private fun canonicalTransaction(
@@ -825,7 +830,7 @@ class CheckoutViewModelHeldOrderReconciliationTest {
     }
 
     @Test
-    fun normalCheckoutOfflineFallback_isUnchangedByPendingHeldOrderState() = runTest(dispatcher) {
+    fun normalCheckoutNetworkFailure_requiresReconciliationWithoutOfflineQueue() = runTest(dispatcher) {
         val product = Product(
             id = "prod-1",
             tenantId = "tenant-1",
@@ -851,10 +856,10 @@ class CheckoutViewModelHeldOrderReconciliationTest {
         advanceUntilIdle()
 
         assertEquals(1, transactions.createV1Calls.size)
-        assertEquals(1, offlineQueue.queueCalls.size)
+        assertEquals(0, offlineQueue.queueCalls.size)
         assertEquals(0, heldOrders.checkoutCalls.size)
-        assertEquals(clientTxId, vm.state.value.offlineQueuedClientTransactionId)
-        assertFalse(vm.state.value.reconciliationNeeded)
+        assertTrue(vm.state.value.reconciliationNeeded)
+        assertTrue(cart.getCart().value.items.isNotEmpty())
     }
 
 

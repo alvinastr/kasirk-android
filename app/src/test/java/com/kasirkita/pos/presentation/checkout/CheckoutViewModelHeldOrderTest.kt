@@ -1,6 +1,8 @@
 package com.kasirkita.pos.presentation.checkout
 
 import androidx.lifecycle.SavedStateHandle
+import com.kasirkita.pos.core.policy.HeldOrderPilotPolicy
+import com.google.gson.Gson
 import com.kasirkita.pos.data.repository.CartRepositoryImpl
 import com.kasirkita.pos.domain.error.HeldOrderError
 import com.kasirkita.pos.domain.model.*
@@ -37,6 +39,7 @@ class CheckoutViewModelHeldOrderTest {
     private val heldOrders = RecordingHeldOrderRepository()
     private val receipts = RecordingReceiptRepository()
     private val printUseCase = RecordingPrintAfterCheckoutUseCase()
+    private val journal = FakeOnlineTransactionJournalRepository()
     private val defaultOutlet = Outlet("outlet-1", "tenant-1", "Main", null, true, "now")
     private val defaultShift = Shift("session-1", defaultOutlet.id, "cashier-1", null, null, null, null, "OPEN", "now", null)
 
@@ -75,6 +78,7 @@ class CheckoutViewModelHeldOrderTest {
         savedClientTransactionId: String? = "saved-client-tx-1",
         outlet: Outlet? = defaultOutlet,
         shift: Shift? = defaultShift,
+        heldOrderCheckoutEnabled: Boolean = true,
     ): CheckoutViewModel {
         val handle = if (savedClientTransactionId != null) {
             SavedStateHandle(mapOf(CheckoutTransactionIdentity.KEY to savedClientTransactionId))
@@ -83,7 +87,6 @@ class CheckoutViewModelHeldOrderTest {
         }
         return CheckoutViewModel(
             transactionRepository = transactions,
-            queueOfflineTransaction = QueueOfflineTransactionUseCase(offlineQueue),
             cartRepository = cart,
             heldOrderRepository = heldOrders,
             outletRepository = FakeOutlet(outlet),
@@ -91,6 +94,9 @@ class CheckoutViewModelHeldOrderTest {
             getReceiptUseCase = GetReceiptUseCase(receipts),
             printAfterCheckoutUseCase = printUseCase,
             savedStateHandle = handle,
+            gson = Gson(),
+            onlineTransactionJournalRepository = journal,
+            heldOrderPilotPolicy = HeldOrderPilotPolicy { heldOrderCheckoutEnabled },
         )
     }
 
@@ -454,6 +460,22 @@ class CheckoutViewModelHeldOrderTest {
         assertNotNull(vm.state.value.transaction)
     }
 
+    @Test
+    fun pilotGate_blocksHeldOrderCheckoutExecution() = runTest(dispatcher) {
+        seedCart(price = 20_000)
+        cart.attachHeldOrderIdentity(heldOrderId = "held-1", expectedVersion = 1, label = null)
+
+        val vm = createViewModel(heldOrderCheckoutEnabled = false)
+        runCurrent()
+        vm.selectPaymentMethod(CheckoutPaymentMethod.CASH)
+        vm.selectQuickTender(20_000)
+        vm.confirmPayment()
+        runCurrent()
+
+        assertTrue(heldOrders.checkoutCalls.isEmpty())
+        assertEquals("Checkout order tersimpan dinonaktifkan untuk pilot ini.", vm.state.value.errorMessage)
+    }
+
     // 13. Normal checkout regression: existing normal online/offline/print/drawer behavior unchanged
     @Test
     fun normalCheckoutRegression_preservesOnlinePrintAndDrawerBehavior() = runTest(dispatcher) {
@@ -484,7 +506,7 @@ class CheckoutViewModelHeldOrderTest {
     }
 
     @Test
-    fun normalCheckoutRegression_preservesOfflineQueueFallbackOnIoException() = runTest(dispatcher) {
+    fun normalCheckoutRegression_requiresReconciliationOnIoException() = runTest(dispatcher) {
         seedCart(price = 20_000)
         transactions.result = Result.failure(IOException("Server unreachable"))
 
@@ -496,12 +518,12 @@ class CheckoutViewModelHeldOrderTest {
         vm.confirmPayment()
         advanceUntilIdle()
 
-        // Routed to offline queue, not HeldOrderRepository
+        // No offline fallback; the outcome remains explicitly unresolved.
         assertEquals(1, transactions.createV1Calls.size)
         assertEquals(0, heldOrders.checkoutCalls.size)
-        assertEquals(1, offlineQueue.queueCalls.size)
-        assertEquals("saved-client-tx-1", vm.state.value.offlineQueuedClientTransactionId)
-        assertTrue(cart.getCart().value.items.isEmpty())
+        assertEquals(0, offlineQueue.queueCalls.size)
+        assertTrue(vm.state.value.reconciliationNeeded)
+        assertTrue(cart.getCart().value.items.isNotEmpty())
     }
 
     private fun serverTxId(id: String) = id
